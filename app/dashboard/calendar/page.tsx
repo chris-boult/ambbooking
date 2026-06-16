@@ -8,10 +8,12 @@ type Booking = {
   booking_date: string
   booking_time: string
   status: string
-  customers: {
-    first_name: string
-    last_name: string | null
-  } | null
+  customers:
+  | {
+      first_name: string
+      last_name: string | null
+    }[]
+  | null
   services: {
     name: string
     price: number
@@ -162,8 +164,8 @@ export default function CalendarPage() {
                 </p>
 
                 <h3 className="text-xl font-bold">
-                  {booking.customers?.first_name}{' '}
-                  {booking.customers?.last_name}
+                  {booking.customers?.[0]?.first_name}{' '}
+                  {booking.customers?.[0]?.last_name}
                 </h3>
 
                 <p className="text-slate-400">

@@ -1,7 +1,5 @@
 'use client'
 
-'use client'
-
 import { useEffect, useState } from 'react'
 import { supabase } from '@/lib/supabase'
 
@@ -18,6 +16,17 @@ import {
 } from 'chart.js'
 
 import { Line, Bar } from 'react-chartjs-2'
+
+ChartJS.register(
+  CategoryScale,
+  LinearScale,
+  PointElement,
+  LineElement,
+  BarElement,
+  Title,
+  Tooltip,
+  Legend
+)
 
 type Booking = {
   id: string
@@ -42,60 +51,16 @@ type LeaderboardItem = {
   bookings: number
   revenue: number
 }
-ChartJS.register(
-  CategoryScale,
-  LinearScale,
-  PointElement,
-  LineElement,
-  BarElement,
-  Title,
-  Tooltip,
-  Legend
-)
 
 export default function ReportsPage() {
   const [bookings, setBookings] = useState<Booking[]>([])
+  const [allBookings, setAllBookings] = useState<Booking[]>([])
   const [loading, setLoading] = useState(true)
 
   useEffect(() => {
     loadReports()
   }, [])
 
-  function buildLast30DaysChart(bookings: Booking[]) {
-  const days = Array.from({ length: 30 }, (_, index) => {
-    const date = new Date()
-    date.setDate(date.getDate() - (29 - index))
-
-    const value = date.toISOString().split('T')[0]
-
-    return {
-      value,
-      label: date.toLocaleDateString('en-GB', {
-        day: 'numeric',
-        month: 'short',
-      }),
-    }
-  })
-
-  const revenueData = days.map((day) => {
-    return bookings
-      .filter((booking) => booking.booking_date === day.value)
-      .reduce((total, booking) => {
-        return total + Number(booking.services?.price || 0)
-      }, 0)
-  })
-
-  const bookingData = days.map((day) => {
-    return bookings.filter((booking) => booking.booking_date === day.value)
-      .length
-  })
-
-  return {
-    labels: days.map((day) => day.label),
-    revenueData,
-    bookingData,
-  }
-}
   async function loadReports() {
     const { data: userData } = await supabase.auth.getUser()
     if (!userData.user) return
@@ -120,10 +85,13 @@ export default function ReportsPage() {
         customers(first_name,last_name)
       `)
       .eq('business_id', business.id)
-      .neq('status', 'cancelled')
       .order('booking_date', { ascending: false })
 
-    setBookings((data as Booking[]) || [])
+    const all = (data as Booking[]) || []
+    const active = all.filter((booking) => booking.status !== 'cancelled')
+
+    setAllBookings(all)
+    setBookings(active)
     setLoading(false)
   }
 
@@ -164,6 +132,34 @@ export default function ReportsPage() {
   const revenueThisMonth = revenueFrom(monthStart)
   const revenueThisYear = revenueFrom(yearStart)
 
+  const totalBookings = bookings.length
+
+  const totalCustomers = new Set(
+    allBookings
+      .map((booking) => {
+        const first = booking.customers?.first_name || ''
+        const last = booking.customers?.last_name || ''
+        return `${first} ${last}`.trim()
+      })
+      .filter(Boolean)
+  ).size
+
+  const totalRevenue = bookings.reduce((total, booking) => {
+    return total + Number(booking.services?.price || 0)
+  }, 0)
+
+  const averageBookingValue =
+    totalBookings > 0 ? Math.round(totalRevenue / totalBookings) : 0
+
+  const cancelledBookings = allBookings.filter(
+    (booking) => booking.status === 'cancelled'
+  ).length
+
+  const cancellationRate =
+    allBookings.length > 0
+      ? Math.round((cancelledBookings / allBookings.length) * 100)
+      : 0
+
   const topServices = buildLeaderboard(
     bookings,
     (booking) => booking.services?.name || 'Unknown service'
@@ -174,29 +170,34 @@ export default function ReportsPage() {
     (booking) => booking.team_members?.full_name || 'Unknown team member'
   )
 
+  const mostPopularService = topServices[0]?.name || 'No data'
+  const bestTeamMember = topTeamMembers[0]?.name || 'No data'
+  const busiestDay = getBusiestDay(bookings)
+  const busiestHour = getBusiestHour(bookings)
+
   const recentRevenue = bookings.slice(0, 8)
 
   const chartData = buildLast30DaysChart(bookings)
 
-const revenueChartData = {
-  labels: chartData.labels,
-  datasets: [
-    {
-      label: 'Revenue',
-      data: chartData.revenueData,
-    },
-  ],
-}
+  const revenueChartData = {
+    labels: chartData.labels,
+    datasets: [
+      {
+        label: 'Revenue',
+        data: chartData.revenueData,
+      },
+    ],
+  }
 
-const bookingsChartData = {
-  labels: chartData.labels,
-  datasets: [
-    {
-      label: 'Bookings',
-      data: chartData.bookingData,
-    },
-  ],
-}
+  const bookingsChartData = {
+    labels: chartData.labels,
+    datasets: [
+      {
+        label: 'Bookings',
+        data: chartData.bookingData,
+      },
+    ],
+  }
 
   if (loading) {
     return <div className="text-white">Loading reports...</div>
@@ -208,7 +209,7 @@ const bookingsChartData = {
         <p className="text-slate-400 mb-2">Reports</p>
         <h1 className="text-4xl font-bold mb-2">Revenue reporting</h1>
         <p className="text-slate-500">
-          Track revenue, top services and team performance.
+          Track revenue, top services, team performance and customer trends.
         </p>
       </div>
 
@@ -219,17 +220,31 @@ const bookingsChartData = {
         <StatCard label="This year" value={`£${revenueThisYear}`} />
       </div>
 
-<div className="grid xl:grid-cols-2 gap-8 mb-8">
-  <section className="bg-slate-900 border border-slate-800 rounded-2xl p-6">
-    <h2 className="text-2xl font-bold mb-6">Revenue last 30 days</h2>
-    <Line data={revenueChartData} />
-  </section>
+      <div className="grid grid-cols-1 md:grid-cols-4 gap-6 mb-10">
+        <StatCard label="Total customers" value={totalCustomers} />
+        <StatCard label="Avg booking value" value={`£${averageBookingValue}`} />
+        <StatCard label="Total bookings" value={totalBookings} />
+        <StatCard label="Cancellation rate" value={`${cancellationRate}%`} />
+      </div>
 
-  <section className="bg-slate-900 border border-slate-800 rounded-2xl p-6">
-    <h2 className="text-2xl font-bold mb-6">Bookings last 30 days</h2>
-    <Bar data={bookingsChartData} />
-  </section>
-</div>
+      <div className="grid grid-cols-1 md:grid-cols-4 gap-6 mb-10">
+        <InsightCard label="Most popular service" value={mostPopularService} />
+        <InsightCard label="Best team member" value={bestTeamMember} />
+        <InsightCard label="Busiest day" value={busiestDay} />
+        <InsightCard label="Busiest hour" value={busiestHour} />
+      </div>
+
+      <div className="grid xl:grid-cols-2 gap-8 mb-8">
+        <section className="bg-slate-900 border border-slate-800 rounded-2xl p-6">
+          <h2 className="text-2xl font-bold mb-6">Revenue last 30 days</h2>
+          <Line data={revenueChartData} />
+        </section>
+
+        <section className="bg-slate-900 border border-slate-800 rounded-2xl p-6">
+          <h2 className="text-2xl font-bold mb-6">Bookings last 30 days</h2>
+          <Bar data={bookingsChartData} />
+        </section>
+      </div>
 
       <div className="grid xl:grid-cols-2 gap-8 mb-8">
         <Leaderboard title="Top services" items={topServices} />
@@ -283,6 +298,42 @@ const bookingsChartData = {
   )
 }
 
+function buildLast30DaysChart(bookings: Booking[]) {
+  const days = Array.from({ length: 30 }, (_, index) => {
+    const date = new Date()
+    date.setDate(date.getDate() - (29 - index))
+
+    const value = date.toISOString().split('T')[0]
+
+    return {
+      value,
+      label: date.toLocaleDateString('en-GB', {
+        day: 'numeric',
+        month: 'short',
+      }),
+    }
+  })
+
+  const revenueData = days.map((day) => {
+    return bookings
+      .filter((booking) => booking.booking_date === day.value)
+      .reduce((total, booking) => {
+        return total + Number(booking.services?.price || 0)
+      }, 0)
+  })
+
+  const bookingData = days.map((day) => {
+    return bookings.filter((booking) => booking.booking_date === day.value)
+      .length
+  })
+
+  return {
+    labels: days.map((day) => day.label),
+    revenueData,
+    bookingData,
+  }
+}
+
 function buildLeaderboard(
   bookings: Booking[],
   getName: (booking: Booking) => string
@@ -310,6 +361,34 @@ function buildLeaderboard(
   return Array.from(map.values()).sort((a, b) => b.revenue - a.revenue)
 }
 
+function getBusiestDay(bookings: Booking[]) {
+  const days = new Map<string, number>()
+
+  bookings.forEach((booking) => {
+    const day = new Date(booking.booking_date).toLocaleDateString('en-GB', {
+      weekday: 'long',
+    })
+
+    days.set(day, (days.get(day) || 0) + 1)
+  })
+
+  return [...days.entries()].sort((a, b) => b[1] - a[1])[0]?.[0] || 'No data'
+}
+
+function getBusiestHour(bookings: Booking[]) {
+  const hours = new Map<string, number>()
+
+  bookings.forEach((booking) => {
+    const hour = booking.booking_time?.slice(0, 2)
+    if (!hour) return
+
+    const label = `${hour}:00`
+    hours.set(label, (hours.get(label) || 0) + 1)
+  })
+
+  return [...hours.entries()].sort((a, b) => b[1] - a[1])[0]?.[0] || 'No data'
+}
+
 function StatCard({
   label,
   value,
@@ -321,6 +400,21 @@ function StatCard({
     <div className="bg-slate-900 border border-slate-800 rounded-2xl p-6">
       <p className="text-slate-400 mb-2">{label}</p>
       <h2 className="text-3xl font-bold">{value}</h2>
+    </div>
+  )
+}
+
+function InsightCard({
+  label,
+  value,
+}: {
+  label: string
+  value: number | string
+}) {
+  return (
+    <div className="bg-slate-900 border border-slate-800 rounded-2xl p-6">
+      <p className="text-slate-400 mb-2">{label}</p>
+      <h2 className="text-xl font-bold">{value}</h2>
     </div>
   )
 }
