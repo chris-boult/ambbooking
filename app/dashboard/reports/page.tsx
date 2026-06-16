@@ -87,7 +87,7 @@ export default function ReportsPage() {
       .eq('business_id', business.id)
       .order('booking_date', { ascending: false })
 
-    const all = (data as Booking[]) || []
+    const all = (data as unknown as Booking[]) || []
     const active = all.filter((booking) => booking.status !== 'cancelled')
 
     setAllBookings(all)
