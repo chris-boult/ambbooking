@@ -8,6 +8,8 @@ type Service = {
   name: string
   price: number
   duration_minutes: number
+  payment_type?: string | null
+  deposit_amount?: number | null
 }
 
 type TeamMember = {
@@ -54,6 +56,14 @@ export default function BookingForm({
 
   const [message, setMessage] = useState('')
   const [success, setSuccess] = useState(false)
+  const [isSubmitting, setIsSubmitting] = useState(false)
+
+  const selectedServiceDetails =
+    services.find((service) => service.id === selectedService) || null
+
+  const paymentType = selectedServiceDetails?.payment_type || 'none'
+  const depositAmount = Number(selectedServiceDetails?.deposit_amount || 0)
+  const servicePrice = Number(selectedServiceDetails?.price || 0)
 
   const dateOptions = useMemo(() => {
     return Array.from({ length: 14 }, (_, index) => {
@@ -168,6 +178,7 @@ export default function BookingForm({
 
   async function createBooking() {
     setMessage('')
+    setIsSubmitting(true)
 
     if (
       !selectedService ||
@@ -178,12 +189,14 @@ export default function BookingForm({
       !email
     ) {
       setMessage('Please complete all required fields.')
+      setIsSubmitting(false)
       return
     }
 
     if (isTimeOff) {
       setMessage('This team member is unavailable on this date.')
       setSelectedTime('')
+      setIsSubmitting(false)
       return
     }
 
@@ -192,6 +205,7 @@ export default function BookingForm({
         'Sorry, that time has just been booked. Please choose another slot.'
       )
       setSelectedTime('')
+      setIsSubmitting(false)
       return
     }
 
@@ -219,24 +233,61 @@ export default function BookingForm({
 
       if (customerError) {
         setMessage(customerError.message)
+        setIsSubmitting(false)
         return
       }
 
       customerId = newCustomer.id
     }
 
-    const { error: bookingError } = await supabase.from('bookings').insert({
-      business_id: businessId,
-      customer_id: customerId,
-      service_id: selectedService,
-      team_member_id: selectedTeamMember,
-      booking_date: selectedDate,
-      booking_time: selectedTime,
-      status: 'confirmed',
+    const service = services.find((item) => item.id === selectedService)
+    const teamMember = teamMembers.find((item) => item.id === selectedTeamMember)
+
+    const { data: bookingData, error: bookingError } = await supabase
+      .from('bookings')
+      .insert({
+        business_id: businessId,
+        customer_id: customerId,
+        service_id: selectedService,
+        team_member_id: selectedTeamMember,
+        booking_date: selectedDate,
+        booking_time: selectedTime,
+        status: 'confirmed',
+        payment_status: 'unpaid',
+        amount_paid: 0,
+        amount_due: service?.price || 0,
+      })
+      .select('id')
+      .single()
+
+    if (bookingError || !bookingData) {
+      setMessage(bookingError?.message || 'Could not create booking.')
+      setIsSubmitting(false)
+      return
+    }
+
+    const bookingId = bookingData.id
+
+    const checkoutResponse = await fetch('/api/create-checkout-session', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        bookingId,
+      }),
     })
 
-    if (bookingError) {
-      setMessage(bookingError.message)
+    const checkoutData = await checkoutResponse.json()
+
+    if (!checkoutResponse.ok || !checkoutData.success) {
+      setMessage(checkoutData.error || 'Could not start payment.')
+      setIsSubmitting(false)
+      return
+    }
+
+    if (checkoutData.requiresPayment && checkoutData.checkoutUrl) {
+      window.location.href = checkoutData.checkoutUrl
       return
     }
 
@@ -250,15 +301,13 @@ export default function BookingForm({
         customerEmail: email,
         bookingDate: formattedDate,
         bookingTime: selectedTime,
-        serviceName:
-          services.find((service) => service.id === selectedService)?.name || '',
-        teamMemberName:
-          teamMembers.find((member) => member.id === selectedTeamMember)
-            ?.full_name || '',
+        serviceName: service?.name || '',
+        teamMemberName: teamMember?.full_name || '',
       }),
     })
 
     setSuccess(true)
+    setIsSubmitting(false)
   }
 
   if (success) {
@@ -284,7 +333,10 @@ export default function BookingForm({
       <div className="space-y-5">
         <select
           value={selectedService}
-          onChange={(e) => setSelectedService(e.target.value)}
+          onChange={(e) => {
+            setSelectedService(e.target.value)
+            setMessage('')
+          }}
           className="w-full p-3 rounded-lg bg-slate-800 border border-slate-700"
         >
           <option value="">Select service</option>
@@ -295,6 +347,33 @@ export default function BookingForm({
             </option>
           ))}
         </select>
+
+        {selectedServiceDetails && (
+          <div className="border border-slate-800 rounded-xl p-4 text-sm text-slate-300">
+            {paymentType === 'full' && (
+              <p>
+                Full payment required online: <strong>£{servicePrice}</strong>
+              </p>
+            )}
+
+            {paymentType === 'deposit' && (
+              <p>
+                Deposit required online: <strong>£{depositAmount}</strong>. Remaining balance:{' '}
+                <strong>£{Math.max(servicePrice - depositAmount, 0)}</strong>
+              </p>
+            )}
+
+            {paymentType === 'card_hold' && (
+              <p>
+                Card hold selected for this service. Card hold support will be enabled shortly.
+              </p>
+            )}
+
+            {(paymentType === 'none' || !paymentType) && (
+              <p>No online payment is required for this service.</p>
+            )}
+          </div>
+        )}
 
         <select
           value={selectedTeamMember}
@@ -442,9 +521,16 @@ export default function BookingForm({
         <button
           type="button"
           onClick={createBooking}
-          className="w-full bg-white text-slate-950 font-bold p-4 rounded-xl"
+          disabled={isSubmitting}
+          className="w-full bg-white text-slate-950 font-bold p-4 rounded-xl disabled:opacity-60"
         >
-          Book appointment
+          {isSubmitting
+            ? 'Processing...'
+            : paymentType === 'full'
+              ? 'Continue to payment'
+              : paymentType === 'deposit'
+                ? 'Pay deposit and book'
+                : 'Book appointment'}
         </button>
 
         {message && <p className="text-slate-300">{message}</p>}
