@@ -9,18 +9,22 @@ type Booking = {
   booking_time: string
   status: string
   customers:
-  | {
-      first_name: string
-      last_name: string | null
-    }[]
-  | null
-  services: {
-    name: string
-    price: number
-  } | null
-  team_members: {
-    full_name: string
-  } | null
+    | {
+        first_name: string
+        last_name: string | null
+      }[]
+    | null
+  services:
+    | {
+        name: string
+        price: number
+      }[]
+    | null
+  team_members:
+    | {
+        full_name: string
+      }[]
+    | null
 }
 
 export default function CalendarPage() {
@@ -61,7 +65,7 @@ export default function CalendarPage() {
       .order('booking_date', { ascending: true })
       .order('booking_time', { ascending: true })
 
-    setBookings((data as Booking[]) || [])
+    setBookings((data as unknown as Booking[]) || [])
   }
 
   const dateOptions = useMemo(() => {
@@ -89,7 +93,7 @@ export default function CalendarPage() {
   )
 
   const revenueForSelectedDay = selectedBookings.reduce((total, booking) => {
-    return total + Number(booking.services?.price || 0)
+    return total + Number(booking.services?.[0]?.price || 0)
   }, 0)
 
   const formattedSelectedDate = new Date(selectedDate).toLocaleDateString(
@@ -169,14 +173,14 @@ export default function CalendarPage() {
                 </h3>
 
                 <p className="text-slate-400">
-                  {booking.services?.name} with{' '}
-                  {booking.team_members?.full_name}
+                  {booking.services?.[0]?.name} with{' '}
+                  {booking.team_members?.[0]?.full_name}
                 </p>
               </div>
 
               <div className="text-right">
                 <p className="font-bold">
-                  £{booking.services?.price || 0}
+                  £{booking.services?.[0]?.price || 0}
                 </p>
 
                 <p className="text-sm text-emerald-400">
