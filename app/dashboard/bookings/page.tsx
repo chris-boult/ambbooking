@@ -8,10 +8,12 @@ type Booking = {
   booking_date: string
   booking_time: string
   status: string
+  team_member_id: string
   customers:
     | {
         first_name: string
         last_name: string | null
+        email: string | null
       }[]
     | null
   services:
@@ -149,10 +151,10 @@ export default function BookingsPage() {
         'Content-Type': 'application/json',
       },
       body: JSON.stringify({
-        customerName: `${booking.customers?.first_name || ''} ${
-          booking.customers?.last_name || ''
+        customerName: `${booking.customers?.[0]?.first_name || ''} ${
+          booking.customers?.[0]?.last_name || ''
         }`,
-        customerEmail: booking.customers?.email || '',
+        customerEmail: booking.customers?.[0]?.email || '',
         bookingDate: new Date(booking.booking_date).toLocaleDateString('en-GB', {
           weekday: 'short',
           day: 'numeric',
@@ -216,10 +218,10 @@ export default function BookingsPage() {
         'Content-Type': 'application/json',
       },
       body: JSON.stringify({
-        customerName: `${rescheduleBooking.customers?.first_name || ''} ${
-          rescheduleBooking.customers?.last_name || ''
+        customerName: `${rescheduleBooking.customers?.[0]?.first_name || ''} ${
+          rescheduleBooking.customers?.[0]?.last_name || ''
         }`,
-        customerEmail: rescheduleBooking.customers?.email || '',
+        customerEmail: rescheduleBooking.customers?.[0]?.email || '',
         bookingDate: new Date(newDate).toLocaleDateString('en-GB', {
           weekday: 'short',
           day: 'numeric',
@@ -333,8 +335,8 @@ export default function BookingsPage() {
 
             <p className="text-slate-400 mb-6">
               Choose a new available slot for{' '}
-              {rescheduleBooking.customers?.first_name}{' '}
-              {rescheduleBooking.customers?.last_name}.
+              {rescheduleBooking.customers?.[0]?.first_name}{' '}
+              {rescheduleBooking.customers?.[0]?.last_name}.
             </p>
 
             <div className="mb-6">
@@ -484,12 +486,12 @@ function BookingSection({
               <div className="flex justify-between items-start gap-4">
                 <div>
                   <h3 className="text-xl font-bold">
-                    {booking.customers?.first_name}{' '}
-                    {booking.customers?.last_name}
+                    {booking.customers?.[0]?.first_name}{' '}
+                    {booking.customers?.[0]?.last_name}
                   </h3>
 
                   <p className="text-slate-400">
-                    {booking.customers?.email}
+                    {booking.customers?.[0]?.email}
                   </p>
 
                   <div className="mt-4 grid gap-2 text-sm text-slate-300">
@@ -500,7 +502,7 @@ function BookingSection({
 
                     <p>
                       <span className="text-slate-500">Value:</span>{' '}
-                      £{bbooking.services?.[0]?.price || 0}
+                      £{booking.services?.[0]?.price || 0}
                     </p>
 
                     <p>
