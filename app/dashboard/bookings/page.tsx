@@ -5,10 +5,13 @@ import { supabase } from '@/lib/supabase'
 
 type Booking = {
   id: string
+  business_id: string
+  customer_id: string | null
+  service_id: string | null
+  team_member_id: string | null
   booking_date: string
   booking_time: string
   status: string
-  team_member_id: string
   customers:
     | {
         first_name: string
@@ -29,11 +32,44 @@ type Booking = {
     | null
 }
 
+type RawBooking = {
+  id: string
+  business_id: string
+  customer_id: string | null
+  service_id: string | null
+  team_member_id: string | null
+  booking_date: string
+  booking_time: string
+  status: string
+}
+
+type Customer = {
+  id: string
+  first_name: string
+  last_name: string | null
+  email: string | null
+}
+
+type Service = {
+  id: string
+  name: string
+  price: number
+}
+
+type TeamMember = {
+  id: string
+  full_name: string
+}
+
 type Availability = {
   day_of_week: number
   start_time: string | null
   end_time: string | null
   is_available: boolean
+}
+
+function uniqueValues(values: (string | null)[]) {
+  return Array.from(new Set(values.filter(Boolean))) as string[]
 }
 
 export default function BookingsPage() {
@@ -98,34 +134,99 @@ export default function BookingsPage() {
   async function loadBookings() {
     setLoading(true)
 
-    const { data, error } = await supabase
+    const { data: bookingData, error: bookingError } = await supabase
       .from('bookings')
       .select(`
         id,
+        business_id,
+        customer_id,
+        service_id,
+        team_member_id,
         booking_date,
         booking_time,
-        status,
-        team_member_id,
-        customers (
-          first_name,
-          last_name,
-          email
-        ),
-        services (
-          name,
-          price
-        ),
-        team_members (
-          full_name
-        )
+        status
       `)
       .order('booking_date', { ascending: true })
       .order('booking_time', { ascending: true })
 
-    if (!error && data) {
-      setBookings(data as unknown as Booking[])
+    if (bookingError || !bookingData) {
+      setBookings([])
+      setLoading(false)
+      return
     }
 
+    const rawBookings = bookingData as RawBooking[]
+
+    const customerIds = uniqueValues(rawBookings.map((booking) => booking.customer_id))
+    const serviceIds = uniqueValues(rawBookings.map((booking) => booking.service_id))
+    const teamMemberIds = uniqueValues(rawBookings.map((booking) => booking.team_member_id))
+
+    let customers: Customer[] = []
+    let services: Service[] = []
+    let teamMembers: TeamMember[] = []
+
+    if (customerIds.length > 0) {
+      const { data } = await supabase
+        .from('customers')
+        .select('id, first_name, last_name, email')
+        .in('id', customerIds)
+
+      customers = (data as Customer[]) || []
+    }
+
+    if (serviceIds.length > 0) {
+      const { data } = await supabase
+        .from('services')
+        .select('id, name, price')
+        .in('id', serviceIds)
+
+      services = (data as Service[]) || []
+    }
+
+    if (teamMemberIds.length > 0) {
+      const { data } = await supabase
+        .from('team_members')
+        .select('id, full_name')
+        .in('id', teamMemberIds)
+
+      teamMembers = (data as TeamMember[]) || []
+    }
+
+    const enrichedBookings: Booking[] = rawBookings.map((booking) => {
+      const customer = customers.find((item) => item.id === booking.customer_id)
+      const service = services.find((item) => item.id === booking.service_id)
+      const teamMember = teamMembers.find((item) => item.id === booking.team_member_id)
+
+      return {
+        ...booking,
+        customers: customer
+          ? [
+              {
+                first_name: customer.first_name,
+                last_name: customer.last_name,
+                email: customer.email,
+              },
+            ]
+          : null,
+        services: service
+          ? [
+              {
+                name: service.name,
+                price: service.price,
+              },
+            ]
+          : null,
+        team_members: teamMember
+          ? [
+              {
+                full_name: teamMember.full_name,
+              },
+            ]
+          : null,
+      }
+    })
+
+    setBookings(enrichedBookings)
     setLoading(false)
   }
 
