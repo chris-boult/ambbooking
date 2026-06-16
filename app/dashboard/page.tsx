@@ -1,34 +1,71 @@
 'use client'
 
-import { useEffect, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { supabase } from '@/lib/supabase'
 import { useRouter } from 'next/navigation'
 import Link from 'next/link'
+
+import {
+  Chart as ChartJS,
+  CategoryScale,
+  LinearScale,
+  PointElement,
+  LineElement,
+  Tooltip,
+  Legend,
+} from 'chart.js'
+
+import { Line } from 'react-chartjs-2'
+
+ChartJS.register(
+  CategoryScale,
+  LinearScale,
+  PointElement,
+  LineElement,
+  Tooltip,
+  Legend
+)
 
 type Booking = {
   id: string
   booking_date: string
   booking_time: string
   status: string
-  customers: { first_name: string; last_name: string | null } | null
-  services: { name: string; price: number } | null
-  team_members: { full_name: string } | null
+  customers:
+    | {
+        first_name: string
+        last_name: string | null
+      }[]
+    | null
+  services:
+    | {
+        name: string
+        price: number
+      }[]
+    | null
+  team_members:
+    | {
+        full_name: string
+      }[]
+    | null
+}
+
+type LeaderboardItem = {
+  name: string
+  bookings: number
+  revenue: number
 }
 
 export default function DashboardPage() {
   const router = useRouter()
+
   const [email, setEmail] = useState('')
   const [businessName, setBusinessName] = useState('')
-  const [stats, setStats] = useState({
-    bookingsToday: 0,
-    upcomingBookings: 0,
-    customers: 0,
-    services: 0,
-    teamMembers: 0,
-    revenueThisMonth: 0,
-  })
-  const [todaysBookings, setTodaysBookings] = useState<Booking[]>([])
-  const [recentBookings, setRecentBookings] = useState<Booking[]>([])
+  const [bookings, setBookings] = useState<Booking[]>([])
+  const [customersCount, setCustomersCount] = useState(0)
+  const [servicesCount, setServicesCount] = useState(0)
+  const [teamCount, setTeamCount] = useState(0)
+  const [loading, setLoading] = useState(true)
 
   useEffect(() => {
     loadDashboard()
@@ -57,11 +94,6 @@ export default function DashboardPage() {
 
     setBusinessName(business.business_name)
 
-    const today = new Date().toISOString().split('T')[0]
-    const monthStart = new Date()
-    monthStart.setDate(1)
-    const monthStartString = monthStart.toISOString().split('T')[0]
-
     const { count: customerCount } = await supabase
       .from('customers')
       .select('*', { count: 'exact', head: true })
@@ -72,78 +104,96 @@ export default function DashboardPage() {
       .select('*', { count: 'exact', head: true })
       .eq('business_id', business.id)
 
-    const { count: teamCount } = await supabase
+    const { count: teamMemberCount } = await supabase
       .from('team_members')
       .select('*', { count: 'exact', head: true })
       .eq('business_id', business.id)
 
-    const { count: bookingsTodayCount } = await supabase
-      .from('bookings')
-      .select('*', { count: 'exact', head: true })
-      .eq('business_id', business.id)
-      .eq('booking_date', today)
-      .neq('status', 'cancelled')
-
-    const { count: upcomingBookingsCount } = await supabase
-      .from('bookings')
-      .select('*', { count: 'exact', head: true })
-      .eq('business_id', business.id)
-      .gte('booking_date', today)
-      .neq('status', 'cancelled')
-
-    const { data: monthBookings } = await supabase
+    const { data: bookingsData } = await supabase
       .from('bookings')
       .select(`
-        status,
+        id,
         booking_date,
-        services(price)
-      `)
-      .eq('business_id', business.id)
-      .gte('booking_date', monthStartString)
-      .neq('status', 'cancelled')
-
-    const revenueThisMonth =
-      monthBookings?.reduce((total, booking: any) => {
-        return total + Number(booking.services?.price || 0)
-      }, 0) || 0
-
-    const { data: todaysData } = await supabase
-      .from('bookings')
-      .select(`
-        *,
+        booking_time,
+        status,
         customers(first_name,last_name),
         services(name,price),
         team_members(full_name)
       `)
       .eq('business_id', business.id)
-      .eq('booking_date', today)
-      .neq('status', 'cancelled')
+      .order('booking_date', { ascending: false })
       .order('booking_time', { ascending: true })
 
-    const { data: recentData } = await supabase
-      .from('bookings')
-      .select(`
-        *,
-        customers(first_name,last_name),
-        services(name,price),
-        team_members(full_name)
-      `)
-      .eq('business_id', business.id)
-      .neq('status', 'cancelled')
-      .order('created_at', { ascending: false })
-      .limit(5)
+    setCustomersCount(customerCount || 0)
+    setServicesCount(serviceCount || 0)
+    setTeamCount(teamMemberCount || 0)
+    setBookings((bookingsData as unknown as Booking[]) || [])
+    setLoading(false)
+  }
 
-    setStats({
-      bookingsToday: bookingsTodayCount || 0,
-      upcomingBookings: upcomingBookingsCount || 0,
-      customers: customerCount || 0,
-      services: serviceCount || 0,
-      teamMembers: teamCount || 0,
-      revenueThisMonth,
-    })
+  const activeBookings = bookings.filter(
+    (booking) => booking.status !== 'cancelled'
+  )
 
-    setTodaysBookings((todaysData as Booking[]) || [])
-    setRecentBookings((recentData as Booking[]) || [])
+  const today = new Date()
+  const todayString = today.toISOString().split('T')[0]
+
+  const weekStart = new Date(today)
+  weekStart.setDate(today.getDate() - today.getDay() + 1)
+  const weekStartString = weekStart.toISOString().split('T')[0]
+
+  const todayBookings = activeBookings.filter(
+    (booking) => booking.booking_date === todayString
+  )
+
+  const upcomingBookings = activeBookings.filter(
+    (booking) => booking.booking_date >= todayString
+  )
+
+  const revenueToday = getRevenue(todayBookings)
+
+  const revenueThisWeek = getRevenue(
+    activeBookings.filter((booking) => booking.booking_date >= weekStartString)
+  )
+
+  const totalRevenue = getRevenue(activeBookings)
+
+  const averageBookingValue =
+    activeBookings.length > 0
+      ? Math.round(totalRevenue / activeBookings.length)
+      : 0
+
+  const topServices = buildLeaderboard(
+    activeBookings,
+    (booking) => booking.services?.[0]?.name || 'Unknown service'
+  )
+
+  const topTeamMembers = buildLeaderboard(
+    activeBookings,
+    (booking) => booking.team_members?.[0]?.full_name || 'Unknown team member'
+  )
+
+  const topService = topServices[0]?.name || 'No data'
+  const topStaff = topTeamMembers[0]?.name || 'No data'
+
+  const recentBookings = activeBookings.slice(0, 6)
+
+  const chartData = useMemo(() => {
+    return buildLast30DaysChart(activeBookings)
+  }, [bookings])
+
+  const revenueChartData = {
+    labels: chartData.labels,
+    datasets: [
+      {
+        label: 'Revenue',
+        data: chartData.revenueData,
+      },
+    ],
+  }
+
+  if (loading) {
+    return <div className="text-white">Loading dashboard...</div>
   }
 
   return (
@@ -164,38 +214,64 @@ export default function DashboardPage() {
           </Link>
 
           <Link
-            href="/dashboard/services"
+            href="/dashboard/reports"
             className="bg-slate-800 hover:bg-slate-700 text-white font-bold px-5 py-3 rounded-xl"
           >
-            Add service
+            View reports
           </Link>
         </div>
       </div>
 
-      <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-6 gap-6 mb-10">
-        <StatCard label="Today" value={stats.bookingsToday} />
-        <StatCard label="Upcoming" value={stats.upcomingBookings} />
-        <StatCard label="Revenue this month" value={`£${stats.revenueThisMonth}`} />
-        <StatCard label="Customers" value={stats.customers} />
-        <StatCard label="Services" value={stats.services} />
-        <StatCard label="Team" value={stats.teamMembers} />
+      <div className="grid grid-cols-1 md:grid-cols-4 gap-6 mb-10">
+        <StatCard label="Today's revenue" value={`£${revenueToday}`} />
+        <StatCard label="This week" value={`£${revenueThisWeek}`} />
+        <StatCard label="Customers" value={customersCount} />
+        <StatCard label="Avg booking" value={`£${averageBookingValue}`} />
+      </div>
+
+      <div className="grid grid-cols-1 md:grid-cols-4 gap-6 mb-10">
+        <InsightCard label="Bookings today" value={todayBookings.length} />
+        <InsightCard label="Upcoming" value={upcomingBookings.length} />
+        <InsightCard label="Top service" value={topService} />
+        <InsightCard label="Top staff" value={topStaff} />
+      </div>
+
+      <div className="grid xl:grid-cols-3 gap-8 mb-8">
+        <section className="xl:col-span-2 bg-slate-900 border border-slate-800 rounded-2xl p-6">
+          <h2 className="text-2xl font-bold mb-6">Revenue last 30 days</h2>
+          <Line data={revenueChartData} />
+        </section>
+
+        <section className="bg-slate-900 border border-slate-800 rounded-2xl p-6">
+          <h2 className="text-2xl font-bold mb-6">Business snapshot</h2>
+
+          <div className="space-y-4">
+            <MiniStat label="Services" value={servicesCount} />
+            <MiniStat label="Team members" value={teamCount} />
+            <MiniStat label="Total bookings" value={activeBookings.length} />
+            <MiniStat label="Total revenue" value={`£${totalRevenue}`} />
+          </div>
+        </section>
       </div>
 
       <div className="grid xl:grid-cols-2 gap-8">
         <section className="bg-slate-900 border border-slate-800 rounded-2xl p-6">
           <div className="flex items-center justify-between mb-6">
             <h2 className="text-2xl font-bold">Today's schedule</h2>
-            <Link href="/dashboard/calendar" className="text-sm text-slate-400 hover:text-white">
+            <Link
+              href="/dashboard/calendar"
+              className="text-sm text-slate-400 hover:text-white"
+            >
               View calendar
             </Link>
           </div>
 
           <div className="space-y-4">
-            {todaysBookings.map((booking) => (
+            {todayBookings.map((booking) => (
               <BookingRow key={booking.id} booking={booking} />
             ))}
 
-            {todaysBookings.length === 0 && (
+            {todayBookings.length === 0 && (
               <p className="text-slate-500">No bookings scheduled for today.</p>
             )}
           </div>
@@ -203,8 +279,11 @@ export default function DashboardPage() {
 
         <section className="bg-slate-900 border border-slate-800 rounded-2xl p-6">
           <div className="flex items-center justify-between mb-6">
-            <h2 className="text-2xl font-bold">Recent bookings</h2>
-            <Link href="/dashboard/bookings" className="text-sm text-slate-400 hover:text-white">
+            <h2 className="text-2xl font-bold">Recent activity</h2>
+            <Link
+              href="/dashboard/bookings"
+              className="text-sm text-slate-400 hover:text-white"
+            >
               View all
             </Link>
           </div>
@@ -224,6 +303,69 @@ export default function DashboardPage() {
   )
 }
 
+function getRevenue(bookings: Booking[]) {
+  return bookings.reduce((total, booking) => {
+    return total + Number(booking.services?.[0]?.price || 0)
+  }, 0)
+}
+
+function buildLeaderboard(
+  bookings: Booking[],
+  getName: (booking: Booking) => string
+): LeaderboardItem[] {
+  const map = new Map<string, LeaderboardItem>()
+
+  bookings.forEach((booking) => {
+    const name = getName(booking)
+    const revenue = Number(booking.services?.[0]?.price || 0)
+
+    const existing = map.get(name)
+
+    if (existing) {
+      existing.bookings += 1
+      existing.revenue += revenue
+    } else {
+      map.set(name, {
+        name,
+        bookings: 1,
+        revenue,
+      })
+    }
+  })
+
+  return Array.from(map.values()).sort((a, b) => b.revenue - a.revenue)
+}
+
+function buildLast30DaysChart(bookings: Booking[]) {
+  const days = Array.from({ length: 30 }, (_, index) => {
+    const date = new Date()
+    date.setDate(date.getDate() - (29 - index))
+
+    const value = date.toISOString().split('T')[0]
+
+    return {
+      value,
+      label: date.toLocaleDateString('en-GB', {
+        day: 'numeric',
+        month: 'short',
+      }),
+    }
+  })
+
+  const revenueData = days.map((day) => {
+    return bookings
+      .filter((booking) => booking.booking_date === day.value)
+      .reduce((total, booking) => {
+        return total + Number(booking.services?.[0]?.price || 0)
+      }, 0)
+  })
+
+  return {
+    labels: days.map((day) => day.label),
+    revenueData,
+  }
+}
+
 function StatCard({
   label,
   value,
@@ -239,6 +381,36 @@ function StatCard({
   )
 }
 
+function InsightCard({
+  label,
+  value,
+}: {
+  label: string
+  value: number | string
+}) {
+  return (
+    <div className="bg-slate-900 border border-slate-800 rounded-2xl p-6">
+      <p className="text-slate-400 mb-2">{label}</p>
+      <h2 className="text-xl font-bold">{value}</h2>
+    </div>
+  )
+}
+
+function MiniStat({
+  label,
+  value,
+}: {
+  label: string
+  value: number | string
+}) {
+  return (
+    <div className="border border-slate-800 rounded-xl p-4">
+      <p className="text-slate-400 text-sm mb-1">{label}</p>
+      <p className="text-xl font-bold">{value}</p>
+    </div>
+  )
+}
+
 function BookingRow({
   booking,
   showDate = false,
@@ -246,31 +418,38 @@ function BookingRow({
   booking: Booking
   showDate?: boolean
 }) {
-  const formattedDate = new Date(booking.booking_date).toLocaleDateString('en-GB', {
-    weekday: 'short',
-    day: 'numeric',
-    month: 'short',
-  })
+  const formattedDate = new Date(booking.booking_date).toLocaleDateString(
+    'en-GB',
+    {
+      weekday: 'short',
+      day: 'numeric',
+      month: 'short',
+    }
+  )
 
   return (
     <div className="border border-slate-800 rounded-xl p-4 flex items-center justify-between gap-4">
       <div>
         <h3 className="font-bold">
-          {booking.customers?.first_name} {booking.customers?.last_name}
+          {booking.customers?.[0]?.first_name}{' '}
+          {booking.customers?.[0]?.last_name}
         </h3>
 
         <p className="text-slate-400 text-sm">
-          {booking.services?.name} with {booking.team_members?.full_name}
+          {booking.services?.[0]?.name} with{' '}
+          {booking.team_members?.[0]?.full_name}
         </p>
       </div>
 
       <div className="text-right">
         {showDate && <p className="font-bold">{formattedDate}</p>}
+
         <p className="text-slate-400 text-sm">
           {booking.booking_time?.slice(0, 5)}
         </p>
+
         <p className="text-slate-500 text-sm">
-          £{booking.services?.price || 0}
+          £{booking.services?.[0]?.price || 0}
         </p>
       </div>
     </div>
