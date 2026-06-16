@@ -181,12 +181,15 @@ async function sendReminder(booking: Booking, reminderType: '24h' | '2h') {
     reason: null,
   }
 }
+
 export async function GET() {
-  return NextResponse.json({
-    success: true,
-    message: 'Route is working',
-  })
-}
+  const now = new Date()
+
+  const tomorrow = addHours(now, 24)
+  const tomorrowDate = toDateString(tomorrow)
+
+  const twoHoursFromNow = addHours(now, 2)
+  const twoHoursDate = toDateString(twoHoursFromNow)
 
   const { data, error } = await supabase
     .from('bookings')
@@ -258,7 +261,7 @@ export async function GET() {
       reminderType: '24h',
       ...result,
     })
-  }export async function GET() {
+  }
 
   for (const booking of reminders2h) {
     const result = await sendReminder(booking, '2h')
