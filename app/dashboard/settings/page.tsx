@@ -19,9 +19,11 @@ type StaffUser = {
   email: string
   role: string
   team_member_id: string
-  team_members: {
-    full_name: string
-  } | null
+  team_members:
+    | {
+        full_name: string
+      }[]
+    | null
 }
 
 export default function SettingsPage() {
@@ -78,8 +80,8 @@ export default function SettingsPage() {
       .eq('business_id', businessData.id)
       .order('created_at', { ascending: false })
 
-    setTeamMembers(teamData || [])
-    setStaffUsers((staffData as StaffUser[]) || [])
+    setTeamMembers((teamData as TeamMember[]) || [])
+    setStaffUsers((staffData as unknown as StaffUser[]) || [])
   }
 
   async function saveBusinessDetails() {
@@ -106,6 +108,7 @@ export default function SettingsPage() {
       return
     }
 
+    setSlug(cleanedSlug)
     setMessage('Business settings saved.')
     loadSettings()
   }
@@ -265,7 +268,8 @@ export default function SettingsPage() {
               >
                 <div>
                   <p className="font-bold">
-                    {staff.team_members?.full_name || 'Unknown team member'}
+                    {staff.team_members?.[0]?.full_name ||
+                      'Unknown team member'}
                   </p>
                   <p className="text-slate-400 text-sm">{staff.email}</p>
                   <p className="text-slate-500 text-sm">{staff.role}</p>
