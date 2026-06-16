@@ -29,11 +29,6 @@ type Booking = {
         full_name: string
       }[]
     | null
-  businesses:
-    | {
-        business_name: string
-      }[]
-    | null
 }
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL
@@ -113,7 +108,7 @@ function reminderEmailHtml({
       </p>
 
       <p style="font-size: 16px; line-height: 1.6;">
-        This is a reminder about your upcoming appointment with ${businessName}.
+        This is a reminder about your upcoming appointment.
       </p>
 
       <div style="background: #f8fafc; border: 1px solid #e5e7eb; border-radius: 14px; padding: 20px; margin: 24px 0;">
@@ -138,7 +133,6 @@ async function sendReminder(booking: Booking, reminderType: '24h' | '2h') {
   const customer = booking.customers?.[0]
   const service = booking.services?.[0]
   const teamMember = booking.team_members?.[0]
-  const business = booking.businesses?.[0]
 
   if (!customer?.email) {
     return {
@@ -151,7 +145,7 @@ async function sendReminder(booking: Booking, reminderType: '24h' | '2h') {
     customer.last_name || ''
   }`.trim()
 
-  const businessName = business?.business_name || 'Your appointment'
+  const businessName = 'AMB Booking'
   const serviceName = service?.name || 'Appointment'
   const teamMemberName = teamMember?.full_name || 'Team member'
 
@@ -160,8 +154,8 @@ async function sendReminder(booking: Booking, reminderType: '24h' | '2h') {
     to: customer.email,
     subject:
       reminderType === '24h'
-        ? `Reminder: your appointment is tomorrow`
-        : `Reminder: your appointment is coming up soon`,
+        ? 'Reminder: your appointment is tomorrow'
+        : 'Reminder: your appointment is coming up soon',
     html: reminderEmailHtml({
       customerName: customerName || 'there',
       businessName,
@@ -217,9 +211,6 @@ export async function GET() {
       ),
       team_members (
         full_name
-      ),
-      businesses (
-        business_name
       )
     `)
     .neq('status', 'cancelled')
