@@ -13,9 +13,11 @@ type TimeOff = {
   start_date: string
   end_date: string
   reason: string | null
-  team_members: {
-    full_name: string
-  } | null
+  team_members:
+    | {
+        full_name: string
+      }[]
+    | null
 }
 
 export default function TimeOffPage() {
@@ -67,8 +69,8 @@ export default function TimeOffPage() {
       .eq('business_id', business.id)
       .order('start_date', { ascending: true })
 
-    setTeamMembers(teamData || [])
-    setTimeOff((timeOffData as TimeOff[]) || [])
+    setTeamMembers((teamData as TeamMember[]) || [])
+    setTimeOff((timeOffData as unknown as TimeOff[]) || [])
   }
 
   async function createTimeOff(e: React.FormEvent) {
@@ -185,7 +187,7 @@ export default function TimeOffPage() {
               >
                 <div>
                   <h3 className="font-bold">
-                    {item.team_members?.full_name}
+                    {item.team_members?.[0]?.full_name || 'Unknown team member'}
                   </h3>
 
                   <p className="text-slate-400 text-sm mt-1">
