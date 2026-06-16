@@ -8,19 +8,23 @@ type Booking = {
   booking_date: string
   booking_time: string
   status: string
-  team_member_id: string
-  customers: {
-    first_name: string
-    last_name: string
-    email: string
-  } | null
-  services: {
-    name: string
-    price: number
-  } | null
-  team_members: {
-    full_name: string
-  } | null
+  customers:
+    | {
+        first_name: string
+        last_name: string | null
+      }[]
+    | null
+  services:
+    | {
+        name: string
+        price: number
+      }[]
+    | null
+  team_members:
+    | {
+        full_name: string
+      }[]
+    | null
 }
 
 type Availability = {
@@ -491,17 +495,17 @@ function BookingSection({
                   <div className="mt-4 grid gap-2 text-sm text-slate-300">
                     <p>
                       <span className="text-slate-500">Service:</span>{' '}
-                      {booking.services?.name || 'Unknown'}
+                      {booking.services?.[0]?.name || 'Unknown'}
                     </p>
 
                     <p>
                       <span className="text-slate-500">Value:</span>{' '}
-                      £{booking.services?.price || 0}
+                      £{bbooking.services?.[0]?.price || 0}
                     </p>
 
                     <p>
                       <span className="text-slate-500">Team member:</span>{' '}
-                      {booking.team_members?.full_name || 'Unknown'}
+                      {booking.team_members?.[0]?.full_name || 'Unknown'}
                     </p>
 
                     <p>
