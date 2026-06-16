@@ -1,285 +1,558 @@
 'use client'
 
-import { useEffect, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { supabase } from '@/lib/supabase'
-
-type Customer = {
-  id: string
-  first_name: string
-  last_name: string | null
-}
-
-type Service = {
-  id: string
-  name: string
-}
-
-type TeamMember = {
-  id: string
-  full_name: string
-}
 
 type Booking = {
   id: string
   booking_date: string
   booking_time: string
   status: string
+  team_member_id: string
   customers: {
     first_name: string
-    last_name: string | null
-  }
+    last_name: string
+    email: string
+  } | null
   services: {
     name: string
-  }
+    price: number
+  } | null
   team_members: {
     full_name: string
-  }
+  } | null
+}
+
+type Availability = {
+  day_of_week: number
+  start_time: string | null
+  end_time: string | null
+  is_available: boolean
 }
 
 export default function BookingsPage() {
-  const [businessId, setBusinessId] = useState('')
-
-  const [customers, setCustomers] = useState<Customer[]>([])
-  const [services, setServices] = useState<Service[]>([])
-  const [teamMembers, setTeamMembers] = useState<TeamMember[]>([])
   const [bookings, setBookings] = useState<Booking[]>([])
+  const [loading, setLoading] = useState(true)
 
-  const [customerId, setCustomerId] = useState('')
-  const [serviceId, setServiceId] = useState('')
-  const [teamMemberId, setTeamMemberId] = useState('')
-  const [bookingDate, setBookingDate] = useState('')
-  const [bookingTime, setBookingTime] = useState('')
+  const [rescheduleBooking, setRescheduleBooking] = useState<Booking | null>(null)
+  const [newDate, setNewDate] = useState('')
+  const [newTime, setNewTime] = useState('')
+  const [availability, setAvailability] = useState<Availability | null>(null)
+  const [bookedTimes, setBookedTimes] = useState<string[]>([])
   const [message, setMessage] = useState('')
 
-  useEffect(() => {
-    loadData()
+  const dateOptions = useMemo(() => {
+    return Array.from({ length: 14 }, (_, index) => {
+      const date = new Date()
+      date.setDate(date.getDate() + index)
+
+      const value = date.toISOString().split('T')[0]
+
+      return {
+        value,
+        day: date.toLocaleDateString('en-GB', { weekday: 'short' }),
+        date: date.toLocaleDateString('en-GB', { day: 'numeric' }),
+        month: date.toLocaleDateString('en-GB', { month: 'short' }),
+      }
+    })
   }, [])
 
-  async function loadData() {
-    const { data: userData } = await supabase.auth.getUser()
+  const selectedDayOfWeek = newDate ? new Date(newDate).getDay() : null
 
-    if (!userData.user) return
+  const timeSlots = useMemo(() => {
+    const slots: string[] = []
 
-    const { data: business } = await supabase
-      .from('businesses')
-      .select('*')
-      .eq('user_id', userData.user.id)
-      .single()
+    if (!availability || !availability.is_available) return slots
+    if (!availability.start_time || !availability.end_time) return slots
 
-    if (!business) return
+    const start = availability.start_time.slice(0, 5)
+    const end = availability.end_time.slice(0, 5)
 
-    setBusinessId(business.id)
+    let [hour, minute] = start.split(':').map(Number)
+    const [endHour, endMinute] = end.split(':').map(Number)
 
-    const { data: customerData } = await supabase
-      .from('customers')
-      .select('*')
-      .eq('business_id', business.id)
+    while (hour < endHour || (hour === endHour && minute < endMinute)) {
+      slots.push(
+        `${String(hour).padStart(2, '0')}:${String(minute).padStart(2, '0')}`
+      )
 
-    const { data: serviceData } = await supabase
-      .from('services')
-      .select('*')
-      .eq('business_id', business.id)
+      minute += 30
 
-    const { data: teamData } = await supabase
-      .from('team_members')
-      .select('*')
-      .eq('business_id', business.id)
+      if (minute >= 60) {
+        minute = 0
+        hour += 1
+      }
+    }
 
-    const { data: bookingData } = await supabase
+    return slots
+  }, [availability])
+
+  const availableTimeSlots = timeSlots.filter(
+    (slot) => !bookedTimes.includes(slot)
+  )
+
+  async function loadBookings() {
+    const { data, error } = await supabase
       .from('bookings')
       .select(`
-        *,
-        customers(first_name,last_name),
-        services(name),
-        team_members(full_name)
+        id,
+        booking_date,
+        booking_time,
+        status,
+        team_member_id,
+        customers (
+          first_name,
+          last_name,
+          email
+        ),
+        services (
+          name,
+          price
+        ),
+        team_members (
+          full_name
+        )
       `)
-      .eq('business_id', business.id)
       .order('booking_date', { ascending: true })
+      .order('booking_time', { ascending: true })
 
-    setCustomers(customerData || [])
-    setServices(serviceData || [])
-    setTeamMembers(teamData || [])
-    setBookings((bookingData as Booking[]) || [])
+    if (!error && data) {
+      setBookings(data as unknown as Booking[])
+    }
+
+    setLoading(false)
   }
 
-  async function createBooking(
-    e: React.FormEvent
-  ) {
-    e.preventDefault()
+  async function cancelBooking(id: string) {
+    const booking = bookings.find((item) => item.id === id)
+
+    if (!booking) return
+
+    const confirmed = window.confirm(
+      'Are you sure you want to cancel this booking?'
+    )
+
+    if (!confirmed) return
+
+    await supabase
+      .from('bookings')
+      .update({ status: 'cancelled' })
+      .eq('id', id)
+
+    await fetch('/api/send-booking-update-email', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        customerName: `${booking.customers?.first_name || ''} ${
+          booking.customers?.last_name || ''
+        }`,
+        customerEmail: booking.customers?.email || '',
+        bookingDate: new Date(booking.booking_date).toLocaleDateString('en-GB', {
+          weekday: 'short',
+          day: 'numeric',
+          month: 'long',
+          year: 'numeric',
+        }),
+        bookingTime: booking.booking_time?.slice(0, 5),
+        action: 'cancelled',
+      }),
+    })
+
+    loadBookings()
+  }
+
+  function openReschedule(booking: Booking) {
+    setRescheduleBooking(booking)
+    setNewDate(booking.booking_date)
+    setNewTime('')
+    setAvailability(null)
+    setBookedTimes([])
+    setMessage('')
+  }
+
+  function closeReschedule() {
+    setRescheduleBooking(null)
+    setNewDate('')
+    setNewTime('')
+    setAvailability(null)
+    setBookedTimes([])
+    setMessage('')
+  }
+
+  async function saveReschedule() {
+    if (!rescheduleBooking || !newDate || !newTime) {
+      setMessage('Please choose a new date and time.')
+      return
+    }
+
+    if (bookedTimes.includes(newTime)) {
+      setMessage('That slot is no longer available.')
+      setNewTime('')
+      return
+    }
 
     const { error } = await supabase
       .from('bookings')
-      .insert({
-        business_id: businessId,
-        customer_id: customerId,
-        service_id: serviceId,
-        team_member_id: teamMemberId,
-        booking_date: bookingDate,
-        booking_time: bookingTime,
+      .update({
+        booking_date: newDate,
+        booking_time: newTime,
       })
+      .eq('id', rescheduleBooking.id)
 
     if (error) {
       setMessage(error.message)
       return
     }
 
-    setMessage('Booking created successfully')
+    await fetch('/api/send-booking-update-email', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        customerName: `${rescheduleBooking.customers?.first_name || ''} ${
+          rescheduleBooking.customers?.last_name || ''
+        }`,
+        customerEmail: rescheduleBooking.customers?.email || '',
+        bookingDate: new Date(newDate).toLocaleDateString('en-GB', {
+          weekday: 'short',
+          day: 'numeric',
+          month: 'long',
+          year: 'numeric',
+        }),
+        bookingTime: newTime,
+        action: 'rescheduled',
+      }),
+    })
 
-    setCustomerId('')
-    setServiceId('')
-    setTeamMemberId('')
-    setBookingDate('')
-    setBookingTime('')
+    closeReschedule()
+    loadBookings()
+  }
 
-    loadData()
+  useEffect(() => {
+    loadBookings()
+  }, [])
+
+  useEffect(() => {
+    async function loadAvailabilityAndBookedTimes() {
+      if (!rescheduleBooking || !newDate || selectedDayOfWeek === null) {
+        setAvailability(null)
+        setBookedTimes([])
+        return
+      }
+
+      const { data: currentBooking } = await supabase
+        .from('bookings')
+        .select('business_id')
+        .eq('id', rescheduleBooking.id)
+        .single()
+
+      if (!currentBooking) return
+
+      const { data: availabilityData } = await supabase
+        .from('availability')
+        .select('day_of_week,start_time,end_time,is_available')
+        .eq('business_id', currentBooking.business_id)
+        .eq('team_member_id', rescheduleBooking.team_member_id)
+        .eq('day_of_week', selectedDayOfWeek)
+        .maybeSingle()
+
+      setAvailability((availabilityData as Availability | null) || null)
+
+      const { data: bookingsData } = await supabase
+        .from('bookings')
+        .select('booking_time,id')
+        .eq('business_id', currentBooking.business_id)
+        .eq('team_member_id', rescheduleBooking.team_member_id)
+        .eq('booking_date', newDate)
+        .neq('id', rescheduleBooking.id)
+        .neq('status', 'cancelled')
+
+      const times =
+        (bookingsData as { booking_time: string }[] | null)?.map((booking) =>
+          booking.booking_time.slice(0, 5)
+        ) || []
+
+      setBookedTimes(times)
+    }
+
+    loadAvailabilityAndBookedTimes()
+  }, [rescheduleBooking, newDate, selectedDayOfWeek])
+
+  const today = new Date().toISOString().split('T')[0]
+
+  const upcomingBookings = bookings.filter(
+    (booking) =>
+      booking.booking_date >= today &&
+      booking.status !== 'cancelled'
+  )
+
+  const cancelledBookings = bookings.filter(
+    (booking) => booking.status === 'cancelled'
+  )
+
+  const pastBookings = bookings.filter(
+    (booking) =>
+      booking.booking_date < today &&
+      booking.status !== 'cancelled'
+  )
+
+  if (loading) {
+    return <div className="p-8 text-white">Loading bookings...</div>
   }
 
   return (
-    <div>
-      <h1 className="text-4xl font-bold mb-2">
-        Bookings
-      </h1>
+    <div className="p-8 text-white">
+      <h1 className="text-4xl font-bold mb-8">Bookings</h1>
 
-      <p className="text-slate-400 mb-8">
-        Manage appointments and bookings.
-      </p>
+      <BookingSection
+        title="Upcoming Bookings"
+        bookings={upcomingBookings}
+        showActions
+        onCancel={cancelBooking}
+        onReschedule={openReschedule}
+      />
 
-      <div className="grid lg:grid-cols-2 gap-8">
-        <div className="bg-slate-900 border border-slate-800 rounded-2xl p-6">
-          <h2 className="text-2xl font-bold mb-6">
-            Create Booking
-          </h2>
+      <BookingSection title="Past Bookings" bookings={pastBookings} />
 
-          <form
-            onSubmit={createBooking}
-            className="space-y-4"
-          >
-            <select
-              className="w-full p-3 rounded-lg bg-slate-800 border border-slate-700"
-              value={customerId}
-              onChange={(e) =>
-                setCustomerId(e.target.value)
-              }
-            >
-              <option value="">Select customer</option>
+      <BookingSection
+        title="Cancelled Bookings"
+        bookings={cancelledBookings}
+      />
 
-              {customers.map((customer) => (
-                <option
-                  key={customer.id}
-                  value={customer.id}
-                >
-                  {customer.first_name}{' '}
-                  {customer.last_name}
-                </option>
-              ))}
-            </select>
+      {rescheduleBooking && (
+        <div className="fixed inset-0 bg-black/70 flex items-center justify-center p-6 z-50">
+          <div className="bg-slate-900 border border-slate-800 rounded-2xl p-8 w-full max-w-2xl">
+            <h2 className="text-2xl font-bold mb-2">Reschedule booking</h2>
 
-            <select
-              className="w-full p-3 rounded-lg bg-slate-800 border border-slate-700"
-              value={serviceId}
-              onChange={(e) =>
-                setServiceId(e.target.value)
-              }
-            >
-              <option value="">Select service</option>
+            <p className="text-slate-400 mb-6">
+              Choose a new available slot for{' '}
+              {rescheduleBooking.customers?.first_name}{' '}
+              {rescheduleBooking.customers?.last_name}.
+            </p>
 
-              {services.map((service) => (
-                <option
-                  key={service.id}
-                  value={service.id}
-                >
-                  {service.name}
-                </option>
-              ))}
-            </select>
+            <div className="mb-6">
+              <p className="text-slate-400 mb-3">Choose a new date</p>
 
-            <select
-              className="w-full p-3 rounded-lg bg-slate-800 border border-slate-700"
-              value={teamMemberId}
-              onChange={(e) =>
-                setTeamMemberId(e.target.value)
-              }
-            >
-              <option value="">Select team member</option>
+              <div className="grid grid-cols-2 md:grid-cols-7 gap-3">
+                {dateOptions.map((option) => (
+                  <button
+                    key={option.value}
+                    type="button"
+                    onClick={() => {
+                      setNewDate(option.value)
+                      setNewTime('')
+                      setMessage('')
+                    }}
+                    className={`rounded-xl border p-4 text-center ${
+                      newDate === option.value
+                        ? 'bg-white text-slate-950 border-white'
+                        : 'bg-slate-800 border-slate-700 text-white'
+                    }`}
+                  >
+                    <span className="block text-sm">{option.day}</span>
+                    <span className="block text-2xl font-bold">
+                      {option.date}
+                    </span>
+                    <span className="block text-sm">{option.month}</span>
+                  </button>
+                ))}
+              </div>
+            </div>
 
-              {teamMembers.map((member) => (
-                <option
-                  key={member.id}
-                  value={member.id}
-                >
-                  {member.full_name}
-                </option>
-              ))}
-            </select>
+            {newDate && (
+              <div className="mb-6">
+                <p className="text-slate-400 mb-3">Choose a new time</p>
 
-            <input
-              type="date"
-              className="w-full p-3 rounded-lg bg-slate-800 border border-slate-700"
-              value={bookingDate}
-              onChange={(e) =>
-                setBookingDate(e.target.value)
-              }
-            />
+                {availability === null && (
+                  <p className="text-slate-500">
+                    No availability has been set for this day.
+                  </p>
+                )}
 
-            <input
-              type="time"
-              className="w-full p-3 rounded-lg bg-slate-800 border border-slate-700"
-              value={bookingTime}
-              onChange={(e) =>
-                setBookingTime(e.target.value)
-              }
-            />
+                {availability && !availability.is_available && (
+                  <p className="text-slate-500">
+                    This team member is not available on this day.
+                  </p>
+                )}
 
-            <button className="w-full bg-white text-slate-950 font-bold p-3 rounded-lg">
-              Create Booking
-            </button>
+                {availability && availability.is_available && (
+                  <>
+                    <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+                      {availableTimeSlots.map((slot) => (
+                        <button
+                          key={slot}
+                          type="button"
+                          onClick={() => {
+                            setNewTime(slot)
+                            setMessage('')
+                          }}
+                          className={`p-3 rounded-lg border ${
+                            newTime === slot
+                              ? 'bg-white text-slate-950 border-white'
+                              : 'bg-slate-800 border-slate-700 text-white'
+                          }`}
+                        >
+                          {slot}
+                        </button>
+                      ))}
+                    </div>
+
+                    {availableTimeSlots.length === 0 && (
+                      <p className="text-slate-500 mt-3">
+                        No available slots for this date.
+                      </p>
+                    )}
+                  </>
+                )}
+              </div>
+            )}
 
             {message && (
-              <p className="text-slate-300">
-                {message}
-              </p>
+              <p className="text-slate-300 mb-4">{message}</p>
             )}
-          </form>
-        </div>
 
-        <div className="bg-slate-900 border border-slate-800 rounded-2xl p-6">
-          <h2 className="text-2xl font-bold mb-6">
-            Upcoming Bookings
-          </h2>
-
-          <div className="space-y-4">
-            {bookings.map((booking) => (
-              <div
-                key={booking.id}
-                className="border border-slate-800 rounded-xl p-4"
+            <div className="flex gap-3">
+              <button
+                onClick={saveReschedule}
+                className="flex-1 bg-white text-slate-950 font-bold p-3 rounded-lg"
               >
-                <h3 className="font-bold">
-                  {booking.customers?.first_name}{' '}
-                  {booking.customers?.last_name}
-                </h3>
+                Save changes
+              </button>
 
-                <p className="text-slate-400">
-                  {booking.services?.name}
-                </p>
-
-                <p className="text-slate-400">
-                  {booking.team_members?.full_name}
-                </p>
-
-                <p className="text-slate-400">
-                  {booking.booking_date} at{' '}
-                  {booking.booking_time}
-                </p>
-              </div>
-            ))}
-
-            {bookings.length === 0 && (
-              <p className="text-slate-500">
-                No bookings yet.
-              </p>
-            )}
+              <button
+                onClick={closeReschedule}
+                className="flex-1 bg-slate-700 hover:bg-slate-600 font-bold p-3 rounded-lg"
+              >
+                Close
+              </button>
+            </div>
           </div>
         </div>
+      )}
+    </div>
+  )
+}
+
+function BookingSection({
+  title,
+  bookings,
+  showActions = false,
+  onCancel,
+  onReschedule,
+}: {
+  title: string
+  bookings: Booking[]
+  showActions?: boolean
+  onCancel?: (id: string) => void
+  onReschedule?: (booking: Booking) => void
+}) {
+  return (
+    <div className="mb-12">
+      <h2 className="text-2xl font-bold mb-4">{title}</h2>
+
+      {bookings.length === 0 && (
+        <div className="bg-slate-900 border border-slate-800 rounded-xl p-6 text-slate-400">
+          No bookings found.
+        </div>
+      )}
+
+      <div className="space-y-4">
+        {bookings.map((booking) => {
+          const formattedDate = new Date(
+            booking.booking_date
+          ).toLocaleDateString('en-GB', {
+            weekday: 'short',
+            day: 'numeric',
+            month: 'long',
+            year: 'numeric',
+          })
+
+          const formattedTime = booking.booking_time?.slice(0, 5)
+
+          return (
+            <div
+              key={booking.id}
+              className="bg-slate-900 border border-slate-800 rounded-xl p-6"
+            >
+              <div className="flex justify-between items-start gap-4">
+                <div>
+                  <h3 className="text-xl font-bold">
+                    {booking.customers?.first_name}{' '}
+                    {booking.customers?.last_name}
+                  </h3>
+
+                  <p className="text-slate-400">
+                    {booking.customers?.email}
+                  </p>
+
+                  <div className="mt-4 grid gap-2 text-sm text-slate-300">
+                    <p>
+                      <span className="text-slate-500">Service:</span>{' '}
+                      {booking.services?.name || 'Unknown'}
+                    </p>
+
+                    <p>
+                      <span className="text-slate-500">Value:</span>{' '}
+                      £{booking.services?.price || 0}
+                    </p>
+
+                    <p>
+                      <span className="text-slate-500">Team member:</span>{' '}
+                      {booking.team_members?.full_name || 'Unknown'}
+                    </p>
+
+                    <p>
+                      <span className="text-slate-500">Date:</span>{' '}
+                      {formattedDate}
+                    </p>
+
+                    <p>
+                      <span className="text-slate-500">Time:</span>{' '}
+                      {formattedTime}
+                    </p>
+
+                    <p>
+                      <span className="text-slate-500">Status:</span>{' '}
+                      <span
+                        className={
+                          booking.status === 'cancelled'
+                            ? 'text-red-400'
+                            : 'text-emerald-400'
+                        }
+                      >
+                        {booking.status}
+                      </span>
+                    </p>
+                  </div>
+                </div>
+
+                {showActions &&
+                  booking.status !== 'cancelled' &&
+                  onCancel &&
+                  onReschedule && (
+                    <div className="flex gap-2">
+                      <button
+                        onClick={() => onReschedule(booking)}
+                        className="bg-slate-700 hover:bg-slate-600 px-4 py-2 rounded-lg font-semibold"
+                      >
+                        Reschedule
+                      </button>
+
+                      <button
+                        onClick={() => onCancel(booking.id)}
+                        className="bg-red-600 hover:bg-red-700 px-4 py-2 rounded-lg font-semibold"
+                      >
+                        Cancel
+                      </button>
+                    </div>
+                  )}
+              </div>
+            </div>
+          )
+        })}
       </div>
     </div>
   )

@@ -6,14 +6,16 @@ export default function DashboardLayout({
   children: React.ReactNode
 }) {
   const navItems = [
-    { name: 'Dashboard', href: '/dashboard' },
-    { name: 'Calendar', href: '/dashboard/calendar' },
-    { name: 'Bookings', href: '/dashboard/bookings' },
-    { name: 'Customers', href: '/dashboard/customers' },
-    { name: 'Services', href: '/dashboard/services' },
-    { name: 'Team', href: '/dashboard/team' },
-    { name: 'Settings', href: '/dashboard/settings' },
-  ]
+  { name: 'Dashboard', href: '/dashboard' },
+  { name: 'Calendar', href: '/dashboard/calendar' },
+  { name: 'Bookings', href: '/dashboard/bookings' },
+  { name: 'Reports', href: '/dashboard/reports' },
+  { name: 'Customers', href: '/dashboard/customers' },
+  { name: 'Services', href: '/dashboard/services' },
+  { name: 'Team', href: '/dashboard/team' },
+  { name: 'Availability', href: '/dashboard/team/availability' },
+  { name: 'Settings', href: '/dashboard/settings' },
+]
 
   return (
     <div className="min-h-screen bg-slate-950 text-white flex">
@@ -33,9 +35,7 @@ export default function DashboardLayout({
         </nav>
       </aside>
 
-      <main className="flex-1 p-10">
-        {children}
-      </main>
+      <main className="flex-1 p-10">{children}</main>
     </div>
   )
 }
