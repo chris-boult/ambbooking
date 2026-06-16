@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useState } from 'react'
 import { supabase } from '@/lib/supabase'
 import { useRouter } from 'next/navigation'
 import Link from 'next/link'
@@ -30,7 +30,7 @@ type Booking = {
   id: string
   booking_date: string
   booking_time: string
-  status: string
+  status: string | null
   customers:
     | {
         first_name: string
@@ -72,6 +72,8 @@ export default function DashboardPage() {
   }, [])
 
   async function loadDashboard() {
+    setLoading(true)
+
     const { data: userData } = await supabase.auth.getUser()
 
     if (!userData.user) {
@@ -131,10 +133,6 @@ export default function DashboardPage() {
     setLoading(false)
   }
 
-  const activeBookings = bookings.filter(
-    (booking) => booking.status !== 'cancelled'
-  )
-
   const today = new Date()
   const todayString = today.toISOString().split('T')[0]
 
@@ -142,45 +140,77 @@ export default function DashboardPage() {
   weekStart.setDate(today.getDate() - today.getDay() + 1)
   const weekStartString = weekStart.toISOString().split('T')[0]
 
-  const todayBookings = activeBookings.filter(
+  const confirmedBookings = bookings.filter(
+    (booking) => (booking.status || 'confirmed') === 'confirmed'
+  )
+
+  const completedBookings = bookings.filter(
+    (booking) => booking.status === 'completed'
+  )
+
+  const cancelledBookings = bookings.filter(
+    (booking) => booking.status === 'cancelled'
+  )
+
+  const noShowBookings = bookings.filter(
+    (booking) => booking.status === 'no_show'
+  )
+
+  const revenueBookings = bookings.filter(
+    (booking) =>
+      (booking.status || 'confirmed') === 'confirmed' ||
+      booking.status === 'completed'
+  )
+
+  const todayBookings = confirmedBookings.filter(
     (booking) => booking.booking_date === todayString
   )
 
-  const upcomingBookings = activeBookings.filter(
+  const upcomingBookings = confirmedBookings.filter(
     (booking) => booking.booking_date >= todayString
   )
 
-  const revenueToday = getRevenue(todayBookings)
-
-  const revenueThisWeek = getRevenue(
-    activeBookings.filter((booking) => booking.booking_date >= weekStartString)
+  const revenueToday = getRevenue(
+    revenueBookings.filter((booking) => booking.booking_date === todayString)
   )
 
-  const totalRevenue = getRevenue(activeBookings)
+  const revenueThisWeek = getRevenue(
+    revenueBookings.filter((booking) => booking.booking_date >= weekStartString)
+  )
+
+  const totalRevenue = getRevenue(revenueBookings)
 
   const averageBookingValue =
-    activeBookings.length > 0
-      ? Math.round(totalRevenue / activeBookings.length)
+    revenueBookings.length > 0
+      ? Math.round(totalRevenue / revenueBookings.length)
+      : 0
+
+  const cancellationRate =
+    bookings.length > 0
+      ? Math.round((cancelledBookings.length / bookings.length) * 100)
+      : 0
+
+  const noShowRate =
+    bookings.length > 0
+      ? Math.round((noShowBookings.length / bookings.length) * 100)
       : 0
 
   const topServices = buildLeaderboard(
-    activeBookings,
+    revenueBookings,
     (booking) => booking.services?.[0]?.name || 'Unknown service'
   )
 
   const topTeamMembers = buildLeaderboard(
-    activeBookings,
+    revenueBookings,
     (booking) => booking.team_members?.[0]?.full_name || 'Unknown team member'
   )
 
   const topService = topServices[0]?.name || 'No data'
   const topStaff = topTeamMembers[0]?.name || 'No data'
 
-  const recentBookings = activeBookings.slice(0, 6)
+  const recentBookings = bookings.slice(0, 6)
 
-  const chartData = useMemo(() => {
-    return buildLast30DaysChart(activeBookings)
-  }, [bookings])
+  const chartData = buildLast30DaysChart(revenueBookings)
 
   const revenueChartData = {
     labels: chartData.labels,
@@ -232,6 +262,13 @@ export default function DashboardPage() {
       <div className="grid grid-cols-1 md:grid-cols-4 gap-6 mb-10">
         <InsightCard label="Bookings today" value={todayBookings.length} />
         <InsightCard label="Upcoming" value={upcomingBookings.length} />
+        <InsightCard label="Completed" value={completedBookings.length} />
+        <InsightCard label="No shows" value={noShowBookings.length} />
+      </div>
+
+      <div className="grid grid-cols-1 md:grid-cols-4 gap-6 mb-10">
+        <InsightCard label="Cancellation rate" value={`${cancellationRate}%`} />
+        <InsightCard label="No-show rate" value={`${noShowRate}%`} />
         <InsightCard label="Top service" value={topService} />
         <InsightCard label="Top staff" value={topStaff} />
       </div>
@@ -248,7 +285,9 @@ export default function DashboardPage() {
           <div className="space-y-4">
             <MiniStat label="Services" value={servicesCount} />
             <MiniStat label="Team members" value={teamCount} />
-            <MiniStat label="Total bookings" value={activeBookings.length} />
+            <MiniStat label="Total bookings" value={bookings.length} />
+            <MiniStat label="Confirmed" value={confirmedBookings.length} />
+            <MiniStat label="Cancelled" value={cancelledBookings.length} />
             <MiniStat label="Total revenue" value={`£${totalRevenue}`} />
           </div>
         </section>
@@ -450,6 +489,10 @@ function BookingRow({
 
         <p className="text-slate-500 text-sm">
           £{booking.services?.[0]?.price || 0}
+        </p>
+
+        <p className="text-slate-500 text-xs mt-1">
+          {booking.status || 'confirmed'}
         </p>
       </div>
     </div>

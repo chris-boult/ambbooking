@@ -52,10 +52,8 @@ export default function BookingsPage() {
       const date = new Date()
       date.setDate(date.getDate() + index)
 
-      const value = date.toISOString().split('T')[0]
-
       return {
-        value,
+        value: date.toISOString().split('T')[0],
         day: date.toLocaleDateString('en-GB', { weekday: 'short' }),
         date: date.toLocaleDateString('en-GB', { day: 'numeric' }),
         month: date.toLocaleDateString('en-GB', { month: 'short' }),
@@ -68,7 +66,7 @@ export default function BookingsPage() {
   const timeSlots = useMemo(() => {
     const slots: string[] = []
 
-    if (!availability || !availability.is_available) return slots
+    if (!availability?.is_available) return slots
     if (!availability.start_time || !availability.end_time) return slots
 
     const start = availability.start_time.slice(0, 5)
@@ -98,6 +96,8 @@ export default function BookingsPage() {
   )
 
   async function loadBookings() {
+    setLoading(true)
+
     const { data, error } = await supabase
       .from('bookings')
       .select(`
@@ -129,9 +129,17 @@ export default function BookingsPage() {
     setLoading(false)
   }
 
+  async function updateBookingStatus(id: string, status: string) {
+    const confirmed = window.confirm(`Mark this booking as ${status}?`)
+    if (!confirmed) return
+
+    await supabase.from('bookings').update({ status }).eq('id', id)
+
+    await loadBookings()
+  }
+
   async function cancelBooking(id: string) {
     const booking = bookings.find((item) => item.id === id)
-
     if (!booking) return
 
     const confirmed = window.confirm(
@@ -140,10 +148,7 @@ export default function BookingsPage() {
 
     if (!confirmed) return
 
-    await supabase
-      .from('bookings')
-      .update({ status: 'cancelled' })
-      .eq('id', id)
+    await supabase.from('bookings').update({ status: 'cancelled' }).eq('id', id)
 
     await fetch('/api/send-booking-update-email', {
       method: 'POST',
@@ -166,7 +171,7 @@ export default function BookingsPage() {
       }),
     })
 
-    loadBookings()
+    await loadBookings()
   }
 
   function openReschedule(booking: Booking) {
@@ -204,6 +209,7 @@ export default function BookingsPage() {
       .update({
         booking_date: newDate,
         booking_time: newTime,
+        status: 'confirmed',
       })
       .eq('id', rescheduleBooking.id)
 
@@ -234,7 +240,7 @@ export default function BookingsPage() {
     })
 
     closeReschedule()
-    loadBookings()
+    await loadBookings()
   }
 
   useEffect(() => {
@@ -290,19 +296,23 @@ export default function BookingsPage() {
   const today = new Date().toISOString().split('T')[0]
 
   const upcomingBookings = bookings.filter(
-    (booking) =>
-      booking.booking_date >= today &&
-      booking.status !== 'cancelled'
+    (booking) => booking.booking_date >= today && booking.status === 'confirmed'
+  )
+
+  const pastConfirmedBookings = bookings.filter(
+    (booking) => booking.booking_date < today && booking.status === 'confirmed'
+  )
+
+  const completedBookings = bookings.filter(
+    (booking) => booking.status === 'completed'
+  )
+
+  const noShowBookings = bookings.filter(
+    (booking) => booking.status === 'no_show'
   )
 
   const cancelledBookings = bookings.filter(
     (booking) => booking.status === 'cancelled'
-  )
-
-  const pastBookings = bookings.filter(
-    (booking) =>
-      booking.booking_date < today &&
-      booking.status !== 'cancelled'
   )
 
   if (loading) {
@@ -319,14 +329,25 @@ export default function BookingsPage() {
         showActions
         onCancel={cancelBooking}
         onReschedule={openReschedule}
+        onComplete={(id) => updateBookingStatus(id, 'completed')}
+        onNoShow={(id) => updateBookingStatus(id, 'no_show')}
       />
-
-      <BookingSection title="Past Bookings" bookings={pastBookings} />
 
       <BookingSection
-        title="Cancelled Bookings"
-        bookings={cancelledBookings}
+        title="Past Confirmed Bookings"
+        bookings={pastConfirmedBookings}
+        showActions
+        onCancel={cancelBooking}
+        onReschedule={openReschedule}
+        onComplete={(id) => updateBookingStatus(id, 'completed')}
+        onNoShow={(id) => updateBookingStatus(id, 'no_show')}
       />
+
+      <BookingSection title="Completed Bookings" bookings={completedBookings} />
+
+      <BookingSection title="No Shows" bookings={noShowBookings} />
+
+      <BookingSection title="Cancelled Bookings" bookings={cancelledBookings} />
 
       {rescheduleBooking && (
         <div className="fixed inset-0 bg-black/70 flex items-center justify-center p-6 z-50">
@@ -416,12 +437,11 @@ export default function BookingsPage() {
               </div>
             )}
 
-            {message && (
-              <p className="text-slate-300 mb-4">{message}</p>
-            )}
+            {message && <p className="text-slate-300 mb-4">{message}</p>}
 
             <div className="flex gap-3">
               <button
+                type="button"
                 onClick={saveReschedule}
                 className="flex-1 bg-white text-slate-950 font-bold p-3 rounded-lg"
               >
@@ -429,6 +449,7 @@ export default function BookingsPage() {
               </button>
 
               <button
+                type="button"
                 onClick={closeReschedule}
                 className="flex-1 bg-slate-700 hover:bg-slate-600 font-bold p-3 rounded-lg"
               >
@@ -448,12 +469,16 @@ function BookingSection({
   showActions = false,
   onCancel,
   onReschedule,
+  onComplete,
+  onNoShow,
 }: {
   title: string
   bookings: Booking[]
   showActions?: boolean
   onCancel?: (id: string) => void
   onReschedule?: (booking: Booking) => void
+  onComplete?: (id: string) => void
+  onNoShow?: (id: string) => void
 }) {
   return (
     <div className="mb-12">
@@ -526,7 +551,11 @@ function BookingSection({
                         className={
                           booking.status === 'cancelled'
                             ? 'text-red-400'
-                            : 'text-emerald-400'
+                            : booking.status === 'completed'
+                              ? 'text-emerald-400'
+                              : booking.status === 'no_show'
+                                ? 'text-orange-400'
+                                : 'text-sky-400'
                         }
                       >
                         {booking.status}
@@ -535,26 +564,49 @@ function BookingSection({
                   </div>
                 </div>
 
-                {showActions &&
-                  booking.status !== 'cancelled' &&
-                  onCancel &&
-                  onReschedule && (
-                    <div className="flex gap-2">
+                {showActions && (
+                  <div className="flex flex-wrap gap-2 justify-end">
+                    {onComplete && (
                       <button
+                        type="button"
+                        onClick={() => onComplete(booking.id)}
+                        className="bg-emerald-600 hover:bg-emerald-700 px-4 py-2 rounded-lg font-semibold"
+                      >
+                        Complete
+                      </button>
+                    )}
+
+                    {onNoShow && (
+                      <button
+                        type="button"
+                        onClick={() => onNoShow(booking.id)}
+                        className="bg-orange-600 hover:bg-orange-700 px-4 py-2 rounded-lg font-semibold"
+                      >
+                        No show
+                      </button>
+                    )}
+
+                    {onReschedule && (
+                      <button
+                        type="button"
                         onClick={() => onReschedule(booking)}
                         className="bg-slate-700 hover:bg-slate-600 px-4 py-2 rounded-lg font-semibold"
                       >
                         Reschedule
                       </button>
+                    )}
 
+                    {onCancel && (
                       <button
+                        type="button"
                         onClick={() => onCancel(booking.id)}
                         className="bg-red-600 hover:bg-red-700 px-4 py-2 rounded-lg font-semibold"
                       >
                         Cancel
                       </button>
-                    </div>
-                  )}
+                    )}
+                  </div>
+                )}
               </div>
             </div>
           )
