@@ -1,6 +1,10 @@
 import Link from 'next/link'
 
-export default function DashboardLayout({ children }: { children: React.ReactNode }) {
+export default function DashboardLayout({
+  children,
+}: {
+  children: React.ReactNode
+}) {
   const navItems = [
     { name: 'Overview', href: '/dashboard' },
     { name: 'Calendar', href: '/dashboard/calendar' },
@@ -19,15 +23,14 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
       <div className="relative z-10 flex min-h-screen">
         <aside className="hidden lg:flex w-64 shrink-0 flex-col border-r border-white/10 bg-black/50 backdrop-blur-2xl px-6 py-7">
           <Link href="/dashboard" className="mb-10 block">
-            <Image
-              <img
-  src="/amb360-logo.png"
-  alt="AMB360"
-  className="w-36 h-auto"
-/>
+            <img
+              src="/amb360-logo.png"
+              alt="AMB360"
+              className="w-36 h-auto"
+            />
 
             <div className="mt-4 text-[10px] uppercase tracking-[0.45em] text-slate-500">
-              Booking
+              BOOKING
             </div>
           </Link>
 
@@ -45,7 +48,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
 
           <div className="mt-auto rounded-3xl border border-white/10 bg-white/[0.04] p-5">
             <div className="text-[10px] uppercase tracking-[0.3em] text-slate-500 mb-3">
-              Trial active
+              Trial Active
             </div>
 
             <div className="text-lg font-bold">
@@ -60,7 +63,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
               href="/onboarding/plan"
               className="mt-5 block rounded-xl bg-gradient-to-r from-violet-500 to-blue-500 px-4 py-3 text-center text-sm font-bold"
             >
-              Manage plan
+              Manage Plan
             </Link>
           </div>
         </aside>
@@ -70,8 +73,9 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
             <div className="flex items-center justify-between">
               <div>
                 <div className="text-[10px] uppercase tracking-[0.45em] text-slate-500">
-                  AMB360 Booking
+                  AMB360 BOOKING
                 </div>
+
                 <div className="mt-1 text-sm text-slate-400">
                   Book more. Manage less.
                 </div>
