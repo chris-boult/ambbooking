@@ -73,14 +73,14 @@ export default function CreateBusinessPage() {
     try {
       setLoading(true)
 
-      const {
-        data: { user },
-      } = await supabase.auth.getUser()
+      const { data: sessionData } = await supabase.auth.getSession()
 
-      if (!user) {
-        alert('Please log in first')
-        return
-      }
+const user = sessionData.session?.user
+
+if (!user) {
+  router.push('/login')
+  return
+}
 
       const trialEnds = new Date()
       trialEnds.setDate(trialEnds.getDate() + 7)
