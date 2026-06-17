@@ -1,6 +1,8 @@
 import { NextResponse } from 'next/server'
 import { Resend } from 'resend'
 
+export const dynamic = 'force-dynamic'
+
 const resend = new Resend(process.env.RESEND_API_KEY)
 
 export async function POST(request: Request) {
@@ -16,64 +18,102 @@ export async function POST(request: Request) {
       teamMemberName,
     } = body
 
-    const businessEmail = 'chris@amb360.co.uk'
+    const businessEmail = process.env.BUSINESS_NOTIFICATION_EMAIL || 'chris@amb360.co.uk'
+    const fromEmail =
+      process.env.RESEND_FROM_EMAIL || 'AMB Booking <onboarding@resend.dev>'
 
-    const { data: customerData, error: customerError } =
-      await resend.emails.send({
-        from: 'AMB Booking <onboarding@resend.dev>',
-        to: [customerEmail],
-        subject: 'Your booking is confirmed',
-        html: `
-          <h1>Booking Confirmed</h1>
-          <p>Hi ${customerName},</p>
-          <p>Your booking has been confirmed.</p>
-          <ul>
-            <li><strong>Service:</strong> ${serviceName}</li>
-            <li><strong>Team Member:</strong> ${teamMemberName}</li>
-            <li><strong>Date:</strong> ${bookingDate}</li>
-            <li><strong>Time:</strong> ${bookingTime}</li>
-          </ul>
-        `,
-      })
-
-    if (customerError) {
-      console.error('Customer email error:', customerError)
+    if (!bookingDate || !bookingTime || !serviceName) {
+      return NextResponse.json(
+        { error: 'Missing booking email details' },
+        { status: 400 }
+      )
     }
 
-    const { data: businessData, error: businessError } =
-      await resend.emails.send({
-        from: 'AMB Booking <onboarding@resend.dev>',
-        to: [businessEmail],
-        subject: 'New booking received',
+    const safeCustomerName = customerName?.trim() || 'there'
+    const safeTeamMemberName = teamMemberName?.trim() || 'Your specialist'
+    const safeCustomerEmail = customerEmail?.trim()
+
+    let customerData = null
+    let customerError = null
+    let businessData = null
+    let businessError = null
+
+    if (safeCustomerEmail && safeCustomerEmail.includes('@')) {
+      const result = await resend.emails.send({
+        from: fromEmail,
+        to: safeCustomerEmail,
+        subject: 'Your booking is confirmed',
         html: `
-          <h1>New Booking Received</h1>
-          <p>A new booking has been made.</p>
-          <ul>
-            <li><strong>Customer:</strong> ${customerName}</li>
-            <li><strong>Email:</strong> ${customerEmail}</li>
-            <li><strong>Service:</strong> ${serviceName}</li>
-            <li><strong>Team Member:</strong> ${teamMemberName}</li>
-            <li><strong>Date:</strong> ${bookingDate}</li>
-            <li><strong>Time:</strong> ${bookingTime}</li>
-          </ul>
+          <div style="font-family: Arial, sans-serif; line-height: 1.6; color: #111;">
+            <h1>Booking confirmed</h1>
+
+            <p>Hi ${safeCustomerName},</p>
+
+            <p>Your booking has been confirmed.</p>
+
+            <p>
+              <strong>Service:</strong> ${serviceName}<br />
+              <strong>Team member:</strong> ${safeTeamMemberName}<br />
+              <strong>Date:</strong> ${bookingDate}<br />
+              <strong>Time:</strong> ${bookingTime}
+            </p>
+          </div>
         `,
       })
 
-    if (businessError) {
-      console.error('Business email error:', businessError)
+      customerData = result.data
+      customerError = result.error
+
+      if (customerError) {
+        console.error('Customer email error:', customerError)
+      }
+    } else {
+      console.log('Customer confirmation email skipped: missing customer email')
+    }
+
+    if (businessEmail && businessEmail.includes('@')) {
+      const result = await resend.emails.send({
+        from: fromEmail,
+        to: businessEmail,
+        subject: 'New booking received',
+        html: `
+          <div style="font-family: Arial, sans-serif; line-height: 1.6; color: #111;">
+            <h1>New booking received</h1>
+
+            <p>A new booking has been made.</p>
+
+            <p>
+              <strong>Customer:</strong> ${safeCustomerName}<br />
+              <strong>Email:</strong> ${safeCustomerEmail || 'Not provided'}<br />
+              <strong>Service:</strong> ${serviceName}<br />
+              <strong>Team member:</strong> ${safeTeamMemberName}<br />
+              <strong>Date:</strong> ${bookingDate}<br />
+              <strong>Time:</strong> ${bookingTime}
+            </p>
+          </div>
+        `,
+      })
+
+      businessData = result.data
+      businessError = result.error
+
+      if (businessError) {
+        console.error('Business email error:', businessError)
+      }
     }
 
     return NextResponse.json({
+      success: true,
       customerData,
       customerError,
       businessData,
       businessError,
     })
-  } catch (error) {
-    console.error('Route error:', error)
+  } catch (error: any) {
+    console.error('Booking confirmation email route error:', error)
 
     return NextResponse.json(
-      { error: 'Failed to send email' },
+      { error: error.message || 'Failed to send booking email' },
       { status: 500 }
     )
   }

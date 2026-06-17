@@ -251,7 +251,26 @@ export default function BookingsPage() {
 
     await supabase.from('bookings').update({ status: 'cancelled' }).eq('id', id)
 
-    await fetch('/api/send-booking-update-email', {
+// Trigger waiting list notifications
+try {
+  await fetch('/api/process-waiting-list', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({
+      business_id: booking.business_id,
+      service_id: booking.service_id,
+      team_member_id: booking.team_member_id,
+      booking_date: booking.booking_date,
+      booking_time: booking.booking_time,
+    }),
+  })
+} catch (error) {
+  console.error('Waiting list processing failed', error)
+}
+
+await fetch('/api/send-booking-update-email', {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
