@@ -69,9 +69,18 @@ export default function BookingForm({
   const [email, setEmail] = useState('')
   const [phone, setPhone] = useState('')
 
+  const [voucherCode, setVoucherCode] = useState('')
+  const [voucherMessage, setVoucherMessage] = useState('')
+  const [voucherAmountUsed, setVoucherAmountUsed] = useState(0)
+  const [remainingVoucherBalance, setRemainingVoucherBalance] = useState<number | null>(null)
+
   const [message, setMessage] = useState('')
   const [success, setSuccess] = useState(false)
   const [loading, setLoading] = useState(false)
+
+  const selectedServiceDetails = services.find(
+    (service) => service.id === selectedService
+  )
 
   const dateOptions = useMemo(() => {
     const dates = []
@@ -121,6 +130,7 @@ export default function BookingForm({
         .eq('business_id', businessId)
         .eq('team_member_id', selectedTeamMember)
         .eq('booking_date', selectedDate)
+        .neq('status', 'cancelled')
 
       const times =
         (data as Booking[] | null)?.map((booking) =>
@@ -135,6 +145,9 @@ export default function BookingForm({
 
   async function createBooking() {
     setMessage('')
+    setVoucherMessage('')
+    setVoucherAmountUsed(0)
+    setRemainingVoucherBalance(null)
 
     if (
       !selectedService ||
@@ -187,20 +200,51 @@ export default function BookingForm({
       customerId = newCustomer.id
     }
 
-    const { error: bookingError } = await supabase.from('bookings').insert({
-      business_id: businessId,
-      customer_id: customerId,
-      service_id: selectedService,
-      team_member_id: selectedTeamMember,
-      booking_date: selectedDate,
-      booking_time: selectedTime,
-      status: 'confirmed',
-    })
+    const { data: bookingData, error: bookingError } = await supabase
+      .from('bookings')
+      .insert({
+        business_id: businessId,
+        customer_id: customerId,
+        service_id: selectedService,
+        team_member_id: selectedTeamMember,
+        booking_date: selectedDate,
+        booking_time: selectedTime,
+        status: 'confirmed',
+      })
+      .select('id')
+      .single()
 
     if (bookingError) {
       setMessage(bookingError.message)
       setLoading(false)
       return
+    }
+
+    if (voucherCode.trim()) {
+      const response = await fetch('/api/redeem-voucher', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          code: voucherCode,
+          booking_id: bookingData.id,
+          business_id: businessId,
+          amount_due: selectedServiceDetails?.price || 0,
+        }),
+      })
+
+      const result = await response.json()
+
+      if (!response.ok) {
+        setVoucherMessage(result.error || 'Voucher could not be applied.')
+      } else {
+        setVoucherAmountUsed(Number(result.amount_used || 0))
+        setRemainingVoucherBalance(Number(result.new_remaining_amount || 0))
+        setVoucherMessage(
+          `Voucher applied. £${Number(result.amount_used || 0).toFixed(2)} used.`
+        )
+      }
     }
 
     setLoading(false)
@@ -233,6 +277,20 @@ export default function BookingForm({
           <p className="text-xl font-black">
             {formattedDate} at {selectedTime}
           </p>
+
+          {voucherMessage && (
+            <p className={`${textClassName} mt-4`}>
+              {voucherMessage}
+            </p>
+          )}
+
+          {voucherAmountUsed > 0 && (
+            <p className={`${textClassName} mt-2`}>
+              Voucher used: £{voucherAmountUsed.toFixed(2)}
+              {remainingVoucherBalance !== null &&
+                ` • Remaining balance: £${remainingVoucherBalance.toFixed(2)}`}
+            </p>
+          )}
         </div>
       </div>
     )
@@ -392,6 +450,12 @@ export default function BookingForm({
               <p className="text-xl font-black">
                 {formattedDate} at {selectedTime}
               </p>
+
+              {selectedServiceDetails && (
+                <p className="text-white/80 mt-2">
+                  Price: £{Number(selectedServiceDetails.price).toFixed(2)}
+                </p>
+              )}
             </div>
           )}
 
@@ -423,6 +487,13 @@ export default function BookingForm({
           placeholder="Phone number"
           value={phone}
           onChange={(e) => setPhone(e.target.value)}
+        />
+
+        <input
+          className={`w-full p-4 rounded-2xl border outline-none ${innerCardClassName}`}
+          placeholder="Gift voucher code optional"
+          value={voucherCode}
+          onChange={(e) => setVoucherCode(e.target.value.toUpperCase())}
         />
 
         <button

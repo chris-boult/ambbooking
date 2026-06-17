@@ -47,6 +47,7 @@ export default function DashboardLayout({
       { name: 'Team', href: '/dashboard/team', roles: ['owner', 'manager'] },
       { name: 'Staff', href: '/dashboard/staff', roles: ['owner', 'manager'] },
       { name: 'Reports', href: '/dashboard/reports', roles: ['owner', 'manager'] },
+      { name: 'Gift Vouchers', href: '/dashboard/gift-vouchers', roles: ['owner', 'manager'] },
       { name: 'Settings', href: '/dashboard/settings', roles: ['owner'] },
     ]
 
