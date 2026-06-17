@@ -28,7 +28,7 @@ type StaffUser = {
   team_members:
     | {
         full_name: string
-      }[]
+      }
     | null
 }
 
@@ -136,57 +136,62 @@ export default function SettingsPage() {
       .order('full_name')
 
     const { data: staffData } = await supabase
-      .from('staff_users')
-      .select(`
-        id,
-        email,
-        role,
-        team_member_id,
-        team_members (
-          full_name
-        )
-      `)
-      .eq('business_id', businessData.id)
-      .order('created_at', { ascending: false })
+  .from('staff_users')
+  .select(`
+    id,
+    email,
+    role,
+    team_member_id,
+    team_members!staff_users_team_member_id_fkey (
+      full_name
+    )
+  `)
+  .eq('business_id', businessData.id)
+  .order('created_at', { ascending: false })
 
     setTeamMembers((teamData as TeamMember[]) || [])
     setStaffUsers((staffData as unknown as StaffUser[]) || [])
   }
 
-  async function saveBusinessDetails() {
-    if (!business) return
+ async function saveBusinessDetails() {
+  alert('Save function started')
 
-    setMessage('')
-
-    const cleanedSlug = slug
-      .toLowerCase()
-      .trim()
-      .replace(/\s+/g, '-')
-      .replace(/[^a-z0-9-]/g, '')
-
-    const { error } = await supabase
-      .from('businesses')
-      .update({
-        business_name: businessName,
-        slug: cleanedSlug,
-        logo_url: logoUrl,
-        hero_image_url: heroImageUrl,
-        primary_colour: primaryColour,
-        secondary_colour: secondaryColour,
-        business_description: businessDescription,
-        brand_theme: brandTheme,
-      })
-      .eq('id', business.id)
-
-    if (error) {
-      setMessage(error.message)
-      return
-    }
-
-    setSlug(cleanedSlug)
-    setMessage('Business settings saved.')
-    loadSettings()
+  if (!business) {
+    alert('Business is NULL')
+    return
   }
+
+  const cleanedSlug = slug
+    .toLowerCase()
+    .trim()
+    .replace(/\s+/g, '-')
+    .replace(/[^a-z0-9-]/g, '')
+
+  alert(`Saving business ${business.id}`)
+
+  const { error } = await supabase
+    .from('businesses')
+    .update({
+      business_name: businessName,
+      slug: cleanedSlug,
+      logo_url: logoUrl,
+      hero_image_url: heroImageUrl,
+      primary_colour: primaryColour,
+      secondary_colour: secondaryColour,
+      business_description: businessDescription,
+      brand_theme: brandTheme,
+    })
+    .eq('id', business.id)
+
+  if (error) {
+    alert(error.message)
+    return
+  }
+
+  alert('Saved successfully')
+
+  setMessage('Business settings saved.')
+}
 
   async function createStaffUser() {
     if (!business || !teamMemberId || !staffEmail) {
@@ -443,8 +448,8 @@ export default function SettingsPage() {
               >
                 <div>
                   <p className="font-bold">
-                    {staff.team_members?.[0]?.full_name ||
-                      'Unknown team member'}
+                    {staff.team_members?.full_name ||
+  'Unknown team member'}
                   </p>
                   <p className="text-slate-400 text-sm">{staff.email}</p>
                   <p className="text-slate-500 text-sm">{staff.role}</p>
