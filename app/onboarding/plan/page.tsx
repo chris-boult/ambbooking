@@ -1,5 +1,6 @@
 'use client'
 
+import { useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { supabase } from '@/lib/supabase'
 
@@ -8,39 +9,55 @@ const plans = [
     id: 'starter',
     name: 'Starter',
     price: '£19',
-    description: 'Perfect for sole traders and small service businesses.',
+    vatPrice: '£22.80',
+    description: 'Perfect for sole traders and independent professionals.',
     features: [
       'Online booking page',
+      'Unlimited bookings',
       'Services',
-      'Team members',
       'Availability',
-      'Time off',
+      'Time off management',
+      'Customer database',
+      'Email confirmations',
+      'Booking management',
     ],
   },
   {
     id: 'growth',
     name: 'Growth',
-    price: '£39',
-    description: 'For businesses ready to take payments and manage growth.',
+    price: '£49',
+    vatPrice: '£58.80',
+    description: 'For growing businesses and teams.',
+    highlighted: true,
     features: [
       'Everything in Starter',
+      'Unlimited team members',
       'Deposits',
       'Full online payments',
-      'Customer CRM',
-      'Email confirmations',
-      'Reporting',
+      'Revenue reporting',
+      'Team performance reporting',
+      'Customer history',
+      'Automated reminders',
+      'Business insights dashboard',
     ],
-    highlighted: true,
   },
   {
     id: 'pro',
     name: 'Pro',
-    price: '£79',
-    description: 'For larger teams and businesses needing more control.',
+    price: '£89',
+    vatPrice: '£106.80',
+    description: 'For ambitious businesses and multi-site operators.',
     features: [
       'Everything in Growth',
-      'Multiple locations',
-      'Team performance',
+      'Multi-location support',
+      'SMS reminders',
+      'Gift cards',
+      'Service packages',
+      'Memberships',
+      'Promotional codes',
+      'Waitlists',
+      'Recurring appointments',
+      'Custom branding',
       'Advanced analytics',
       'Priority support',
     ],
@@ -49,42 +66,60 @@ const plans = [
 
 export default function OnboardingPlanPage() {
   const router = useRouter()
+  const [loadingPlan, setLoadingPlan] = useState<string | null>(null)
 
   async function choosePlan(plan: string) {
-    const { data: userData } = await supabase.auth.getUser()
+    try {
+      setLoadingPlan(plan)
 
-    if (!userData.user) {
-      router.push('/login')
-      return
+      const { data: userData } = await supabase.auth.getUser()
+
+      if (!userData.user) {
+        router.push('/login')
+        return
+      }
+
+      const { data: businesses } = await supabase
+        .from('businesses')
+        .select('*')
+        .eq('user_id', userData.user.id)
+        .order('created_at', { ascending: false })
+
+      const business = businesses?.[0]
+
+      if (!business) {
+        router.push('/business/create')
+        return
+      }
+
+      const response = await fetch(
+        '/api/create-subscription-checkout',
+        {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            plan,
+            businessId: business.id,
+          }),
+        }
+      )
+
+      const result = await response.json()
+
+      if (!response.ok) {
+        alert(result.error || 'Something went wrong')
+        return
+      }
+
+      window.location.href = result.url
+    } catch (error) {
+      console.error(error)
+      alert('Unable to create checkout session')
+    } finally {
+      setLoadingPlan(null)
     }
-
-    const { data: businesses } = await supabase
-      .from('businesses')
-      .select('*')
-      .eq('user_id', userData.user.id)
-      .order('created_at', { ascending: false })
-
-    const business = businesses?.[0]
-
-    if (!business) {
-      router.push('/business/create')
-      return
-    }
-
-    const { error } = await supabase
-      .from('businesses')
-      .update({
-        plan,
-        subscription_status: 'trial',
-      })
-      .eq('id', business.id)
-
-    if (error) {
-      alert(error.message)
-      return
-    }
-
-    router.push('/dashboard')
   }
 
   return (
@@ -100,64 +135,12 @@ export default function OnboardingPlanPage() {
           </h1>
 
           <p className="text-slate-400 text-lg">
-            Start your 7-day free trial. No payment taken today.
+            Start your 7-day free trial today.
           </p>
-        </div>
 
-        <div className="grid lg:grid-cols-3 gap-8">
-          {plans.map((plan) => (
-            <div
-              key={plan.id}
-              className={`rounded-3xl p-8 border ${
-                plan.highlighted
-                  ? 'bg-sky-500/10 border-sky-400'
-                  : 'bg-slate-900 border-slate-800'
-              }`}
-            >
-              {plan.highlighted && (
-                <div className="inline-flex mb-5 rounded-full bg-sky-400 text-slate-950 text-sm font-bold px-4 py-2">
-                  Most popular
-                </div>
-              )}
-
-              <h2 className="text-3xl font-bold mb-3">
-                {plan.name}
-              </h2>
-
-              <div className="mb-5">
-                <span className="text-5xl font-bold">
-                  {plan.price}
-                </span>
-                <span className="text-slate-400">
-                  /month
-                </span>
-              </div>
-
-              <p className="text-slate-400 mb-8">
-                {plan.description}
-              </p>
-
-              <div className="space-y-3 mb-8">
-                {plan.features.map((feature) => (
-                  <div key={feature} className="flex gap-3">
-                    <span className="text-green-400">✓</span>
-                    <span>{feature}</span>
-                  </div>
-                ))}
-              </div>
-
-              <button
-                onClick={() => choosePlan(plan.id)}
-                className={`w-full h-14 rounded-xl font-bold ${
-                  plan.highlighted
-                    ? 'bg-sky-400 text-slate-950'
-                    : 'bg-white text-slate-950'
-                }`}
-              >
-                Start free trial →
-              </button>
-            </div>
-          ))}
+          <p className="text-slate-500 mt-2">
+            No payment taken until your trial ends. All prices exclude VAT.
+          </p>
         </div>
       </div>
     </main>
