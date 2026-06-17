@@ -19,6 +19,20 @@ type Booking = {
   booking_time: string
 }
 
+type CustomerPackage = {
+  id: string
+  package_id: string
+  sessions_purchased: number
+  sessions_used: number
+  sessions_remaining: number
+  status: string
+  packages:
+    | {
+        name: string
+      }[]
+    | null
+}
+
 type Props = {
   businessId: string
   services: Service[]
@@ -69,10 +83,18 @@ export default function BookingForm({
   const [email, setEmail] = useState('')
   const [phone, setPhone] = useState('')
 
+  const [customerPackage, setCustomerPackage] =
+    useState<CustomerPackage | null>(null)
+  const [usePackageSession, setUsePackageSession] = useState(false)
+  const [packageMessage, setPackageMessage] = useState('')
+  const [packageRemainingAfterBooking, setPackageRemainingAfterBooking] =
+    useState<number | null>(null)
+
   const [voucherCode, setVoucherCode] = useState('')
   const [voucherMessage, setVoucherMessage] = useState('')
   const [voucherAmountUsed, setVoucherAmountUsed] = useState(0)
-  const [remainingVoucherBalance, setRemainingVoucherBalance] = useState<number | null>(null)
+  const [remainingVoucherBalance, setRemainingVoucherBalance] =
+    useState<number | null>(null)
 
   const [message, setMessage] = useState('')
   const [success, setSuccess] = useState(false)
@@ -81,6 +103,10 @@ export default function BookingForm({
   const selectedServiceDetails = services.find(
     (service) => service.id === selectedService
   )
+
+  const packageName = Array.isArray(customerPackage?.packages)
+    ? customerPackage?.packages?.[0]?.name
+    : undefined
 
   const dateOptions = useMemo(() => {
     const dates = []
@@ -143,11 +169,71 @@ export default function BookingForm({
     loadBookedTimes()
   }, [businessId, selectedTeamMember, selectedDate])
 
+  useEffect(() => {
+  async function loadCustomerPackage() {
+    setCustomerPackage(null)
+    setUsePackageSession(false)
+    setPackageMessage('')
+    setPackageRemainingAfterBooking(null)
+
+    const cleanEmail = email.trim()
+
+    if (!cleanEmail || !cleanEmail.includes('@')) return
+
+    const { data: matchingCustomers, error: customerError } = await supabase
+      .from('customers')
+      .select('id, email')
+      .ilike('email', cleanEmail)
+
+    console.log('PACKAGE CUSTOMER LOOKUP:', matchingCustomers, customerError)
+
+    if (
+      customerError ||
+      !matchingCustomers ||
+      matchingCustomers.length === 0
+    ) {
+      return
+    }
+
+    const customerIds = matchingCustomers.map((customer) => customer.id)
+
+    const { data, error } = await supabase
+      .from('customer_packages')
+      .select(`
+        id,
+        package_id,
+        sessions_purchased,
+        sessions_used,
+        sessions_remaining,
+        status,
+        packages (
+          name
+        )
+      `)
+      .in('customer_id', customerIds)
+      .eq('status', 'active')
+      .gt('sessions_remaining', 0)
+      .order('purchase_date', { ascending: true })
+      .limit(1)
+      .maybeSingle()
+
+    console.log('CUSTOMER PACKAGE LOOKUP:', data, error)
+
+    if (error || !data) return
+
+    setCustomerPackage(data as CustomerPackage)
+  }
+
+  loadCustomerPackage()
+}, [businessId, email])
+
   async function createBooking() {
     setMessage('')
     setVoucherMessage('')
     setVoucherAmountUsed(0)
     setRemainingVoucherBalance(null)
+    setPackageMessage('')
+    setPackageRemainingAfterBooking(null)
 
     if (
       !selectedService ||
@@ -173,7 +259,7 @@ export default function BookingForm({
       .from('customers')
       .select('*')
       .eq('business_id', businessId)
-      .eq('email', email)
+      .ilike('email', email.trim())
       .maybeSingle()
 
     let customerId = existingCustomer?.id
@@ -200,6 +286,20 @@ export default function BookingForm({
       customerId = newCustomer.id
     }
 
+    let packageSessionUsed = false
+    let customerPackageId: string | null = null
+
+    if (usePackageSession && customerPackage) {
+      if (customerPackage.sessions_remaining <= 0) {
+        setMessage('This package has no sessions remaining.')
+        setLoading(false)
+        return
+      }
+
+      packageSessionUsed = true
+      customerPackageId = customerPackage.id
+    }
+
     const { data: bookingData, error: bookingError } = await supabase
       .from('bookings')
       .insert({
@@ -210,6 +310,8 @@ export default function BookingForm({
         booking_date: selectedDate,
         booking_time: selectedTime,
         status: 'confirmed',
+        customer_package_id: customerPackageId,
+        package_session_used: packageSessionUsed,
       })
       .select('id')
       .single()
@@ -220,7 +322,33 @@ export default function BookingForm({
       return
     }
 
-    if (voucherCode.trim()) {
+    if (packageSessionUsed && customerPackage) {
+      const newUsed = customerPackage.sessions_used + 1
+      const newRemaining = customerPackage.sessions_remaining - 1
+      const newStatus = newRemaining <= 0 ? 'used' : 'active'
+
+      const { error: packageError } = await supabase
+        .from('customer_packages')
+        .update({
+          sessions_used: newUsed,
+          sessions_remaining: newRemaining,
+          status: newStatus,
+        })
+        .eq('id', customerPackage.id)
+
+      if (packageError) {
+        setPackageMessage(packageError.message)
+      } else {
+        setPackageRemainingAfterBooking(newRemaining)
+        setPackageMessage(
+          `This booking used 1 session from your package. ${newRemaining} session${
+            newRemaining === 1 ? '' : 's'
+          } remaining. No payment is due for this appointment.`
+        )
+      }
+    }
+
+    if (!packageSessionUsed && voucherCode.trim()) {
       const response = await fetch('/api/redeem-voucher', {
         method: 'POST',
         headers: {
@@ -263,7 +391,9 @@ export default function BookingForm({
           ✓
         </div>
 
-        <h2 className="text-3xl font-black mb-4">Booking confirmed</h2>
+        <h2 className="text-3xl font-black mb-4">
+          {usePackageSession ? 'Package booking confirmed' : 'Booking confirmed'}
+        </h2>
 
         <p className={`${textClassName} mb-4`}>
           Your appointment has been booked successfully.
@@ -277,6 +407,34 @@ export default function BookingForm({
           <p className="text-xl font-black">
             {formattedDate} at {selectedTime}
           </p>
+
+          {selectedServiceDetails && (
+            <p className={`${textClassName} mt-2`}>
+              Service: {selectedServiceDetails.name}
+            </p>
+          )}
+
+          {packageMessage && (
+            <div className="mt-5 rounded-2xl border border-emerald-500/30 bg-emerald-500/10 p-5">
+              <p className="font-black text-emerald-300">
+                Package session used successfully
+              </p>
+
+              <p className={`${textClassName} mt-2`}>
+                {packageName || 'Your package'} has been used for this appointment.
+              </p>
+
+              <p className={`${textClassName} mt-2`}>
+                {packageMessage}
+              </p>
+
+              {packageRemainingAfterBooking !== null && (
+                <p className={`${textClassName} mt-2 font-bold`}>
+                  Remaining package sessions: {packageRemainingAfterBooking}
+                </p>
+              )}
+            </div>
+          )}
 
           {voucherMessage && (
             <p className={`${textClassName} mt-4`}>
@@ -482,6 +640,87 @@ export default function BookingForm({
           onChange={(e) => setEmail(e.target.value)}
         />
 
+        {customerPackage && (
+          <div className={`rounded-2xl border p-5 ${innerCardClassName}`}>
+            <p className={`text-sm font-bold uppercase tracking-[0.2em] mb-2 ${mutedClassName}`}>
+              Active package found
+            </p>
+
+            <p className="text-xl font-black">
+              {packageName || 'Customer package'}
+            </p>
+
+            <p className={`${textClassName} mt-2`}>
+              You have {customerPackage.sessions_remaining} session
+              {customerPackage.sessions_remaining === 1 ? '' : 's'} remaining.
+            </p>
+
+            <p className={`${textClassName} mt-2`}>
+              Choose whether to use one package session for this appointment or pay normally.
+            </p>
+
+            <div className="mt-4 grid md:grid-cols-2 gap-3">
+              <button
+                type="button"
+                onClick={() => {
+                  setUsePackageSession(true)
+                  setVoucherCode('')
+                }}
+                className={`rounded-2xl border p-4 font-bold ${
+                  usePackageSession
+                    ? 'border-transparent text-white'
+                    : `${innerCardClassName}`
+                }`}
+                style={
+                  usePackageSession
+                    ? {
+                        background: `linear-gradient(135deg, ${primaryColour}, ${secondaryColour})`,
+                      }
+                    : undefined
+                }
+              >
+                Use 1 package session
+              </button>
+
+              <button
+                type="button"
+                onClick={() => setUsePackageSession(false)}
+                className={`rounded-2xl border p-4 font-bold ${
+                  !usePackageSession
+                    ? 'border-transparent text-white'
+                    : `${innerCardClassName}`
+                }`}
+                style={
+                  !usePackageSession
+                    ? {
+                        background: `linear-gradient(135deg, ${primaryColour}, ${secondaryColour})`,
+                      }
+                    : undefined
+                }
+              >
+                Pay normally
+              </button>
+            </div>
+
+            {usePackageSession && (
+              <div className="mt-4 rounded-xl border border-emerald-500/30 bg-emerald-500/10 p-4">
+                <p className="font-bold text-emerald-300">
+                  This booking will use 1 package session.
+                </p>
+
+                <p className={`${textClassName} mt-2`}>
+                  No payment will be due for this appointment.
+                </p>
+
+                <p className={`${textClassName} mt-2`}>
+                  Sessions remaining after booking:{' '}
+                  {Math.max(customerPackage.sessions_remaining - 1, 0)}
+                </p>
+              </div>
+            )}
+          </div>
+        )}
+
         <input
           className={`w-full p-4 rounded-2xl border outline-none ${innerCardClassName}`}
           placeholder="Phone number"
@@ -489,12 +728,14 @@ export default function BookingForm({
           onChange={(e) => setPhone(e.target.value)}
         />
 
-        <input
-          className={`w-full p-4 rounded-2xl border outline-none ${innerCardClassName}`}
-          placeholder="Gift voucher code optional"
-          value={voucherCode}
-          onChange={(e) => setVoucherCode(e.target.value.toUpperCase())}
-        />
+        {!usePackageSession && (
+          <input
+            className={`w-full p-4 rounded-2xl border outline-none ${innerCardClassName}`}
+            placeholder="Gift voucher code optional"
+            value={voucherCode}
+            onChange={(e) => setVoucherCode(e.target.value.toUpperCase())}
+          />
+        )}
 
         <button
           type="button"
@@ -505,7 +746,11 @@ export default function BookingForm({
             background: `linear-gradient(135deg, ${primaryColour}, ${secondaryColour})`,
           }}
         >
-          {loading ? 'Booking...' : 'Book appointment'}
+          {loading
+            ? 'Booking...'
+            : usePackageSession
+              ? 'Confirm booking using package'
+              : 'Book appointment'}
         </button>
 
         {message && (

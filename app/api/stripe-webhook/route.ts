@@ -36,9 +36,82 @@ export async function POST(req: Request) {
     if (event.type === 'checkout.session.completed') {
       const session = event.data.object as Stripe.Checkout.Session
 
+      const type = session.metadata?.type
       const bookingId = session.metadata?.booking_id
       const businessId = session.metadata?.business_id
       const plan = session.metadata?.plan
+
+      if (type === 'package_purchase') {
+        const packageId = session.metadata?.package_id
+        const customerFirstName = session.metadata?.customer_first_name || ''
+        const customerLastName = session.metadata?.customer_last_name || ''
+        const customerEmail =
+          session.metadata?.customer_email || session.customer_email || ''
+        const totalSessions = Number(session.metadata?.total_sessions || 0)
+
+        if (!businessId || !packageId || !customerEmail || !totalSessions) {
+          throw new Error('Missing package purchase metadata')
+        }
+
+        const cleanEmail = customerEmail.trim().toLowerCase()
+
+        const { data: existingCustomer, error: existingCustomerError } =
+          await supabase
+            .from('customers')
+            .select('id')
+            .eq('business_id', businessId)
+            .ilike('email', cleanEmail)
+            .maybeSingle()
+
+        if (existingCustomerError) throw existingCustomerError
+
+        let customerId = existingCustomer?.id
+
+        if (!customerId) {
+          const { data: newCustomer, error: newCustomerError } = await supabase
+            .from('customers')
+            .insert({
+              business_id: businessId,
+              first_name: customerFirstName || 'Package',
+              last_name: customerLastName || 'Customer',
+              email: cleanEmail,
+            })
+            .select('id')
+            .single()
+
+          if (newCustomerError) throw newCustomerError
+
+          customerId = newCustomer.id
+        }
+
+        const { data: existingCustomerPackage, error: existingPackageError } =
+          await supabase
+            .from('customer_packages')
+            .select('id')
+            .eq('business_id', businessId)
+            .eq('customer_id', customerId)
+            .eq('package_id', packageId)
+            .eq('status', 'active')
+            .maybeSingle()
+
+        if (existingPackageError) throw existingPackageError
+
+        if (!existingCustomerPackage) {
+          const { error: customerPackageError } = await supabase
+            .from('customer_packages')
+            .insert({
+              business_id: businessId,
+              customer_id: customerId,
+              package_id: packageId,
+              sessions_purchased: totalSessions,
+              sessions_used: 0,
+              sessions_remaining: totalSessions,
+              status: 'active',
+            })
+
+          if (customerPackageError) throw customerPackageError
+        }
+      }
 
       if (bookingId) {
         const { error } = await supabase
@@ -146,11 +219,11 @@ export async function POST(req: Request) {
     }
 
     return NextResponse.json({ received: true })
-  } catch (error) {
+  } catch (error: any) {
     console.error('Webhook handling error:', error)
 
     return NextResponse.json(
-      { error: 'Webhook handling failed' },
+      { error: error.message || 'Webhook handling failed' },
       { status: 500 }
     )
   }

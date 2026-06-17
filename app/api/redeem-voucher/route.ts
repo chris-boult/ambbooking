@@ -31,9 +31,10 @@ export async function POST(request: Request) {
       )
     }
 
-   const { data: voucher, error: voucherError } = await supabase
+  const { data: voucher, error: voucherError } = await supabase
   .from('gift_vouchers')
   .select('*')
+  .eq('business_id', business_id)
   .eq('code', cleanCode)
   .maybeSingle()
 
