@@ -4,10 +4,20 @@ import { useEffect, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { supabase } from '@/lib/supabase'
 
+type Service = {
+  id: string
+  name: string
+  duration_minutes: number
+  price: number
+  payment_type: string
+  deposit_amount: number
+}
+
 export default function OnboardingServicesPage() {
   const router = useRouter()
 
   const [businessId, setBusinessId] = useState('')
+  const [services, setServices] = useState<Service[]>([])
   const [loading, setLoading] = useState(false)
 
   const [name, setName] = useState('')
@@ -17,38 +27,69 @@ export default function OnboardingServicesPage() {
   const [paymentType, setPaymentType] = useState('none')
   const [depositAmount, setDepositAmount] = useState('')
 
-  const [services, setServices] = useState<any[]>([])
-
   useEffect(() => {
     loadBusiness()
   }, [])
 
   async function loadBusiness() {
-    const { data } = await supabase.auth.getUser()
+    const { data: userData } = await supabase.auth.getUser()
 
-    if (!data.user) return
+    if (!userData.user) {
+      router.push('/login')
+      return
+    }
 
-    const { data: business } = await supabase
+    const { data: businesses, error } = await supabase
       .from('businesses')
       .select('*')
-      .eq('user_id', data.user.id)
-      .single()
+      .eq('user_id', userData.user.id)
+      .order('created_at', { ascending: false })
 
-    if (!business) return
+    if (error) {
+      alert(error.message)
+      return
+    }
+
+    if (!businesses || businesses.length === 0) {
+      alert('No business found')
+      router.push('/business/create')
+      return
+    }
+
+    const business = businesses[0]
 
     setBusinessId(business.id)
 
-    const { data: serviceData } = await supabase
+    const { data: servicesData } = await supabase
       .from('services')
       .select('*')
       .eq('business_id', business.id)
+      .order('created_at', { ascending: false })
 
-    setServices(serviceData || [])
+    setServices((servicesData || []) as Service[])
   }
 
   async function addService() {
-    if (!name || !price) {
-      alert('Please complete service name and price')
+    if (!businessId) {
+      alert('Business not loaded yet')
+      return
+    }
+
+    if (!name.trim()) {
+      alert('Please enter a service name')
+      return
+    }
+
+    if (!price) {
+      alert('Please enter a price')
+      return
+    }
+
+    if (
+      paymentType === 'deposit' &&
+      (!depositAmount || Number(depositAmount) <= 0)
+    ) {
+      alert('Please enter a deposit amount')
       return
     }
 
@@ -90,7 +131,6 @@ export default function OnboardingServicesPage() {
   return (
     <main className="min-h-screen bg-slate-950 text-white">
       <div className="max-w-6xl mx-auto px-6 py-16">
-
         <div className="mb-12">
           <div className="text-sky-400 font-semibold mb-3">
             STEP 2 OF 5
@@ -106,15 +146,12 @@ export default function OnboardingServicesPage() {
         </div>
 
         <div className="grid lg:grid-cols-2 gap-8">
-
           <div className="bg-slate-900 border border-slate-800 rounded-3xl p-8">
-
             <h2 className="text-2xl font-bold mb-6">
               New Service
             </h2>
 
             <div className="space-y-4">
-
               <input
                 className="w-full p-4 rounded-xl bg-slate-800"
                 placeholder="Service Name"
@@ -150,7 +187,6 @@ export default function OnboardingServicesPage() {
               />
 
               <div className="space-y-3">
-
                 <label className="flex gap-3">
                   <input
                     type="radio"
@@ -177,7 +213,6 @@ export default function OnboardingServicesPage() {
                   />
                   Full payment required
                 </label>
-
               </div>
 
               {paymentType === 'deposit' && (
@@ -185,32 +220,26 @@ export default function OnboardingServicesPage() {
                   className="w-full p-4 rounded-xl bg-slate-800"
                   placeholder="Deposit Amount (£)"
                   value={depositAmount}
-                  onChange={(e) =>
-                    setDepositAmount(e.target.value)
-                  }
+                  onChange={(e) => setDepositAmount(e.target.value)}
                 />
               )}
 
               <button
                 onClick={addService}
                 disabled={loading}
-                className="w-full h-14 rounded-xl bg-sky-500 font-semibold"
+                className="w-full h-14 rounded-xl bg-sky-500 hover:bg-sky-600 font-semibold"
               >
-                Add Service
+                {loading ? 'Adding Service...' : 'Add Service'}
               </button>
-
             </div>
-
           </div>
 
           <div className="bg-slate-900 border border-slate-800 rounded-3xl p-8">
-
             <h2 className="text-2xl font-bold mb-6">
               Your Services
             </h2>
 
             <div className="space-y-4">
-
               {services.map((service) => (
                 <div
                   key={service.id}
@@ -237,6 +266,11 @@ export default function OnboardingServicesPage() {
                 </div>
               ))}
 
+              {services.length === 0 && (
+                <div className="text-slate-500">
+                  No services added yet.
+                </div>
+              )}
             </div>
 
             <button
@@ -245,11 +279,8 @@ export default function OnboardingServicesPage() {
             >
               Continue →
             </button>
-
           </div>
-
         </div>
-
       </div>
     </main>
   )
