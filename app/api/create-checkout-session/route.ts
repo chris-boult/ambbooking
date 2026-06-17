@@ -291,7 +291,7 @@ const stripe = new Stripe(stripeSecretKey)
         amount_due: String(amountDue),
         customer_name: customerName,
       },
-      success_url: `${process.env.NEXT_PUBLIC_APP_URL}/booking-success?session_id={CHECKOUT_SESSION_ID}`,
+      success_url: `${baseUrl}/booking-success?session_id={CHECKOUT_SESSION_ID}`,
       cancel_url: `${baseUrl}/booking-cancelled?booking_id=${booking.id}`,
     })
 
