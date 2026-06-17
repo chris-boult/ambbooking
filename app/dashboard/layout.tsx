@@ -23,11 +23,11 @@ export default function DashboardLayout({
       <div className="relative z-10 flex min-h-screen">
         <aside className="hidden lg:flex w-64 shrink-0 flex-col border-r border-white/10 bg-black/50 backdrop-blur-2xl px-6 py-7">
           <Link href="/dashboard" className="mb-10 block">
-            <img
-              src="/amb360-logo.png"
-              alt="AMB360"
-              className="w-36 h-auto"
-            />
+           <img
+  src="/logo.png"
+  alt="AMB360"
+  className="w-40 h-auto block"
+/>
 
             <div className="mt-4 text-[10px] uppercase tracking-[0.45em] text-slate-500">
               BOOKING
