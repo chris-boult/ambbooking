@@ -12,7 +12,7 @@ export default function DashboardLayout({
     { name: 'Customers', href: '/dashboard/customers' },
     { name: 'Services', href: '/dashboard/services' },
     { name: 'Team', href: '/dashboard/team' },
-    { name: 'Insights', href: '/dashboard/reports' },
+    { name: 'Reports', href: '/dashboard/reports' },
     { name: 'Settings', href: '/dashboard/settings' },
   ]
 
@@ -23,13 +23,13 @@ export default function DashboardLayout({
       <div className="relative z-10 flex min-h-screen">
         <aside className="hidden lg:flex w-64 shrink-0 flex-col border-r border-white/10 bg-black/50 backdrop-blur-2xl px-6 py-7">
           <Link href="/dashboard" className="mb-10 block">
-    <div className="rounded-2xl border border-white/10 bg-white/[0.06] p-4">
-  <img
-    src="/logo.png"
-    alt="AMB360"
-    className="w-40 h-auto block"
-  />
-</div>
+            <div className="rounded-2xl border border-white/10 bg-black p-4">
+              <img
+                src="/logo.png"
+                alt="AMB360"
+                className="block w-full max-w-[170px] h-auto"
+              />
+            </div>
 
             <div className="mt-4 text-[10px] uppercase tracking-[0.45em] text-slate-500">
               BOOKING
@@ -53,9 +53,7 @@ export default function DashboardLayout({
               Trial Active
             </div>
 
-            <div className="text-lg font-bold">
-              Growth Plan
-            </div>
+            <div className="text-lg font-bold">Growth Plan</div>
 
             <p className="mt-2 text-sm text-slate-400">
               Your booking system is live.
