@@ -12,6 +12,7 @@ type Business = {
   primary_colour: string | null
   secondary_colour: string | null
   business_description: string | null
+  brand_theme: string | null
 }
 
 type TeamMember = {
@@ -31,6 +32,44 @@ type StaffUser = {
     | null
 }
 
+const brandThemes = [
+  {
+    id: 'classic_dark',
+    name: 'Classic dark',
+    description: 'Premium dark style with soft gradients.',
+  },
+  {
+    id: 'clean_light',
+    name: 'Clean light',
+    description: 'Bright, minimal and simple.',
+  },
+  {
+    id: 'luxury_gold',
+    name: 'Luxury gold',
+    description: 'Black, gold and premium feel.',
+  },
+  {
+    id: 'clinic_rose',
+    name: 'Clinic rose',
+    description: 'Soft, elegant and ideal for beauty or clinics.',
+  },
+  {
+    id: 'electric_blue',
+    name: 'Electric blue',
+    description: 'Modern, sharp and energetic.',
+  },
+  {
+    id: 'forest_green',
+    name: 'Forest green',
+    description: 'Calm, natural and professional.',
+  },
+  {
+    id: 'monochrome',
+    name: 'Monochrome',
+    description: 'Black, white and timeless.',
+  },
+]
+
 export default function SettingsPage() {
   const [business, setBusiness] = useState<Business | null>(null)
   const [teamMembers, setTeamMembers] = useState<TeamMember[]>([])
@@ -43,6 +82,7 @@ export default function SettingsPage() {
   const [primaryColour, setPrimaryColour] = useState('#7c3aed')
   const [secondaryColour, setSecondaryColour] = useState('#2563eb')
   const [businessDescription, setBusinessDescription] = useState('')
+  const [brandTheme, setBrandTheme] = useState('classic_dark')
 
   const [teamMemberId, setTeamMemberId] = useState('')
   const [staffEmail, setStaffEmail] = useState('')
@@ -68,7 +108,8 @@ export default function SettingsPage() {
         hero_image_url,
         primary_colour,
         secondary_colour,
-        business_description
+        business_description,
+        brand_theme
       `)
       .eq('user_id', userData.user.id)
       .order('created_at', { ascending: false })
@@ -86,6 +127,7 @@ export default function SettingsPage() {
     setPrimaryColour(businessData.primary_colour || '#7c3aed')
     setSecondaryColour(businessData.secondary_colour || '#2563eb')
     setBusinessDescription(businessData.business_description || '')
+    setBrandTheme(businessData.brand_theme || 'classic_dark')
 
     const { data: teamData } = await supabase
       .from('team_members')
@@ -132,6 +174,7 @@ export default function SettingsPage() {
         primary_colour: primaryColour,
         secondary_colour: secondaryColour,
         business_description: businessDescription,
+        brand_theme: brandTheme,
       })
       .eq('id', business.id)
 
@@ -183,6 +226,8 @@ export default function SettingsPage() {
 
     loadSettings()
   }
+
+  const selectedTheme = brandThemes.find((theme) => theme.id === brandTheme)
 
   const bookingUrl =
     typeof window !== 'undefined' && slug
@@ -253,7 +298,29 @@ export default function SettingsPage() {
         <section className="bg-slate-900 border border-slate-800 rounded-2xl p-6">
           <h2 className="text-2xl font-bold mb-6">Branding</h2>
 
-          <div className="space-y-4">
+          <div className="space-y-5">
+            <div>
+              <label className="block text-slate-400 mb-2">Brand theme</label>
+
+              <select
+                className="w-full p-3 rounded-lg bg-slate-800 border border-slate-700"
+                value={brandTheme}
+                onChange={(e) => setBrandTheme(e.target.value)}
+              >
+                {brandThemes.map((theme) => (
+                  <option key={theme.id} value={theme.id}>
+                    {theme.name}
+                  </option>
+                ))}
+              </select>
+
+              {selectedTheme && (
+                <p className="text-slate-500 text-sm mt-2">
+                  {selectedTheme.description}
+                </p>
+              )}
+            </div>
+
             <div>
               <label className="block text-slate-400 mb-2">Logo URL</label>
               <input
@@ -311,7 +378,8 @@ export default function SettingsPage() {
                 {businessName || 'Your Business'}
               </h3>
               <p className="text-white/80 mt-2">
-                {businessDescription || 'Your customer-facing booking page will use these colours.'}
+                {businessDescription ||
+                  'Your customer-facing booking page will use your selected theme and brand assets.'}
               </p>
             </div>
 
