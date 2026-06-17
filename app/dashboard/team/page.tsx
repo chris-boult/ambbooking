@@ -1,5 +1,6 @@
 'use client'
 
+import RoleGuard from '@/components/RoleGuard'
 import { useEffect, useState } from 'react'
 import { supabase } from '@/lib/supabase'
 

@@ -13,6 +13,14 @@ type Customer = {
   vip: boolean | null
   marketing_opt_in: boolean | null
   last_visit: string | null
+  customer_source: string | null
+  tags: string[] | null
+  preferred_team_member_id: string | null
+  preferred_service_id: string | null
+  birthday: string | null
+  no_show_count: number | null
+  outstanding_balance: number | null
+  archived: boolean | null
 }
 
 type Booking = {
@@ -36,6 +44,17 @@ type Note = {
   created_at: string
 }
 
+type TeamMember = {
+  id: string
+  full_name: string
+}
+
+type Service = {
+  id: string
+  name: string
+  price: number
+}
+
 type CustomerWithStats = Customer & {
   totalBookings: number
   totalSpend: number
@@ -47,12 +66,31 @@ type CustomerWithStats = Customer & {
 
 export default function CustomersPage() {
   const [customers, setCustomers] = useState<CustomerWithStats[]>([])
+  const [teamMembers, setTeamMembers] = useState<TeamMember[]>([])
+  const [services, setServices] = useState<Service[]>([])
   const [businessId, setBusinessId] = useState('')
   const [selectedCustomerId, setSelectedCustomerId] = useState<string | null>(null)
 
   const [note, setNote] = useState('')
   const [message, setMessage] = useState('')
   const [searchTerm, setSearchTerm] = useState('')
+  const [showArchived, setShowArchived] = useState(false)
+  const [showAddCustomer, setShowAddCustomer] = useState(false)
+
+  const [newFirstName, setNewFirstName] = useState('')
+  const [newLastName, setNewLastName] = useState('')
+  const [newEmail, setNewEmail] = useState('')
+  const [newPhone, setNewPhone] = useState('')
+  const [newNotes, setNewNotes] = useState('')
+  const [newVip, setNewVip] = useState(false)
+  const [newMarketingOptIn, setNewMarketingOptIn] = useState(true)
+  const [newSource, setNewSource] = useState('')
+  const [newTags, setNewTags] = useState('')
+  const [newPreferredTeamMemberId, setNewPreferredTeamMemberId] = useState('')
+  const [newPreferredServiceId, setNewPreferredServiceId] = useState('')
+  const [newBirthday, setNewBirthday] = useState('')
+  const [newNoShowCount, setNewNoShowCount] = useState('0')
+  const [newOutstandingBalance, setNewOutstandingBalance] = useState('0')
 
   const [isEditing, setIsEditing] = useState(false)
   const [editFirstName, setEditFirstName] = useState('')
@@ -63,8 +101,17 @@ export default function CustomersPage() {
   const [editVip, setEditVip] = useState(false)
   const [editMarketingOptIn, setEditMarketingOptIn] = useState(true)
   const [editLastVisit, setEditLastVisit] = useState('')
+  const [editSource, setEditSource] = useState('')
+  const [editTags, setEditTags] = useState('')
+  const [editPreferredTeamMemberId, setEditPreferredTeamMemberId] = useState('')
+  const [editPreferredServiceId, setEditPreferredServiceId] = useState('')
+  const [editBirthday, setEditBirthday] = useState('')
+  const [editNoShowCount, setEditNoShowCount] = useState('0')
+  const [editOutstandingBalance, setEditOutstandingBalance] = useState('0')
 
   const filteredCustomers = customers.filter((customer) => {
+    if (!showArchived && customer.archived) return false
+
     const search = searchTerm.trim().toLowerCase()
 
     if (!search) return true
@@ -73,12 +120,16 @@ export default function CustomersPage() {
     const email = customer.email?.toLowerCase() || ''
     const phone = customer.phone?.toLowerCase() || ''
     const notes = customer.notes?.toLowerCase() || ''
+    const source = customer.customer_source?.toLowerCase() || ''
+    const tags = customer.tags?.join(' ').toLowerCase() || ''
 
     return (
       fullName.includes(search) ||
       email.includes(search) ||
       phone.includes(search) ||
-      notes.includes(search)
+      notes.includes(search) ||
+      source.includes(search) ||
+      tags.includes(search)
     )
   })
 
@@ -88,6 +139,23 @@ export default function CustomersPage() {
   useEffect(() => {
     loadData()
   }, [])
+
+  function parseTags(value: string) {
+    return value
+      .split(',')
+      .map((tag) => tag.trim())
+      .filter(Boolean)
+  }
+
+  function getTeamMemberName(id: string | null) {
+    if (!id) return 'Not set'
+    return teamMembers.find((member) => member.id === id)?.full_name || 'Unknown'
+  }
+
+  function getServiceName(id: string | null) {
+    if (!id) return 'Not set'
+    return services.find((service) => service.id === id)?.name || 'Unknown'
+  }
 
   async function loadData() {
     const { data: userData } = await supabase.auth.getUser()
@@ -103,6 +171,21 @@ export default function CustomersPage() {
 
     setBusinessId(business.id)
 
+    const { data: teamData } = await supabase
+      .from('team_members')
+      .select('id,full_name')
+      .eq('business_id', business.id)
+      .order('full_name')
+
+    const { data: serviceData } = await supabase
+      .from('services')
+      .select('id,name,price')
+      .eq('business_id', business.id)
+      .order('name')
+
+    setTeamMembers((teamData as TeamMember[] | null) || [])
+    setServices((serviceData as Service[] | null) || [])
+
     const { data: customerData } = await supabase
       .from('customers')
       .select(`
@@ -116,6 +199,14 @@ export default function CustomersPage() {
         vip,
         marketing_opt_in,
         last_visit,
+        customer_source,
+        tags,
+        preferred_team_member_id,
+        preferred_service_id,
+        birthday,
+        no_show_count,
+        outstanding_balance,
+        archived,
         created_at
       `)
       .eq('business_id', business.id)
@@ -186,6 +277,69 @@ export default function CustomersPage() {
     setCustomers(enriched)
   }
 
+  function resetNewCustomerForm() {
+    setNewFirstName('')
+    setNewLastName('')
+    setNewEmail('')
+    setNewPhone('')
+    setNewNotes('')
+    setNewVip(false)
+    setNewMarketingOptIn(true)
+    setNewSource('')
+    setNewTags('')
+    setNewPreferredTeamMemberId('')
+    setNewPreferredServiceId('')
+    setNewBirthday('')
+    setNewNoShowCount('0')
+    setNewOutstandingBalance('0')
+  }
+
+  async function addCustomerManually() {
+    if (!businessId) {
+      setMessage('Business not loaded.')
+      return
+    }
+
+    if (!newFirstName.trim()) {
+      setMessage('First name is required.')
+      return
+    }
+
+    const { data, error } = await supabase
+      .from('customers')
+      .insert({
+        business_id: businessId,
+        first_name: newFirstName.trim(),
+        last_name: newLastName.trim() || null,
+        email: newEmail.trim() || null,
+        phone: newPhone.trim() || null,
+        notes: newNotes.trim() || null,
+        vip: newVip,
+        marketing_opt_in: newMarketingOptIn,
+        customer_source: newSource.trim() || null,
+        tags: parseTags(newTags),
+        preferred_team_member_id: newPreferredTeamMemberId || null,
+        preferred_service_id: newPreferredServiceId || null,
+        birthday: newBirthday || null,
+        no_show_count: Number(newNoShowCount || 0),
+        outstanding_balance: Number(newOutstandingBalance || 0),
+        archived: false,
+      })
+      .select()
+      .single()
+
+    if (error) {
+      setMessage(error.message)
+      return
+    }
+
+    resetNewCustomerForm()
+    setShowAddCustomer(false)
+    setSelectedCustomerId(data.id)
+    setMessage('Customer added successfully.')
+    loadData()
+  }
+
   function startEditing(customer: CustomerWithStats) {
     setIsEditing(true)
     setMessage('')
@@ -197,6 +351,13 @@ export default function CustomersPage() {
     setEditVip(Boolean(customer.vip))
     setEditMarketingOptIn(customer.marketing_opt_in !== false)
     setEditLastVisit(customer.last_visit || '')
+    setEditSource(customer.customer_source || '')
+    setEditTags(customer.tags?.join(', ') || '')
+    setEditPreferredTeamMemberId(customer.preferred_team_member_id || '')
+    setEditPreferredServiceId(customer.preferred_service_id || '')
+    setEditBirthday(customer.birthday || '')
+    setEditNoShowCount(String(customer.no_show_count || 0))
+    setEditOutstandingBalance(String(customer.outstanding_balance || 0))
   }
 
   async function saveCustomerChanges() {
@@ -213,6 +374,13 @@ export default function CustomersPage() {
         vip: editVip,
         marketing_opt_in: editMarketingOptIn,
         last_visit: editLastVisit || null,
+        customer_source: editSource || null,
+        tags: parseTags(editTags),
+        preferred_team_member_id: editPreferredTeamMemberId || null,
+        preferred_service_id: editPreferredServiceId || null,
+        birthday: editBirthday || null,
+        no_show_count: Number(editNoShowCount || 0),
+        outstanding_balance: Number(editOutstandingBalance || 0),
       })
       .eq('id', selectedCustomer.id)
 
@@ -226,9 +394,47 @@ export default function CustomersPage() {
     loadData()
   }
 
+  async function archiveCustomer(customer: CustomerWithStats) {
+    const confirmed = window.confirm(
+      `Archive ${customer.first_name} ${customer.last_name || ''}?`
+    )
+
+    if (!confirmed) return
+
+    const { error } = await supabase
+      .from('customers')
+      .update({ archived: true })
+      .eq('id', customer.id)
+
+    if (error) {
+      setMessage(error.message)
+      return
+    }
+
+    setSelectedCustomerId(null)
+    setIsEditing(false)
+    setMessage('Customer archived successfully.')
+    loadData()
+  }
+
+  async function restoreCustomer(customer: CustomerWithStats) {
+    const { error } = await supabase
+      .from('customers')
+      .update({ archived: false })
+      .eq('id', customer.id)
+
+    if (error) {
+      setMessage(error.message)
+      return
+    }
+
+    setMessage('Customer restored successfully.')
+    loadData()
+  }
+
   async function deleteCustomer(customer: CustomerWithStats) {
     const confirmed = window.confirm(
-      `Delete ${customer.first_name} ${customer.last_name || ''}?`
+      `Permanently delete ${customer.first_name} ${customer.last_name || ''}? This cannot be undone.`
     )
 
     if (!confirmed) return
@@ -252,7 +458,7 @@ export default function CustomersPage() {
 
     setSelectedCustomerId(null)
     setIsEditing(false)
-    setMessage('Customer deleted successfully.')
+    setMessage('Customer deleted permanently.')
     loadData()
   }
 
@@ -303,29 +509,329 @@ export default function CustomersPage() {
     loadData()
   }
 
+  function exportCustomersCsv() {
+    const rows = filteredCustomers.map((customer) => ({
+      first_name: customer.first_name || '',
+      last_name: customer.last_name || '',
+      email: customer.email || '',
+      phone: customer.phone || '',
+      vip: customer.vip ? 'Yes' : 'No',
+      marketing_opt_in: customer.marketing_opt_in === false ? 'No' : 'Yes',
+      source: customer.customer_source || '',
+      tags: customer.tags?.join('|') || '',
+      birthday: customer.birthday || '',
+      no_show_count: customer.no_show_count || 0,
+      outstanding_balance: customer.outstanding_balance || 0,
+      total_bookings: customer.totalBookings,
+      total_spend: customer.totalSpend,
+      archived: customer.archived ? 'Yes' : 'No',
+    }))
+
+    const headers = Object.keys(rows[0] || {
+      first_name: '',
+      last_name: '',
+      email: '',
+      phone: '',
+      vip: '',
+      marketing_opt_in: '',
+      source: '',
+      tags: '',
+      birthday: '',
+      no_show_count: '',
+      outstanding_balance: '',
+      total_bookings: '',
+      total_spend: '',
+      archived: '',
+    })
+
+    const csv = [
+      headers.join(','),
+      ...rows.map((row) =>
+        headers
+          .map((header) => {
+            const value = String((row as Record<string, string | number>)[header] ?? '')
+            return `"${value.replace(/"/g, '""')}"`
+          })
+          .join(',')
+      ),
+    ].join('\n')
+
+    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' })
+    const url = URL.createObjectURL(blob)
+    const link = document.createElement('a')
+
+    link.href = url
+    link.download = 'customers.csv'
+    link.click()
+
+    URL.revokeObjectURL(url)
+  }
+
   return (
     <div>
-      <div className="mb-10">
-        <p className="text-slate-400 mb-2">CRM</p>
-        <h1 className="text-4xl font-bold mb-2">Customers</h1>
-        <p className="text-slate-500">
-          View customer history, CRM notes, VIP status and lifetime value.
-        </p>
+      <div className="mb-10 flex flex-col lg:flex-row lg:items-end lg:justify-between gap-6">
+        <div>
+          <p className="text-slate-400 mb-2">CRM</p>
+          <h1 className="text-4xl font-bold mb-2">Customers</h1>
+          <p className="text-slate-500">
+            View customer history, CRM notes, VIP status and lifetime value.
+          </p>
+        </div>
+
+        <div className="flex flex-wrap gap-3">
+          <button
+            type="button"
+            onClick={() => setShowAddCustomer((value) => !value)}
+            className="bg-white text-slate-950 font-bold px-5 py-3 rounded-xl"
+          >
+            {showAddCustomer ? 'Close add form' : 'Add customer'}
+          </button>
+
+          <button
+            type="button"
+            onClick={exportCustomersCsv}
+            className="bg-slate-800 hover:bg-slate-700 font-bold px-5 py-3 rounded-xl"
+          >
+            Export CSV
+          </button>
+        </div>
       </div>
 
+      {message && (
+        <div className="bg-slate-900 border border-slate-800 rounded-2xl p-4 mb-8 text-slate-300">
+          {message}
+        </div>
+      )}
+
+      {showAddCustomer && (
+        <section className="bg-slate-900 border border-slate-800 rounded-2xl p-6 mb-10">
+          <div className="mb-6">
+            <h2 className="text-2xl font-bold">Add customer manually</h2>
+            <p className="text-slate-500 mt-1">
+              Add CRM details, preferences, notes and commercial status.
+            </p>
+          </div>
+
+          <div className="space-y-8">
+            <div>
+              <h3 className="text-sm font-bold uppercase tracking-[0.2em] text-slate-500 mb-4">
+                Basic details
+              </h3>
+
+              <div className="grid md:grid-cols-2 xl:grid-cols-4 gap-4">
+                <div>
+                  <label className="block text-sm text-slate-400 mb-2">First name *</label>
+                  <input
+                    className="w-full p-3 rounded-lg bg-slate-800 border border-slate-700"
+                    placeholder="First name"
+                    value={newFirstName}
+                    onChange={(e) => setNewFirstName(e.target.value)}
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-sm text-slate-400 mb-2">Last name</label>
+                  <input
+                    className="w-full p-3 rounded-lg bg-slate-800 border border-slate-700"
+                    placeholder="Last name"
+                    value={newLastName}
+                    onChange={(e) => setNewLastName(e.target.value)}
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-sm text-slate-400 mb-2">Email</label>
+                  <input
+                    className="w-full p-3 rounded-lg bg-slate-800 border border-slate-700"
+                    placeholder="Email address"
+                    value={newEmail}
+                    onChange={(e) => setNewEmail(e.target.value)}
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-sm text-slate-400 mb-2">Phone</label>
+                  <input
+                    className="w-full p-3 rounded-lg bg-slate-800 border border-slate-700"
+                    placeholder="Phone number"
+                    value={newPhone}
+                    onChange={(e) => setNewPhone(e.target.value)}
+                  />
+                </div>
+              </div>
+            </div>
+
+            <div>
+              <h3 className="text-sm font-bold uppercase tracking-[0.2em] text-slate-500 mb-4">
+                CRM details
+              </h3>
+
+              <div className="grid md:grid-cols-2 xl:grid-cols-4 gap-4">
+                <div>
+                  <label className="block text-sm text-slate-400 mb-2">Customer source</label>
+                  <input
+                    className="w-full p-3 rounded-lg bg-slate-800 border border-slate-700"
+                    placeholder="Instagram, referral, walk-in..."
+                    value={newSource}
+                    onChange={(e) => setNewSource(e.target.value)}
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-sm text-slate-400 mb-2">Tags</label>
+                  <input
+                    className="w-full p-3 rounded-lg bg-slate-800 border border-slate-700"
+                    placeholder="Comma separated, e.g. beard, colour"
+                    value={newTags}
+                    onChange={(e) => setNewTags(e.target.value)}
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-sm text-slate-400 mb-2">Birthday</label>
+                  <input
+                    type="date"
+                    className="w-full p-3 rounded-lg bg-slate-800 border border-slate-700"
+                    value={newBirthday}
+                    onChange={(e) => setNewBirthday(e.target.value)}
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-sm text-slate-400 mb-2">Marketing status</label>
+                  <label className="flex items-center gap-3 bg-slate-800 border border-slate-700 rounded-xl p-3">
+                    <input
+                      type="checkbox"
+                      checked={newMarketingOptIn}
+                      onChange={(e) => setNewMarketingOptIn(e.target.checked)}
+                    />
+                    <span>Marketing opt-in</span>
+                  </label>
+                </div>
+              </div>
+            </div>
+
+            <div>
+              <h3 className="text-sm font-bold uppercase tracking-[0.2em] text-slate-500 mb-4">
+                Preferences
+              </h3>
+
+              <div className="grid md:grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-sm text-slate-400 mb-2">Preferred staff</label>
+                  <select
+                    className="w-full p-3 rounded-lg bg-slate-800 border border-slate-700"
+                    value={newPreferredTeamMemberId}
+                    onChange={(e) => setNewPreferredTeamMemberId(e.target.value)}
+                  >
+                    <option value="">No preferred staff</option>
+                    {teamMembers.map((member) => (
+                      <option key={member.id} value={member.id}>
+                        {member.full_name}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+
+                <div>
+                  <label className="block text-sm text-slate-400 mb-2">Preferred service</label>
+                  <select
+                    className="w-full p-3 rounded-lg bg-slate-800 border border-slate-700"
+                    value={newPreferredServiceId}
+                    onChange={(e) => setNewPreferredServiceId(e.target.value)}
+                  >
+                    <option value="">No preferred service</option>
+                    {services.map((service) => (
+                      <option key={service.id} value={service.id}>
+                        {service.name}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              </div>
+            </div>
+
+            <div>
+              <h3 className="text-sm font-bold uppercase tracking-[0.2em] text-slate-500 mb-4">
+                Commercial status
+              </h3>
+
+              <div className="grid md:grid-cols-3 gap-4">
+                <div>
+                  <label className="block text-sm text-slate-400 mb-2">No-show count</label>
+                  <input
+                    type="number"
+                    min="0"
+                    className="w-full p-3 rounded-lg bg-slate-800 border border-slate-700"
+                    placeholder="0"
+                    value={newNoShowCount}
+                    onChange={(e) => setNewNoShowCount(e.target.value)}
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-sm text-slate-400 mb-2">Outstanding balance (£)</label>
+                  <input
+                    type="number"
+                    step="0.01"
+                    className="w-full p-3 rounded-lg bg-slate-800 border border-slate-700"
+                    placeholder="0.00"
+                    value={newOutstandingBalance}
+                    onChange={(e) => setNewOutstandingBalance(e.target.value)}
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-sm text-slate-400 mb-2">Customer status</label>
+                  <label className="flex items-center gap-3 bg-slate-800 border border-slate-700 rounded-xl p-3">
+                    <input
+                      type="checkbox"
+                      checked={newVip}
+                      onChange={(e) => setNewVip(e.target.checked)}
+                    />
+                    <span>VIP customer</span>
+                  </label>
+                </div>
+              </div>
+            </div>
+
+            <div>
+              <h3 className="text-sm font-bold uppercase tracking-[0.2em] text-slate-500 mb-4">
+                Notes
+              </h3>
+
+              <textarea
+                className="w-full p-3 rounded-lg bg-slate-800 border border-slate-700 min-h-24"
+                placeholder="Profile notes, preferences, usual style, allergies..."
+                value={newNotes}
+                onChange={(e) => setNewNotes(e.target.value)}
+              />
+            </div>
+          </div>
+
+          <button
+            type="button"
+            onClick={addCustomerManually}
+            className="mt-6 bg-white text-slate-950 font-bold px-5 py-3 rounded-xl"
+          >
+            Add customer
+          </button>
+        </section>
+      )}
+
       <div className="grid grid-cols-1 md:grid-cols-4 gap-6 mb-10">
-        <StatCard label="Customers" value={customers.length} />
+        <StatCard label="Customers" value={customers.filter((customer) => !customer.archived).length} />
         <StatCard
           label="VIPs"
-          value={customers.filter((customer) => customer.vip).length}
+          value={customers.filter((customer) => customer.vip && !customer.archived).length}
         />
         <StatCard
           label="Revenue"
           value={`£${customers.reduce((total, c) => total + c.totalSpend, 0)}`}
         />
         <StatCard
-          label="Notes"
-          value={customers.reduce((total, c) => total + c.notesList.length, 0)}
+          label="Outstanding"
+          value={`£${customers.reduce((total, c) => total + Number(c.outstanding_balance || 0), 0)}`}
         />
       </div>
 
@@ -337,6 +843,15 @@ export default function CustomersPage() {
             value={searchTerm}
             onChange={(e) => setSearchTerm(e.target.value)}
           />
+
+          <label className="flex items-center gap-3 bg-slate-900 border border-slate-800 rounded-xl p-4">
+            <input
+              type="checkbox"
+              checked={showArchived}
+              onChange={(e) => setShowArchived(e.target.checked)}
+            />
+            <span className="text-slate-300">Show archived customers</span>
+          </label>
 
           {filteredCustomers.map((customer) => (
             <button
@@ -350,7 +865,7 @@ export default function CustomersPage() {
                 selectedCustomerId === customer.id
                   ? 'border-white'
                   : 'border-slate-800'
-              }`}
+              } ${customer.archived ? 'opacity-50' : ''}`}
             >
               <div className="flex items-start justify-between gap-3">
                 <div>
@@ -361,12 +876,33 @@ export default function CustomersPage() {
                   <p className="text-slate-500 text-sm">{customer.phone}</p>
                 </div>
 
-                {customer.vip && (
-                  <span className="bg-yellow-500/10 text-yellow-300 border border-yellow-500/30 rounded-full px-3 py-1 text-xs font-bold">
-                    VIP
-                  </span>
-                )}
+                <div className="flex flex-col items-end gap-2">
+                  {customer.vip && (
+                    <span className="bg-yellow-500/10 text-yellow-300 border border-yellow-500/30 rounded-full px-3 py-1 text-xs font-bold">
+                      VIP
+                    </span>
+                  )}
+
+                  {customer.archived && (
+                    <span className="bg-slate-700 text-slate-300 border border-slate-600 rounded-full px-3 py-1 text-xs font-bold">
+                      Archived
+                    </span>
+                  )}
+                </div>
               </div>
+
+              {customer.tags && customer.tags.length > 0 && (
+                <div className="flex flex-wrap gap-2 mt-4">
+                  {customer.tags.slice(0, 3).map((tag) => (
+                    <span
+                      key={tag}
+                      className="bg-slate-800 text-slate-300 rounded-full px-3 py-1 text-xs"
+                    >
+                      {tag}
+                    </span>
+                  ))}
+                </div>
+              )}
 
               <div className="grid grid-cols-2 gap-3 mt-4 text-sm">
                 <MiniStat label="Bookings" value={customer.totalBookings} />
@@ -394,7 +930,7 @@ export default function CustomersPage() {
               <section className="bg-slate-900 border border-slate-800 rounded-2xl p-6">
                 <div className="flex flex-col lg:flex-row lg:justify-between gap-4 mb-6">
                   <div>
-                    <div className="flex items-center gap-3 mb-2">
+                    <div className="flex flex-wrap items-center gap-3 mb-2">
                       <h2 className="text-3xl font-bold">
                         {selectedCustomer.first_name} {selectedCustomer.last_name}
                       </h2>
@@ -404,12 +940,40 @@ export default function CustomersPage() {
                           VIP
                         </span>
                       )}
+
+                      {selectedCustomer.archived && (
+                        <span className="bg-slate-700 text-slate-300 border border-slate-600 rounded-full px-3 py-1 text-xs font-bold">
+                          Archived
+                        </span>
+                      )}
                     </div>
 
                     <p className="text-slate-400">{selectedCustomer.email}</p>
                     <p className="text-slate-500">{selectedCustomer.phone}</p>
 
-                    <p className="text-slate-500 text-sm mt-2">
+                    <div className="mt-4 grid md:grid-cols-2 gap-2 text-sm text-slate-400">
+                      <p>Source: {selectedCustomer.customer_source || 'Not set'}</p>
+                      <p>Birthday: {selectedCustomer.birthday ? new Date(selectedCustomer.birthday).toLocaleDateString('en-GB') : 'Not set'}</p>
+                      <p>Preferred staff: {getTeamMemberName(selectedCustomer.preferred_team_member_id)}</p>
+                      <p>Preferred service: {getServiceName(selectedCustomer.preferred_service_id)}</p>
+                      <p>No-shows: {selectedCustomer.no_show_count || 0}</p>
+                      <p>Balance: £{Number(selectedCustomer.outstanding_balance || 0)}</p>
+                    </div>
+
+                    {selectedCustomer.tags && selectedCustomer.tags.length > 0 && (
+                      <div className="flex flex-wrap gap-2 mt-4">
+                        {selectedCustomer.tags.map((tag) => (
+                          <span
+                            key={tag}
+                            className="bg-slate-800 text-slate-300 rounded-full px-3 py-1 text-xs"
+                          >
+                            {tag}
+                          </span>
+                        ))}
+                      </div>
+                    )}
+
+                    <p className="text-slate-500 text-sm mt-4">
                       Marketing:{' '}
                       <span
                         className={
@@ -446,6 +1010,22 @@ export default function CustomersPage() {
                     >
                       Edit
                     </button>
+
+                    {selectedCustomer.archived ? (
+                      <button
+                        onClick={() => restoreCustomer(selectedCustomer)}
+                        className="bg-emerald-600 hover:bg-emerald-700 px-4 py-2 rounded-lg font-semibold"
+                      >
+                        Restore
+                      </button>
+                    ) : (
+                      <button
+                        onClick={() => archiveCustomer(selectedCustomer)}
+                        className="bg-orange-600 hover:bg-orange-700 px-4 py-2 rounded-lg font-semibold"
+                      >
+                        Archive
+                      </button>
+                    )}
 
                     <button
                       onClick={() => deleteCustomer(selectedCustomer)}
@@ -522,12 +1102,97 @@ export default function CustomersPage() {
                       placeholder="Phone"
                     />
 
+                    <div>
+                      <label className="block text-sm text-slate-400 mb-2">
+                        Last visit
+                      </label>
+                      <input
+                        type="date"
+                        className="w-full p-3 rounded-lg bg-slate-800 border border-slate-700"
+                        value={editLastVisit}
+                        onChange={(e) => setEditLastVisit(e.target.value)}
+                      />
+                    </div>
+
+                    <div>
+                      <label className="block text-sm text-slate-400 mb-2">
+                        Birthday
+                      </label>
+                      <input
+                        type="date"
+                        className="w-full p-3 rounded-lg bg-slate-800 border border-slate-700"
+                        value={editBirthday}
+                        onChange={(e) => setEditBirthday(e.target.value)}
+                      />
+                    </div>
+
                     <input
-                      type="date"
                       className="w-full p-3 rounded-lg bg-slate-800 border border-slate-700"
-                      value={editLastVisit}
-                      onChange={(e) => setEditLastVisit(e.target.value)}
+                      value={editSource}
+                      onChange={(e) => setEditSource(e.target.value)}
+                      placeholder="Source"
                     />
+
+                    <input
+                      className="w-full p-3 rounded-lg bg-slate-800 border border-slate-700"
+                      value={editTags}
+                      onChange={(e) => setEditTags(e.target.value)}
+                      placeholder="Tags, comma separated"
+                    />
+
+                    <select
+                      className="w-full p-3 rounded-lg bg-slate-800 border border-slate-700"
+                      value={editPreferredTeamMemberId}
+                      onChange={(e) => setEditPreferredTeamMemberId(e.target.value)}
+                    >
+                      <option value="">Preferred staff</option>
+                      {teamMembers.map((member) => (
+                        <option key={member.id} value={member.id}>
+                          {member.full_name}
+                        </option>
+                      ))}
+                    </select>
+
+                    <select
+                      className="w-full p-3 rounded-lg bg-slate-800 border border-slate-700"
+                      value={editPreferredServiceId}
+                      onChange={(e) => setEditPreferredServiceId(e.target.value)}
+                    >
+                      <option value="">Preferred service</option>
+                      {services.map((service) => (
+                        <option key={service.id} value={service.id}>
+                          {service.name}
+                        </option>
+                      ))}
+                    </select>
+
+                    <div>
+                      <label className="block text-sm text-slate-400 mb-2">
+                        No-show count
+                      </label>
+                      <input
+                        type="number"
+                        min="0"
+                        className="w-full p-3 rounded-lg bg-slate-800 border border-slate-700"
+                        value={editNoShowCount}
+                        onChange={(e) => setEditNoShowCount(e.target.value)}
+                        placeholder="0"
+                      />
+                    </div>
+
+                    <div>
+                      <label className="block text-sm text-slate-400 mb-2">
+                        Outstanding balance (£)
+                      </label>
+                      <input
+                        type="number"
+                        step="0.01"
+                        className="w-full p-3 rounded-lg bg-slate-800 border border-slate-700"
+                        value={editOutstandingBalance}
+                        onChange={(e) => setEditOutstandingBalance(e.target.value)}
+                        placeholder="0.00"
+                      />
+                    </div>
                   </div>
 
                   <textarea

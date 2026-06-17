@@ -231,10 +231,16 @@ export default async function BookingPage({
           </p>
 
           <BookingForm
-            businessId={business.id}
-            services={services || []}
-            teamMembers={teamMembers || []}
-          />
+  businessId={business.id}
+  services={services || []}
+  teamMembers={teamMembers || []}
+  primaryColour={primaryColour}
+  secondaryColour={secondaryColour}
+  cardClassName={theme.card}
+  innerCardClassName={theme.innerCard}
+  textClassName={theme.text}
+  mutedClassName={theme.muted}
+/>
         </section>
 
         <footer className={`text-center text-sm mt-10 ${theme.muted}`}>

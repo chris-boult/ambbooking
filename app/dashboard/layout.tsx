@@ -1,20 +1,57 @@
+'use client'
+
 import Link from 'next/link'
+import { useEffect, useMemo, useState } from 'react'
+import { supabase } from '@/lib/supabase'
+
+type UserRole = 'owner' | 'manager' | 'staff' | null
 
 export default function DashboardLayout({
   children,
 }: {
   children: React.ReactNode
 }) {
-  const navItems = [
-    { name: 'Overview', href: '/dashboard' },
-    { name: 'Calendar', href: '/dashboard/calendar' },
-    { name: 'Bookings', href: '/dashboard/bookings' },
-    { name: 'Customers', href: '/dashboard/customers' },
-    { name: 'Services', href: '/dashboard/services' },
-    { name: 'Team', href: '/dashboard/team' },
-    { name: 'Reports', href: '/dashboard/reports' },
-    { name: 'Settings', href: '/dashboard/settings' },
-  ]
+  const [role, setRole] = useState<UserRole>(null)
+  const [loadingRole, setLoadingRole] = useState(true)
+
+  useEffect(() => {
+    async function loadRole() {
+      const { data: userData } = await supabase.auth.getUser()
+
+      if (!userData.user?.email) {
+        setRole(null)
+        setLoadingRole(false)
+        return
+      }
+
+      const { data } = await supabase
+        .from('staff_users')
+        .select('role')
+        .eq('email', userData.user.email)
+        .limit(1)
+
+      setRole((data?.[0]?.role as UserRole) || null)
+      setLoadingRole(false)
+    }
+
+    loadRole()
+  }, [])
+
+  const navItems = useMemo(() => {
+    const allItems = [
+      { name: 'Overview', href: '/dashboard', roles: ['owner', 'manager', 'staff'] },
+      { name: 'Calendar', href: '/dashboard/calendar', roles: ['owner', 'manager', 'staff'] },
+      { name: 'Bookings', href: '/dashboard/bookings', roles: ['owner', 'manager', 'staff'] },
+      { name: 'Customers', href: '/dashboard/customers', roles: ['owner', 'manager', 'staff'] },
+      { name: 'Services', href: '/dashboard/services', roles: ['owner', 'manager'] },
+      { name: 'Team', href: '/dashboard/team', roles: ['owner', 'manager'] },
+      { name: 'Staff', href: '/dashboard/staff', roles: ['owner', 'manager'] },
+      { name: 'Reports', href: '/dashboard/reports', roles: ['owner', 'manager'] },
+      { name: 'Settings', href: '/dashboard/settings', roles: ['owner'] },
+    ]
+
+    return allItems.filter((item) => role && item.roles.includes(role))
+  }, [role])
 
   return (
     <div className="min-h-screen bg-[#020617] text-white relative overflow-hidden">
@@ -37,20 +74,27 @@ export default function DashboardLayout({
           </Link>
 
           <nav className="space-y-1">
-            {navItems.map((item) => (
-              <Link
-                key={item.href}
-                href={item.href}
-                className="block rounded-2xl px-4 py-3 text-sm font-bold text-slate-400 transition hover:bg-white/5 hover:text-white"
-              >
-                {item.name}
-              </Link>
-            ))}
+            {loadingRole && (
+              <div className="px-4 py-3 text-sm text-slate-500">
+                Loading menu...
+              </div>
+            )}
+
+            {!loadingRole &&
+              navItems.map((item) => (
+                <Link
+                  key={item.href}
+                  href={item.href}
+                  className="block rounded-2xl px-4 py-3 text-sm font-bold text-slate-400 transition hover:bg-white/5 hover:text-white"
+                >
+                  {item.name}
+                </Link>
+              ))}
           </nav>
 
           <div className="mt-auto rounded-3xl border border-white/10 bg-white/[0.04] p-5">
             <div className="text-[10px] uppercase tracking-[0.3em] text-slate-500 mb-3">
-              Trial Active
+              {role ? `${role} access` : 'No role found'}
             </div>
 
             <div className="text-lg font-bold">Growth Plan</div>
@@ -59,12 +103,14 @@ export default function DashboardLayout({
               Your booking system is live.
             </p>
 
-            <Link
-              href="/onboarding/plan"
-              className="mt-5 block rounded-xl bg-gradient-to-r from-violet-500 to-blue-500 px-4 py-3 text-center text-sm font-bold"
-            >
-              Manage Plan
-            </Link>
+            {role === 'owner' && (
+              <Link
+                href="/onboarding/plan"
+                className="mt-5 block rounded-xl bg-gradient-to-r from-violet-500 to-blue-500 px-4 py-3 text-center text-sm font-bold"
+              >
+                Manage Plan
+              </Link>
+            )}
           </div>
         </aside>
 
@@ -81,12 +127,14 @@ export default function DashboardLayout({
                 </div>
               </div>
 
-              <Link
-                href="/dashboard/settings"
-                className="rounded-full border border-white/10 bg-white/[0.04] px-4 py-2 text-sm font-bold text-slate-300 hover:text-white"
-              >
-                Settings
-              </Link>
+              {role === 'owner' && (
+                <Link
+                  href="/dashboard/settings"
+                  className="rounded-full border border-white/10 bg-white/[0.04] px-4 py-2 text-sm font-bold text-slate-300 hover:text-white"
+                >
+                  Settings
+                </Link>
+              )}
             </div>
           </header>
 
