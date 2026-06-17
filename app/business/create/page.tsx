@@ -1,67 +1,74 @@
 'use client'
 
-import { useState } from 'react'
-import { supabase } from '@/lib/supabase'
-import { useRouter } from 'next/navigation'
+import { useSearchParams } from 'next/navigation'
 
-export default function CreateBusinessPage() {
-  const router = useRouter()
-  const [businessName, setBusinessName] = useState('')
-  const [industry, setIndustry] = useState('')
-  const [website, setWebsite] = useState('')
-  const [phone, setPhone] = useState('')
-  const [timezone, setTimezone] = useState('Europe/London')
-  const [message, setMessage] = useState('')
-
-  async function handleCreateBusiness(e: React.FormEvent) {
-    e.preventDefault()
-
-    const { data: userData } = await supabase.auth.getUser()
-
-    if (!userData.user) {
-      router.push('/login')
-      return
-    }
-
-    const { error } = await supabase.from('businesses').insert({
-      user_id: userData.user.id,
-      business_name: businessName,
-      industry,
-      website,
-      phone,
-      timezone,
-    })
-
-    if (error) {
-      setMessage(error.message)
-      return
-    }
-
-    router.push('/dashboard')
-  }
+export default function BookingSuccessPage() {
+  const searchParams = useSearchParams()
+  const sessionId = searchParams.get('session_id')
 
   return (
-    <main className="min-h-screen bg-slate-950 text-white flex items-center justify-center px-6">
-      <form onSubmit={handleCreateBusiness} className="w-full max-w-xl bg-slate-900 p-8 rounded-2xl border border-slate-800">
-        <h1 className="text-3xl font-bold mb-2">Create your business</h1>
-        <p className="text-slate-400 mb-6">Set up the first business profile for your booking platform.</p>
+    <main style={{
+      minHeight: '100vh',
+      display: 'flex',
+      alignItems: 'center',
+      justifyContent: 'center',
+      padding: '40px',
+      background: '#f8fafc'
+    }}>
+      <div style={{
+        maxWidth: '620px',
+        width: '100%',
+        background: '#ffffff',
+        borderRadius: '24px',
+        padding: '42px',
+        boxShadow: '0 20px 60px rgba(15, 23, 42, 0.12)',
+        textAlign: 'center'
+      }}>
+        <div style={{
+          width: '72px',
+          height: '72px',
+          borderRadius: '999px',
+          background: '#dcfce7',
+          color: '#166534',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          margin: '0 auto 24px',
+          fontSize: '36px',
+          fontWeight: 800
+        }}>
+          ✓
+        </div>
 
-        <input className="w-full mb-4 p-3 rounded-lg bg-slate-800 border border-slate-700" placeholder="Business name" value={businessName} onChange={(e) => setBusinessName(e.target.value)} />
+        <h1 style={{
+          fontSize: '34px',
+          lineHeight: '1.1',
+          marginBottom: '16px',
+          color: '#0f172a'
+        }}>
+          Payment received. Booking confirmed.
+        </h1>
 
-        <input className="w-full mb-4 p-3 rounded-lg bg-slate-800 border border-slate-700" placeholder="Industry" value={industry} onChange={(e) => setIndustry(e.target.value)} />
+        <p style={{
+          fontSize: '17px',
+          lineHeight: '1.7',
+          color: '#475569',
+          marginBottom: '28px'
+        }}>
+          Your payment has been completed successfully and your booking is now confirmed.
+          A confirmation email will be sent shortly.
+        </p>
 
-        <input className="w-full mb-4 p-3 rounded-lg bg-slate-800 border border-slate-700" placeholder="Website" value={website} onChange={(e) => setWebsite(e.target.value)} />
-
-        <input className="w-full mb-4 p-3 rounded-lg bg-slate-800 border border-slate-700" placeholder="Phone" value={phone} onChange={(e) => setPhone(e.target.value)} />
-
-        <input className="w-full mb-6 p-3 rounded-lg bg-slate-800 border border-slate-700" placeholder="Timezone" value={timezone} onChange={(e) => setTimezone(e.target.value)} />
-
-        <button className="w-full bg-white text-slate-950 font-bold p-3 rounded-lg">
-          Create business
-        </button>
-
-        {message && <p className="mt-4 text-slate-300">{message}</p>}
-      </form>
+        {sessionId && (
+          <p style={{
+            fontSize: '13px',
+            color: '#94a3b8',
+            wordBreak: 'break-all'
+          }}>
+            Stripe reference: {sessionId}
+          </p>
+        )}
+      </div>
     </main>
   )
 }
