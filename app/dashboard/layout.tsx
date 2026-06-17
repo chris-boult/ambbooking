@@ -1,4 +1,3 @@
-import Image from 'next/image'
 import Link from 'next/link'
 
 export default function DashboardLayout({ children }: { children: React.ReactNode }) {
@@ -21,13 +20,11 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
         <aside className="hidden lg:flex w-64 shrink-0 flex-col border-r border-white/10 bg-black/50 backdrop-blur-2xl px-6 py-7">
           <Link href="/dashboard" className="mb-10 block">
             <Image
-              src="/amb360-logo.png"
-              alt="AMB360"
-              width={160}
-              height={70}
-              priority
-              className="h-auto w-36"
-            />
+              <img
+  src="/amb360-logo.png"
+  alt="AMB360"
+  className="w-36 h-auto"
+/>
 
             <div className="mt-4 text-[10px] uppercase tracking-[0.45em] text-slate-500">
               Booking
