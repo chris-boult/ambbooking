@@ -384,11 +384,11 @@ export default function SettingsPage() {
             </div>
 
             <button
-              onClick={saveBusinessDetails}
-              className="bg-white text-slate-950 font-bold px-5 py-3 rounded-xl"
-            >
-              Save branding
-            </button>
+  onClick={saveBusinessDetails}
+  className="bg-white text-slate-950 font-bold px-5 py-3 rounded-xl"
+>
+  Save branding
+</button>
           </div>
         </section>
 
