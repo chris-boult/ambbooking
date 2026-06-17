@@ -8,8 +8,6 @@ type Service = {
   name: string
   price: number
   duration_minutes: number
-  payment_type?: string | null
-  deposit_amount?: number | null
 }
 
 type TeamMember = {
@@ -19,13 +17,6 @@ type TeamMember = {
 
 type Booking = {
   booking_time: string
-}
-
-type Availability = {
-  day_of_week: number
-  start_time: string | null
-  end_time: string | null
-  is_available: boolean
 }
 
 type Props = {
@@ -45,9 +36,6 @@ export default function BookingForm({
   const [selectedTime, setSelectedTime] = useState('')
 
   const [bookedTimes, setBookedTimes] = useState<string[]>([])
-  const [staffAvailability, setStaffAvailability] =
-    useState<Availability | null>(null)
-  const [isTimeOff, setIsTimeOff] = useState(false)
 
   const [firstName, setFirstName] = useState('')
   const [lastName, setLastName] = useState('')
@@ -56,63 +44,17 @@ export default function BookingForm({
 
   const [message, setMessage] = useState('')
   const [success, setSuccess] = useState(false)
-  const [isSubmitting, setIsSubmitting] = useState(false)
-
-  const selectedServiceDetails =
-    services.find((service) => service.id === selectedService) || null
-
-  const paymentType = selectedServiceDetails?.payment_type || 'none'
-  const depositAmount = Number(selectedServiceDetails?.deposit_amount || 0)
-  const servicePrice = Number(selectedServiceDetails?.price || 0)
-
-  const dateOptions = useMemo(() => {
-    return Array.from({ length: 14 }, (_, index) => {
-      const date = new Date()
-      date.setDate(date.getDate() + index)
-
-      const value = date.toISOString().split('T')[0]
-
-      return {
-        value,
-        day: date.toLocaleDateString('en-GB', { weekday: 'short' }),
-        date: date.toLocaleDateString('en-GB', { day: 'numeric' }),
-        month: date.toLocaleDateString('en-GB', { month: 'short' }),
-      }
-    })
-  }, [])
-
-  const selectedDayOfWeek = selectedDate
-    ? new Date(selectedDate).getDay()
-    : null
 
   const timeSlots = useMemo(() => {
-    const slots: string[] = []
+    const slots = []
 
-    if (isTimeOff) return slots
-    if (!staffAvailability || !staffAvailability.is_available) return slots
-    if (!staffAvailability.start_time || !staffAvailability.end_time) return slots
-
-    const start = staffAvailability.start_time.slice(0, 5)
-    const end = staffAvailability.end_time.slice(0, 5)
-
-    let [hour, minute] = start.split(':').map(Number)
-    const [endHour, endMinute] = end.split(':').map(Number)
-
-    while (hour < endHour || (hour === endHour && minute < endMinute)) {
-      slots.push(
-        `${String(hour).padStart(2, '0')}:${String(minute).padStart(2, '0')}`
-      )
-
-      minute += 30
-
-      if (minute >= 60) {
-        minute = 0
-        hour += 1
-      }
+    for (let hour = 9; hour < 17; hour++) {
+      slots.push(`${String(hour).padStart(2, '0')}:00`)
+      slots.push(`${String(hour).padStart(2, '0')}:30`)
     }
 
     return slots
-  }, [staffAvailability, isTimeOff])
+  }, [])
 
   const availableTimeSlots = timeSlots.filter(
     (slot) => !bookedTimes.includes(slot)
@@ -128,57 +70,32 @@ export default function BookingForm({
     : ''
 
   useEffect(() => {
-    async function loadBookedTimesAndAvailability() {
-      if (!selectedTeamMember || !selectedDate || selectedDayOfWeek === null) {
+    async function loadBookedTimes() {
+      if (!selectedTeamMember || !selectedDate) {
         setBookedTimes([])
-        setStaffAvailability(null)
-        setIsTimeOff(false)
         return
       }
 
-      const { data: availabilityData } = await supabase
-        .from('availability')
-        .select('day_of_week,start_time,end_time,is_available')
-        .eq('business_id', businessId)
-        .eq('team_member_id', selectedTeamMember)
-        .eq('day_of_week', selectedDayOfWeek)
-        .maybeSingle()
-
-      setStaffAvailability((availabilityData as Availability | null) || null)
-
-      const { data: timeOffData } = await supabase
-        .from('team_time_off')
-        .select('id')
-        .eq('business_id', businessId)
-        .eq('team_member_id', selectedTeamMember)
-        .lte('start_date', selectedDate)
-        .gte('end_date', selectedDate)
-        .maybeSingle()
-
-      setIsTimeOff(!!timeOffData)
-
-      const { data: bookingsData } = await supabase
+      const { data } = await supabase
         .from('bookings')
         .select('booking_time')
         .eq('business_id', businessId)
         .eq('team_member_id', selectedTeamMember)
         .eq('booking_date', selectedDate)
-        .neq('status', 'cancelled')
 
       const times =
-        (bookingsData as Booking[] | null)?.map((booking) =>
+        (data as Booking[] | null)?.map((booking) =>
           booking.booking_time.slice(0, 5)
         ) || []
 
       setBookedTimes(times)
     }
 
-    loadBookedTimesAndAvailability()
-  }, [businessId, selectedTeamMember, selectedDate, selectedDayOfWeek])
+    loadBookedTimes()
+  }, [businessId, selectedTeamMember, selectedDate])
 
   async function createBooking() {
     setMessage('')
-    setIsSubmitting(true)
 
     if (
       !selectedService ||
@@ -189,23 +106,12 @@ export default function BookingForm({
       !email
     ) {
       setMessage('Please complete all required fields.')
-      setIsSubmitting(false)
-      return
-    }
-
-    if (isTimeOff) {
-      setMessage('This team member is unavailable on this date.')
-      setSelectedTime('')
-      setIsSubmitting(false)
       return
     }
 
     if (bookedTimes.includes(selectedTime)) {
-      setMessage(
-        'Sorry, that time has just been booked. Please choose another slot.'
-      )
+      setMessage('Sorry, that time has just been booked. Please choose another slot.')
       setSelectedTime('')
-      setIsSubmitting(false)
       return
     }
 
@@ -233,81 +139,28 @@ export default function BookingForm({
 
       if (customerError) {
         setMessage(customerError.message)
-        setIsSubmitting(false)
         return
       }
 
       customerId = newCustomer.id
     }
 
-    const service = services.find((item) => item.id === selectedService)
-    const teamMember = teamMembers.find((item) => item.id === selectedTeamMember)
-
-    const { data: bookingData, error: bookingError } = await supabase
-      .from('bookings')
-      .insert({
-        business_id: businessId,
-        customer_id: customerId,
-        service_id: selectedService,
-        team_member_id: selectedTeamMember,
-        booking_date: selectedDate,
-        booking_time: selectedTime,
-        status: 'confirmed',
-        payment_status: 'unpaid',
-        amount_paid: 0,
-        amount_due: service?.price || 0,
-      })
-      .select('id')
-      .single()
-
-    if (bookingError || !bookingData) {
-      setMessage(bookingError?.message || 'Could not create booking.')
-      setIsSubmitting(false)
-      return
-    }
-
-    const bookingId = bookingData.id
-
-    const checkoutResponse = await fetch('/api/create-checkout-session', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({
-        bookingId,
-      }),
+    const { error: bookingError } = await supabase.from('bookings').insert({
+      business_id: businessId,
+      customer_id: customerId,
+      service_id: selectedService,
+      team_member_id: selectedTeamMember,
+      booking_date: selectedDate,
+      booking_time: selectedTime,
+      status: 'confirmed',
     })
 
-    const checkoutData = await checkoutResponse.json()
-
-    if (!checkoutResponse.ok || !checkoutData.success) {
-      setMessage(checkoutData.error || 'Could not start payment.')
-      setIsSubmitting(false)
+    if (bookingError) {
+      setMessage(bookingError.message)
       return
     }
-
-    if (checkoutData.requiresPayment && checkoutData.checkoutUrl) {
-      window.location.href = checkoutData.checkoutUrl
-      return
-    }
-
-    await fetch('/api/send-booking-email', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({
-        customerName: `${firstName} ${lastName}`,
-        customerEmail: email,
-        bookingDate: formattedDate,
-        bookingTime: selectedTime,
-        serviceName: service?.name || '',
-        teamMemberName: teamMember?.full_name || '',
-      }),
-    })
 
     setSuccess(true)
-    setIsSubmitting(false)
   }
 
   if (success) {
@@ -333,10 +186,7 @@ export default function BookingForm({
       <div className="space-y-5">
         <select
           value={selectedService}
-          onChange={(e) => {
-            setSelectedService(e.target.value)
-            setMessage('')
-          }}
+          onChange={(e) => setSelectedService(e.target.value)}
           className="w-full p-3 rounded-lg bg-slate-800 border border-slate-700"
         >
           <option value="">Select service</option>
@@ -348,39 +198,11 @@ export default function BookingForm({
           ))}
         </select>
 
-        {selectedServiceDetails && (
-          <div className="border border-slate-800 rounded-xl p-4 text-sm text-slate-300">
-            {paymentType === 'full' && (
-              <p>
-                Full payment required online: <strong>£{servicePrice}</strong>
-              </p>
-            )}
-
-            {paymentType === 'deposit' && (
-              <p>
-                Deposit required online: <strong>£{depositAmount}</strong>. Remaining balance:{' '}
-                <strong>£{Math.max(servicePrice - depositAmount, 0)}</strong>
-              </p>
-            )}
-
-            {paymentType === 'card_hold' && (
-              <p>
-                Card hold selected for this service. Card hold support will be enabled shortly.
-              </p>
-            )}
-
-            {(paymentType === 'none' || !paymentType) && (
-              <p>No online payment is required for this service.</p>
-            )}
-          </div>
-        )}
-
         <select
           value={selectedTeamMember}
           onChange={(e) => {
             setSelectedTeamMember(e.target.value)
             setSelectedTime('')
-            setMessage('')
           }}
           className="w-full p-3 rounded-lg bg-slate-800 border border-slate-700"
         >
@@ -393,32 +215,15 @@ export default function BookingForm({
           ))}
         </select>
 
-        <div>
-          <p className="text-slate-400 mb-3">Choose a date</p>
-
-          <div className="grid grid-cols-2 md:grid-cols-7 gap-3">
-            {dateOptions.map((option) => (
-              <button
-                key={option.value}
-                type="button"
-                onClick={() => {
-                  setSelectedDate(option.value)
-                  setSelectedTime('')
-                  setMessage('')
-                }}
-                className={`rounded-xl border p-4 text-center ${
-                  selectedDate === option.value
-                    ? 'bg-white text-slate-950 border-white'
-                    : 'bg-slate-800 border-slate-700 text-white'
-                }`}
-              >
-                <span className="block text-sm">{option.day}</span>
-                <span className="block text-2xl font-bold">{option.date}</span>
-                <span className="block text-sm">{option.month}</span>
-              </button>
-            ))}
-          </div>
-        </div>
+        <input
+          type="date"
+          value={selectedDate}
+          onChange={(e) => {
+            setSelectedDate(e.target.value)
+            setSelectedTime('')
+          }}
+          className="w-full p-3 rounded-lg bg-slate-800 border border-slate-700"
+        />
 
         {selectedDate && selectedTeamMember && (
           <div>
@@ -426,52 +231,27 @@ export default function BookingForm({
               Available times for {formattedDate}
             </p>
 
-            {isTimeOff && (
-              <p className="text-slate-500">
-                This team member is marked as unavailable on this date.
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+              {availableTimeSlots.map((slot) => (
+                <button
+                  key={slot}
+                  type="button"
+                  onClick={() => setSelectedTime(slot)}
+                  className={`p-3 rounded-lg border ${
+                    selectedTime === slot
+                      ? 'bg-white text-slate-950 border-white'
+                      : 'bg-slate-800 border-slate-700 text-white'
+                  }`}
+                >
+                  {slot}
+                </button>
+              ))}
+            </div>
+
+            {availableTimeSlots.length === 0 && (
+              <p className="text-slate-500 mt-3">
+                No available slots for this date.
               </p>
-            )}
-
-            {!isTimeOff && staffAvailability === null && (
-              <p className="text-slate-500">
-                No availability has been set for this day.
-              </p>
-            )}
-
-            {!isTimeOff && staffAvailability && !staffAvailability.is_available && (
-              <p className="text-slate-500">
-                This team member is not available on this day.
-              </p>
-            )}
-
-            {!isTimeOff && staffAvailability && staffAvailability.is_available && (
-              <>
-                <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-                  {availableTimeSlots.map((slot) => (
-                    <button
-                      key={slot}
-                      type="button"
-                      onClick={() => {
-                        setSelectedTime(slot)
-                        setMessage('')
-                      }}
-                      className={`p-3 rounded-lg border ${
-                        selectedTime === slot
-                          ? 'bg-white text-slate-950 border-white'
-                          : 'bg-slate-800 border-slate-700 text-white'
-                      }`}
-                    >
-                      {slot}
-                    </button>
-                  ))}
-                </div>
-
-                {availableTimeSlots.length === 0 && (
-                  <p className="text-slate-500 mt-3">
-                    No available slots for this date.
-                  </p>
-                )}
-              </>
             )}
           </div>
         )}
@@ -521,16 +301,9 @@ export default function BookingForm({
         <button
           type="button"
           onClick={createBooking}
-          disabled={isSubmitting}
-          className="w-full bg-white text-slate-950 font-bold p-4 rounded-xl disabled:opacity-60"
+          className="w-full bg-white text-slate-950 font-bold p-4 rounded-xl"
         >
-          {isSubmitting
-            ? 'Processing...'
-            : paymentType === 'full'
-              ? 'Continue to payment'
-              : paymentType === 'deposit'
-                ? 'Pay deposit and book'
-                : 'Book appointment'}
+          Book appointment
         </button>
 
         {message && <p className="text-slate-300">{message}</p>}
