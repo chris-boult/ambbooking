@@ -169,28 +169,31 @@ export default function SettingsPage() {
 
   alert(`Saving business ${business.id}`)
 
-  const { error } = await supabase
-    .from('businesses')
-    .update({
-      business_name: businessName,
-      slug: cleanedSlug,
-      logo_url: logoUrl,
-      hero_image_url: heroImageUrl,
-      primary_colour: primaryColour,
-      secondary_colour: secondaryColour,
-      business_description: businessDescription,
-      brand_theme: brandTheme,
-    })
-    .eq('id', business.id)
+  const { data, error } = await supabase
+  .from('businesses')
+  .update({
+    business_name: businessName,
+    slug: cleanedSlug,
+    logo_url: logoUrl,
+    hero_image_url: heroImageUrl,
+    primary_colour: primaryColour,
+    secondary_colour: secondaryColour,
+    business_description: businessDescription,
+    brand_theme: brandTheme,
+  })
+  .eq('id', business.id)
+  .select()
 
-  if (error) {
-    alert(error.message)
-    return
-  }
+console.log('Updated rows:', data)
+console.log('Update error:', error)
 
-  alert('Saved successfully')
+if (error) {
+  setMessage(error.message)
+  return
+}
 
-  setMessage('Business settings saved.')
+setMessage('Business settings saved.')
+await loadSettings()
 }
 
   async function createStaffUser() {
