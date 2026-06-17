@@ -72,66 +72,75 @@ export default function DashboardPage() {
   }, [])
 
   async function loadDashboard() {
-    setLoading(true)
+  setLoading(true)
 
-    const { data: userData } = await supabase.auth.getUser()
+  const { data: userData } = await supabase.auth.getUser()
 
-    if (!userData.user) {
-      router.push('/login')
-      return
-    }
-
-    setEmail(userData.user.email || '')
-
-    const { data: business } = await supabase
-      .from('businesses')
-      .select('*')
-      .eq('user_id', userData.user.id)
-      .single()
-
-    if (!business) {
-      router.push('/business/create')
-      return
-    }
-
-    setBusinessName(business.business_name)
-
-    const { count: customerCount } = await supabase
-      .from('customers')
-      .select('*', { count: 'exact', head: true })
-      .eq('business_id', business.id)
-
-    const { count: serviceCount } = await supabase
-      .from('services')
-      .select('*', { count: 'exact', head: true })
-      .eq('business_id', business.id)
-
-    const { count: teamMemberCount } = await supabase
-      .from('team_members')
-      .select('*', { count: 'exact', head: true })
-      .eq('business_id', business.id)
-
-    const { data: bookingsData } = await supabase
-      .from('bookings')
-      .select(`
-        id,
-        booking_date,
-        booking_time,
-        status,
-        customers(first_name,last_name),
-        services(name,price),
-        team_members(full_name)
-      `)
-      .eq('business_id', business.id)
-      .order('booking_date', { ascending: false })
-      .order('booking_time', { ascending: true })
-
-    setCustomersCount(customerCount || 0)
-    setServicesCount(serviceCount || 0)
-    setTeamCount(teamMemberCount || 0)
-    setBookings((bookingsData as unknown as Booking[]) || [])
-    setLoading(false)
+  if (!userData.user) {
+    router.push('/login')
+    return
   }
+
+  setEmail(userData.user.email || '')
+
+  const { data: businesses, error: businessError } = await supabase
+    .from('businesses')
+    .select('*')
+    .eq('user_id', userData.user.id)
+    .order('created_at', { ascending: false })
+    .limit(1)
+
+  if (businessError) {
+    console.error(businessError)
+    setLoading(false)
+    return
+  }
+
+  const business = businesses?.[0]
+
+  if (!business) {
+    router.push('/business/create')
+    return
+  }
+
+  setBusinessName(business.business_name)
+
+  const { count: customerCount } = await supabase
+    .from('customers')
+    .select('*', { count: 'exact', head: true })
+    .eq('business_id', business.id)
+
+  const { count: serviceCount } = await supabase
+    .from('services')
+    .select('*', { count: 'exact', head: true })
+    .eq('business_id', business.id)
+
+  const { count: teamMemberCount } = await supabase
+    .from('team_members')
+    .select('*', { count: 'exact', head: true })
+    .eq('business_id', business.id)
+
+  const { data: bookingsData } = await supabase
+    .from('bookings')
+    .select(`
+      id,
+      booking_date,
+      booking_time,
+      status,
+      customers(first_name,last_name),
+      services(name,price),
+      team_members(full_name)
+    `)
+    .eq('business_id', business.id)
+    .order('booking_date', { ascending: false })
+    .order('booking_time', { ascending: true })
+
+  setCustomersCount(customerCount || 0)
+  setServicesCount(serviceCount || 0)
+  setTeamCount(teamMemberCount || 0)
+  setBookings((bookingsData as unknown as Booking[]) || [])
+  setLoading(false)
+}
 
   const today = new Date()
   const todayString = today.toISOString().split('T')[0]
