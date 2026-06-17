@@ -7,6 +7,11 @@ type Business = {
   id: string
   business_name: string
   slug: string | null
+  logo_url: string | null
+  hero_image_url: string | null
+  primary_colour: string | null
+  secondary_colour: string | null
+  business_description: string | null
 }
 
 type TeamMember = {
@@ -33,6 +38,11 @@ export default function SettingsPage() {
 
   const [businessName, setBusinessName] = useState('')
   const [slug, setSlug] = useState('')
+  const [logoUrl, setLogoUrl] = useState('')
+  const [heroImageUrl, setHeroImageUrl] = useState('')
+  const [primaryColour, setPrimaryColour] = useState('#7c3aed')
+  const [secondaryColour, setSecondaryColour] = useState('#2563eb')
+  const [businessDescription, setBusinessDescription] = useState('')
 
   const [teamMemberId, setTeamMemberId] = useState('')
   const [staffEmail, setStaffEmail] = useState('')
@@ -48,17 +58,34 @@ export default function SettingsPage() {
     const { data: userData } = await supabase.auth.getUser()
     if (!userData.user) return
 
-    const { data: businessData } = await supabase
+    const { data: businesses } = await supabase
       .from('businesses')
-      .select('id,business_name,slug')
+      .select(`
+        id,
+        business_name,
+        slug,
+        logo_url,
+        hero_image_url,
+        primary_colour,
+        secondary_colour,
+        business_description
+      `)
       .eq('user_id', userData.user.id)
-      .single()
+      .order('created_at', { ascending: false })
+      .limit(1)
+
+    const businessData = businesses?.[0]
 
     if (!businessData) return
 
-    setBusiness(businessData)
+    setBusiness(businessData as Business)
     setBusinessName(businessData.business_name || '')
     setSlug(businessData.slug || '')
+    setLogoUrl(businessData.logo_url || '')
+    setHeroImageUrl(businessData.hero_image_url || '')
+    setPrimaryColour(businessData.primary_colour || '#7c3aed')
+    setSecondaryColour(businessData.secondary_colour || '#2563eb')
+    setBusinessDescription(businessData.business_description || '')
 
     const { data: teamData } = await supabase
       .from('team_members')
@@ -100,6 +127,11 @@ export default function SettingsPage() {
       .update({
         business_name: businessName,
         slug: cleanedSlug,
+        logo_url: logoUrl,
+        hero_image_url: heroImageUrl,
+        primary_colour: primaryColour,
+        secondary_colour: secondaryColour,
+        business_description: businessDescription,
       })
       .eq('id', business.id)
 
@@ -163,7 +195,7 @@ export default function SettingsPage() {
         <p className="text-slate-400 mb-2">Settings</p>
         <h1 className="text-4xl font-bold mb-2">Business settings</h1>
         <p className="text-slate-500">
-          Manage your business profile, public booking link and staff accounts.
+          Manage your public booking page, branding and staff accounts.
         </p>
       </div>
 
@@ -175,13 +207,11 @@ export default function SettingsPage() {
 
       <div className="grid xl:grid-cols-2 gap-8">
         <section className="bg-slate-900 border border-slate-800 rounded-2xl p-6">
-          <h2 className="text-2xl font-bold mb-6">Business details</h2>
+          <h2 className="text-2xl font-bold mb-6">Business profile</h2>
 
           <div className="space-y-4">
             <div>
-              <label className="block text-slate-400 mb-2">
-                Business name
-              </label>
+              <label className="block text-slate-400 mb-2">Business name</label>
               <input
                 className="w-full p-3 rounded-lg bg-slate-800 border border-slate-700"
                 value={businessName}
@@ -191,8 +221,18 @@ export default function SettingsPage() {
 
             <div>
               <label className="block text-slate-400 mb-2">
-                Booking slug
+                Business description
               </label>
+              <textarea
+                className="w-full min-h-28 p-3 rounded-lg bg-slate-800 border border-slate-700"
+                value={businessDescription}
+                onChange={(e) => setBusinessDescription(e.target.value)}
+                placeholder="Tell customers what you do, where you are based, and why they should book with you."
+              />
+            </div>
+
+            <div>
+              <label className="block text-slate-400 mb-2">Booking slug</label>
               <input
                 className="w-full p-3 rounded-lg bg-slate-800 border border-slate-700"
                 value={slug}
@@ -207,20 +247,87 @@ export default function SettingsPage() {
                 <p className="font-bold break-all">{bookingUrl}</p>
               </div>
             )}
+          </div>
+        </section>
+
+        <section className="bg-slate-900 border border-slate-800 rounded-2xl p-6">
+          <h2 className="text-2xl font-bold mb-6">Branding</h2>
+
+          <div className="space-y-4">
+            <div>
+              <label className="block text-slate-400 mb-2">Logo URL</label>
+              <input
+                className="w-full p-3 rounded-lg bg-slate-800 border border-slate-700"
+                value={logoUrl}
+                onChange={(e) => setLogoUrl(e.target.value)}
+                placeholder="https://..."
+              />
+            </div>
+
+            <div>
+              <label className="block text-slate-400 mb-2">Hero image URL</label>
+              <input
+                className="w-full p-3 rounded-lg bg-slate-800 border border-slate-700"
+                value={heroImageUrl}
+                onChange={(e) => setHeroImageUrl(e.target.value)}
+                placeholder="https://..."
+              />
+            </div>
+
+            <div className="grid md:grid-cols-2 gap-4">
+              <div>
+                <label className="block text-slate-400 mb-2">
+                  Primary colour
+                </label>
+                <input
+                  type="color"
+                  className="w-full h-12 rounded-lg bg-slate-800 border border-slate-700"
+                  value={primaryColour}
+                  onChange={(e) => setPrimaryColour(e.target.value)}
+                />
+              </div>
+
+              <div>
+                <label className="block text-slate-400 mb-2">
+                  Secondary colour
+                </label>
+                <input
+                  type="color"
+                  className="w-full h-12 rounded-lg bg-slate-800 border border-slate-700"
+                  value={secondaryColour}
+                  onChange={(e) => setSecondaryColour(e.target.value)}
+                />
+              </div>
+            </div>
+
+            <div
+              className="rounded-2xl p-6 border border-slate-800"
+              style={{
+                background: `linear-gradient(135deg, ${primaryColour}, ${secondaryColour})`,
+              }}
+            >
+              <p className="text-white/80 text-sm mb-2">Live brand preview</p>
+              <h3 className="text-3xl font-bold text-white">
+                {businessName || 'Your Business'}
+              </h3>
+              <p className="text-white/80 mt-2">
+                {businessDescription || 'Your customer-facing booking page will use these colours.'}
+              </p>
+            </div>
 
             <button
               onClick={saveBusinessDetails}
               className="bg-white text-slate-950 font-bold px-5 py-3 rounded-xl"
             >
-              Save business details
+              Save branding
             </button>
           </div>
         </section>
 
-        <section className="bg-slate-900 border border-slate-800 rounded-2xl p-6">
+        <section className="xl:col-span-2 bg-slate-900 border border-slate-800 rounded-2xl p-6">
           <h2 className="text-2xl font-bold mb-6">Staff accounts</h2>
 
-          <div className="space-y-4 mb-8">
+          <div className="grid lg:grid-cols-3 gap-4 mb-8">
             <select
               className="w-full p-3 rounded-lg bg-slate-800 border border-slate-700"
               value={teamMemberId}
@@ -254,7 +361,7 @@ export default function SettingsPage() {
 
             <button
               onClick={createStaffUser}
-              className="bg-white text-slate-950 font-bold px-5 py-3 rounded-xl"
+              className="bg-white text-slate-950 font-bold px-5 py-3 rounded-xl lg:col-span-3"
             >
               Add staff account
             </button>
@@ -285,9 +392,7 @@ export default function SettingsPage() {
             ))}
 
             {staffUsers.length === 0 && (
-              <p className="text-slate-500">
-                No staff accounts added yet.
-              </p>
+              <p className="text-slate-500">No staff accounts added yet.</p>
             )}
           </div>
         </section>
