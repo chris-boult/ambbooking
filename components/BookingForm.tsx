@@ -17,20 +17,12 @@ type TeamMember = {
 
 type Booking = {
   booking_time: string
+  total_duration_minutes: number | null
 }
 
-type CustomerPackage = {
-  id: string
-  package_id: string
-  sessions_purchased: number
-  sessions_used: number
-  sessions_remaining: number
-  status: string
-  packages:
-    | {
-        name: string
-      }[]
-    | null
+type BookedTime = {
+  time: string
+  duration: number
 }
 
 type Props = {
@@ -43,6 +35,15 @@ type Props = {
   innerCardClassName?: string
   textClassName?: string
   mutedClassName?: string
+}
+
+type AppliedVoucher = {
+  id: string
+  code: string
+  remainingAmount: number
+  discountAmount: number
+  status: string
+  expiryDate: string | null
 }
 
 function toDateValue(date: Date) {
@@ -60,6 +61,11 @@ function formatDisplayDate(dateValue: string) {
   })
 }
 
+function timeToMinutes(time: string) {
+  const [hours, minutes] = time.split(':').map(Number)
+  return hours * 60 + minutes
+}
+
 export default function BookingForm({
   businessId,
   services,
@@ -71,42 +77,45 @@ export default function BookingForm({
   textClassName = 'text-slate-300',
   mutedClassName = 'text-slate-500',
 }: Props) {
-  const [selectedService, setSelectedService] = useState('')
+  const [selectedServices, setSelectedServices] = useState<string[]>([])
   const [selectedTeamMember, setSelectedTeamMember] = useState('')
   const [selectedDate, setSelectedDate] = useState('')
   const [selectedTime, setSelectedTime] = useState('')
-
-  const [bookedTimes, setBookedTimes] = useState<string[]>([])
+  const [bookedTimes, setBookedTimes] = useState<BookedTime[]>([])
 
   const [firstName, setFirstName] = useState('')
   const [lastName, setLastName] = useState('')
   const [email, setEmail] = useState('')
   const [phone, setPhone] = useState('')
 
-  const [customerPackage, setCustomerPackage] =
-    useState<CustomerPackage | null>(null)
-  const [usePackageSession, setUsePackageSession] = useState(false)
-  const [packageMessage, setPackageMessage] = useState('')
-  const [packageRemainingAfterBooking, setPackageRemainingAfterBooking] =
-    useState<number | null>(null)
-
   const [voucherCode, setVoucherCode] = useState('')
   const [voucherMessage, setVoucherMessage] = useState('')
   const [voucherAmountUsed, setVoucherAmountUsed] = useState(0)
   const [remainingVoucherBalance, setRemainingVoucherBalance] =
     useState<number | null>(null)
+  const [appliedVoucher, setAppliedVoucher] = useState<AppliedVoucher | null>(null)
+  const [voucherValidating, setVoucherValidating] = useState(false)
 
   const [message, setMessage] = useState('')
   const [success, setSuccess] = useState(false)
   const [loading, setLoading] = useState(false)
 
-  const selectedServiceDetails = services.find(
-    (service) => service.id === selectedService
+  const selectedServiceDetails = services.filter((service) =>
+    selectedServices.includes(service.id)
   )
 
-  const packageName = Array.isArray(customerPackage?.packages)
-    ? customerPackage?.packages?.[0]?.name
-    : undefined
+  const totalPrice = selectedServiceDetails.reduce(
+    (sum, service) => sum + Number(service.price || 0),
+    0
+  )
+
+  const totalDuration = selectedServiceDetails.reduce(
+    (sum, service) => sum + Number(service.duration_minutes || 0),
+    0
+  )
+
+  const voucherDiscount = appliedVoucher?.discountAmount || 0
+  const amountDueAfterVoucher = Math.max(totalPrice - voucherDiscount, 0)
 
   const dateOptions = useMemo(() => {
     const dates = []
@@ -137,11 +146,31 @@ export default function BookingForm({
     return slots
   }, [])
 
-  const availableTimeSlots = timeSlots.filter(
-    (slot) => !bookedTimes.includes(slot)
-  )
+  const availableTimeSlots = timeSlots.filter((slot) => {
+    if (totalDuration <= 0) return false
+
+    const candidateStart = timeToMinutes(slot)
+    const candidateEnd = candidateStart + totalDuration
+    const businessClose = 17 * 60
+
+    if (candidateEnd > businessClose) return false
+
+    return !bookedTimes.some((booked) => {
+      const bookedStart = timeToMinutes(booked.time)
+      const bookedEnd = bookedStart + booked.duration
+
+      return candidateStart < bookedEnd && candidateEnd > bookedStart
+    })
+  })
 
   const formattedDate = formatDisplayDate(selectedDate)
+
+  useEffect(() => {
+    setAppliedVoucher(null)
+    setVoucherMessage('')
+    setVoucherAmountUsed(0)
+    setRemainingVoucherBalance(null)
+  }, [selectedServices, voucherCode])
 
   useEffect(() => {
     async function loadBookedTimes() {
@@ -152,16 +181,17 @@ export default function BookingForm({
 
       const { data } = await supabase
         .from('bookings')
-        .select('booking_time')
+        .select('booking_time, total_duration_minutes')
         .eq('business_id', businessId)
         .eq('team_member_id', selectedTeamMember)
         .eq('booking_date', selectedDate)
         .neq('status', 'cancelled')
 
       const times =
-        (data as Booking[] | null)?.map((booking) =>
-          booking.booking_time.slice(0, 5)
-        ) || []
+        (data as Booking[] | null)?.map((booking) => ({
+          time: booking.booking_time.slice(0, 5),
+          duration: Number(booking.total_duration_minutes || 30),
+        })) || []
 
       setBookedTimes(times)
     }
@@ -169,74 +199,65 @@ export default function BookingForm({
     loadBookedTimes()
   }, [businessId, selectedTeamMember, selectedDate])
 
-  useEffect(() => {
-  async function loadCustomerPackage() {
-    setCustomerPackage(null)
-    setUsePackageSession(false)
-    setPackageMessage('')
-    setPackageRemainingAfterBooking(null)
+  function toggleService(serviceId: string) {
+    setSelectedTime('')
 
-    const cleanEmail = email.trim()
+    setSelectedServices((current) =>
+      current.includes(serviceId)
+        ? current.filter((id) => id !== serviceId)
+        : [...current, serviceId]
+    )
+  }
 
-    if (!cleanEmail || !cleanEmail.includes('@')) return
+  async function validateVoucher() {
+    setVoucherMessage('')
+    setAppliedVoucher(null)
 
-    const { data: matchingCustomers, error: customerError } = await supabase
-      .from('customers')
-      .select('id, email')
-      .ilike('email', cleanEmail)
-
-    console.log('PACKAGE CUSTOMER LOOKUP:', matchingCustomers, customerError)
-
-    if (
-      customerError ||
-      !matchingCustomers ||
-      matchingCustomers.length === 0
-    ) {
+    if (selectedServiceDetails.length === 0) {
+      setVoucherMessage('Please choose at least one service before applying a voucher.')
       return
     }
 
-    const customerIds = matchingCustomers.map((customer) => customer.id)
+    if (!voucherCode.trim()) {
+      setVoucherMessage('Enter a gift voucher code.')
+      return
+    }
 
-    const { data, error } = await supabase
-      .from('customer_packages')
-      .select(`
-        id,
-        package_id,
-        sessions_purchased,
-        sessions_used,
-        sessions_remaining,
-        status,
-        packages (
-          name
-        )
-      `)
-      .in('customer_id', customerIds)
-      .eq('status', 'active')
-      .gt('sessions_remaining', 0)
-      .order('purchase_date', { ascending: true })
-      .limit(1)
-      .maybeSingle()
+    setVoucherValidating(true)
 
-    console.log('CUSTOMER PACKAGE LOOKUP:', data, error)
+    try {
+      const response = await fetch('/api/validate-voucher', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          code: voucherCode,
+          businessId,
+          bookingTotal: totalPrice,
+        }),
+      })
 
-    if (error || !data) return
+      const result = await response.json()
 
-    setCustomerPackage(data as CustomerPackage)
+      if (!response.ok || !result.valid) {
+        setVoucherMessage(result.error || 'Voucher could not be validated.')
+        setVoucherValidating(false)
+        return
+      }
+
+      setAppliedVoucher(result.voucher)
+      setVoucherMessage('Voucher applied successfully.')
+    } catch (error: any) {
+      setVoucherMessage(error.message || 'Voucher could not be validated.')
+    }
+
+    setVoucherValidating(false)
   }
-
-  loadCustomerPackage()
-}, [businessId, email])
 
   async function createBooking() {
     setMessage('')
-    setVoucherMessage('')
-    setVoucherAmountUsed(0)
-    setRemainingVoucherBalance(null)
-    setPackageMessage('')
-    setPackageRemainingAfterBooking(null)
 
     if (
-      !selectedService ||
+      selectedServices.length === 0 ||
       !selectedTeamMember ||
       !selectedDate ||
       !selectedTime ||
@@ -247,8 +268,8 @@ export default function BookingForm({
       return
     }
 
-    if (bookedTimes.includes(selectedTime)) {
-      setMessage('Sorry, that time has just been booked. Please choose another slot.')
+    if (!availableTimeSlots.includes(selectedTime)) {
+      setMessage('Sorry, that time is no longer available for the selected services.')
       setSelectedTime('')
       return
     }
@@ -286,32 +307,20 @@ export default function BookingForm({
       customerId = newCustomer.id
     }
 
-    let packageSessionUsed = false
-    let customerPackageId: string | null = null
-
-    if (usePackageSession && customerPackage) {
-      if (customerPackage.sessions_remaining <= 0) {
-        setMessage('This package has no sessions remaining.')
-        setLoading(false)
-        return
-      }
-
-      packageSessionUsed = true
-      customerPackageId = customerPackage.id
-    }
+    const firstService = selectedServiceDetails[0]
 
     const { data: bookingData, error: bookingError } = await supabase
       .from('bookings')
       .insert({
         business_id: businessId,
         customer_id: customerId,
-        service_id: selectedService,
+        service_id: firstService?.id || null,
         team_member_id: selectedTeamMember,
         booking_date: selectedDate,
         booking_time: selectedTime,
         status: 'confirmed',
-        customer_package_id: customerPackageId,
-        package_session_used: packageSessionUsed,
+        total_price: totalPrice,
+        total_duration_minutes: totalDuration,
       })
       .select('id')
       .single()
@@ -322,43 +331,33 @@ export default function BookingForm({
       return
     }
 
-    if (packageSessionUsed && customerPackage) {
-      const newUsed = customerPackage.sessions_used + 1
-      const newRemaining = customerPackage.sessions_remaining - 1
-      const newStatus = newRemaining <= 0 ? 'used' : 'active'
+    const bookingServicesRows = selectedServiceDetails.map((service) => ({
+      booking_id: bookingData.id,
+      service_id: service.id,
+      service_name: service.name,
+      price: service.price,
+      duration_minutes: service.duration_minutes,
+    }))
 
-      const { error: packageError } = await supabase
-        .from('customer_packages')
-        .update({
-          sessions_used: newUsed,
-          sessions_remaining: newRemaining,
-          status: newStatus,
-        })
-        .eq('id', customerPackage.id)
+    const { error: bookingServicesError } = await supabase
+      .from('booking_services')
+      .insert(bookingServicesRows)
 
-      if (packageError) {
-        setPackageMessage(packageError.message)
-      } else {
-        setPackageRemainingAfterBooking(newRemaining)
-        setPackageMessage(
-          `This booking used 1 session from your package. ${newRemaining} session${
-            newRemaining === 1 ? '' : 's'
-          } remaining. No payment is due for this appointment.`
-        )
-      }
+    if (bookingServicesError) {
+      setMessage(bookingServicesError.message)
+      setLoading(false)
+      return
     }
 
-    if (!packageSessionUsed && voucherCode.trim()) {
+    if (appliedVoucher) {
       const response = await fetch('/api/redeem-voucher', {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
+        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          code: voucherCode,
+          code: appliedVoucher.code,
           booking_id: bookingData.id,
           business_id: businessId,
-          amount_due: selectedServiceDetails?.price || 0,
+          amount_due: totalPrice,
         }),
       })
 
@@ -373,6 +372,27 @@ export default function BookingForm({
           `Voucher applied. £${Number(result.amount_used || 0).toFixed(2)} used.`
         )
       }
+    }
+
+    const checkoutResponse = await fetch('/api/create-checkout-session', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        bookingId: bookingData.id,
+      }),
+    })
+
+    const checkoutResult = await checkoutResponse.json()
+
+    if (!checkoutResponse.ok) {
+      setMessage(checkoutResult.error || 'Could not start checkout.')
+      setLoading(false)
+      return
+    }
+
+    if (checkoutResult.requiresPayment && checkoutResult.checkoutUrl) {
+      window.location.href = checkoutResult.checkoutUrl
+      return
     }
 
     setLoading(false)
@@ -391,9 +411,7 @@ export default function BookingForm({
           ✓
         </div>
 
-        <h2 className="text-3xl font-black mb-4">
-          {usePackageSession ? 'Package booking confirmed' : 'Booking confirmed'}
-        </h2>
+        <h2 className="text-3xl font-black mb-4">Booking confirmed</h2>
 
         <p className={`${textClassName} mb-4`}>
           Your appointment has been booked successfully.
@@ -408,46 +426,36 @@ export default function BookingForm({
             {formattedDate} at {selectedTime}
           </p>
 
-          {selectedServiceDetails && (
-            <p className={`${textClassName} mt-2`}>
-              Service: {selectedServiceDetails.name}
-            </p>
-          )}
+          <div className="mt-4 space-y-2">
+            {selectedServiceDetails.map((service) => (
+              <div key={service.id} className={`${textClassName} flex justify-between gap-4`}>
+                <span>{service.name}</span>
+                <span>£{Number(service.price).toFixed(2)}</span>
+              </div>
+            ))}
+          </div>
 
-          {packageMessage && (
-            <div className="mt-5 rounded-2xl border border-emerald-500/30 bg-emerald-500/10 p-5">
-              <p className="font-black text-emerald-300">
-                Package session used successfully
+          <div className={`mt-5 border-t pt-5 ${textClassName}`}>
+            <p>Total duration: {totalDuration} mins</p>
+            <p>Total price: £{totalPrice.toFixed(2)}</p>
+          </div>
+
+          {voucherMessage && (
+            <div className="mt-5 rounded-2xl border border-purple-500/30 bg-purple-500/10 p-5">
+              <p className="font-black text-purple-300">
+                Gift voucher used successfully
               </p>
 
-              <p className={`${textClassName} mt-2`}>
-                {packageName || 'Your package'} has been used for this appointment.
-              </p>
+              <p className={`${textClassName} mt-2`}>{voucherMessage}</p>
 
-              <p className={`${textClassName} mt-2`}>
-                {packageMessage}
-              </p>
-
-              {packageRemainingAfterBooking !== null && (
-                <p className={`${textClassName} mt-2 font-bold`}>
-                  Remaining package sessions: {packageRemainingAfterBooking}
+              {voucherAmountUsed > 0 && (
+                <p className={`${textClassName} mt-2`}>
+                  Voucher used: £{voucherAmountUsed.toFixed(2)}
+                  {remainingVoucherBalance !== null &&
+                    ` • Remaining balance: £${remainingVoucherBalance.toFixed(2)}`}
                 </p>
               )}
             </div>
-          )}
-
-          {voucherMessage && (
-            <p className={`${textClassName} mt-4`}>
-              {voucherMessage}
-            </p>
-          )}
-
-          {voucherAmountUsed > 0 && (
-            <p className={`${textClassName} mt-2`}>
-              Voucher used: £{voucherAmountUsed.toFixed(2)}
-              {remainingVoucherBalance !== null &&
-                ` • Remaining balance: £${remainingVoucherBalance.toFixed(2)}`}
-            </p>
           )}
         </div>
       </div>
@@ -464,43 +472,96 @@ export default function BookingForm({
         <h2 className="text-3xl md:text-4xl font-black">Make a booking</h2>
 
         <p className={`${textClassName} mt-3`}>
-          Choose your service, specialist, date and time.
+          Choose one or more services, then select your specialist, date and time.
         </p>
       </div>
 
       <div className="space-y-6">
-        <div className="grid md:grid-cols-2 gap-4">
-          <select
-            value={selectedService}
-            onChange={(e) => setSelectedService(e.target.value)}
-            className={`w-full p-4 rounded-2xl border outline-none ${innerCardClassName}`}
-          >
-            <option value="">Select service</option>
+        <div>
+          <label className={`block text-sm font-bold mb-3 ${textClassName}`}>
+            Choose services
+          </label>
 
-            {services.map((service) => (
-              <option key={service.id} value={service.id}>
-                {service.name} (£{service.price})
-              </option>
-            ))}
-          </select>
+          <div className="space-y-3">
+            {services.map((service) => {
+              const selected = selectedServices.includes(service.id)
 
-          <select
-            value={selectedTeamMember}
-            onChange={(e) => {
-              setSelectedTeamMember(e.target.value)
-              setSelectedTime('')
-            }}
-            className={`w-full p-4 rounded-2xl border outline-none ${innerCardClassName}`}
-          >
-            <option value="">Select team member</option>
+              return (
+                <button
+                  key={service.id}
+                  type="button"
+                  onClick={() => toggleService(service.id)}
+                  className={`w-full rounded-2xl border p-5 text-left transition ${
+                    selected
+                      ? 'border-transparent text-white'
+                      : `${innerCardClassName} hover:opacity-80`
+                  }`}
+                  style={
+                    selected
+                      ? {
+                          background: `linear-gradient(135deg, ${primaryColour}, ${secondaryColour})`,
+                        }
+                      : undefined
+                  }
+                >
+                  <div className="flex items-start justify-between gap-4">
+                    <div>
+                      <p className="text-lg font-black">{service.name}</p>
+                      <p className="mt-1 text-sm opacity-75">
+                        {service.duration_minutes} mins
+                      </p>
+                    </div>
 
-            {teamMembers.map((member) => (
-              <option key={member.id} value={member.id}>
-                {member.full_name}
-              </option>
-            ))}
-          </select>
+                    <p className="font-black">
+                      £{Number(service.price).toFixed(2)}
+                    </p>
+                  </div>
+                </button>
+              )
+            })}
+          </div>
         </div>
+
+        {selectedServiceDetails.length > 0 && (
+          <div className={`rounded-2xl border p-5 ${innerCardClassName}`}>
+            <p className={`text-sm font-bold uppercase tracking-[0.2em] mb-3 ${mutedClassName}`}>
+              Selected services
+            </p>
+
+            <div className="space-y-2">
+              {selectedServiceDetails.map((service) => (
+                <div key={service.id} className={`flex justify-between gap-4 ${textClassName}`}>
+                  <span>{service.name}</span>
+                  <span>£{Number(service.price).toFixed(2)}</span>
+                </div>
+              ))}
+            </div>
+
+            <div className="mt-4 border-t border-white/10 pt-4">
+              <p className="font-black">Total: £{totalPrice.toFixed(2)}</p>
+              <p className={`${textClassName} mt-1`}>
+                Total duration: {totalDuration} mins
+              </p>
+            </div>
+          </div>
+        )}
+
+        <select
+          value={selectedTeamMember}
+          onChange={(e) => {
+            setSelectedTeamMember(e.target.value)
+            setSelectedTime('')
+          }}
+          className={`w-full p-4 rounded-2xl border outline-none ${innerCardClassName}`}
+        >
+          <option value="">Select team member</option>
+
+          {teamMembers.map((member) => (
+            <option key={member.id} value={member.id}>
+              {member.full_name}
+            </option>
+          ))}
+        </select>
 
         <div>
           <label className={`block text-sm font-bold mb-3 ${textClassName}`}>
@@ -549,7 +610,7 @@ export default function BookingForm({
           </div>
         </div>
 
-        {selectedDate && selectedTeamMember && (
+        {selectedDate && selectedTeamMember && selectedServices.length > 0 && (
           <div>
             <p className={`text-sm font-bold mb-3 ${textClassName}`}>
               Available times for {formattedDate}
@@ -585,13 +646,13 @@ export default function BookingForm({
 
             {availableTimeSlots.length === 0 && (
               <p className={`${mutedClassName} mt-3`}>
-                No available slots for this date.
+                No available slots for this date and service length.
               </p>
             )}
           </div>
         )}
 
-        {selectedService &&
+        {selectedServices.length > 0 &&
           selectedTeamMember &&
           selectedDate &&
           selectedTime && (
@@ -609,11 +670,20 @@ export default function BookingForm({
                 {formattedDate} at {selectedTime}
               </p>
 
-              {selectedServiceDetails && (
-                <p className="text-white/80 mt-2">
-                  Price: £{Number(selectedServiceDetails.price).toFixed(2)}
-                </p>
-              )}
+              <div className="mt-3 space-y-1 text-white/80">
+                <p>Total services: {selectedServiceDetails.length}</p>
+                <p>Total duration: {totalDuration} mins</p>
+                <p>Total price: £{totalPrice.toFixed(2)}</p>
+
+                {appliedVoucher && (
+                  <>
+                    <p>Gift voucher: -£{voucherDiscount.toFixed(2)}</p>
+                    <p className="font-black text-white">
+                      Amount due: £{amountDueAfterVoucher.toFixed(2)}
+                    </p>
+                  </>
+                )}
+              </div>
             </div>
           )}
 
@@ -640,87 +710,6 @@ export default function BookingForm({
           onChange={(e) => setEmail(e.target.value)}
         />
 
-        {customerPackage && (
-          <div className={`rounded-2xl border p-5 ${innerCardClassName}`}>
-            <p className={`text-sm font-bold uppercase tracking-[0.2em] mb-2 ${mutedClassName}`}>
-              Active package found
-            </p>
-
-            <p className="text-xl font-black">
-              {packageName || 'Customer package'}
-            </p>
-
-            <p className={`${textClassName} mt-2`}>
-              You have {customerPackage.sessions_remaining} session
-              {customerPackage.sessions_remaining === 1 ? '' : 's'} remaining.
-            </p>
-
-            <p className={`${textClassName} mt-2`}>
-              Choose whether to use one package session for this appointment or pay normally.
-            </p>
-
-            <div className="mt-4 grid md:grid-cols-2 gap-3">
-              <button
-                type="button"
-                onClick={() => {
-                  setUsePackageSession(true)
-                  setVoucherCode('')
-                }}
-                className={`rounded-2xl border p-4 font-bold ${
-                  usePackageSession
-                    ? 'border-transparent text-white'
-                    : `${innerCardClassName}`
-                }`}
-                style={
-                  usePackageSession
-                    ? {
-                        background: `linear-gradient(135deg, ${primaryColour}, ${secondaryColour})`,
-                      }
-                    : undefined
-                }
-              >
-                Use 1 package session
-              </button>
-
-              <button
-                type="button"
-                onClick={() => setUsePackageSession(false)}
-                className={`rounded-2xl border p-4 font-bold ${
-                  !usePackageSession
-                    ? 'border-transparent text-white'
-                    : `${innerCardClassName}`
-                }`}
-                style={
-                  !usePackageSession
-                    ? {
-                        background: `linear-gradient(135deg, ${primaryColour}, ${secondaryColour})`,
-                      }
-                    : undefined
-                }
-              >
-                Pay normally
-              </button>
-            </div>
-
-            {usePackageSession && (
-              <div className="mt-4 rounded-xl border border-emerald-500/30 bg-emerald-500/10 p-4">
-                <p className="font-bold text-emerald-300">
-                  This booking will use 1 package session.
-                </p>
-
-                <p className={`${textClassName} mt-2`}>
-                  No payment will be due for this appointment.
-                </p>
-
-                <p className={`${textClassName} mt-2`}>
-                  Sessions remaining after booking:{' '}
-                  {Math.max(customerPackage.sessions_remaining - 1, 0)}
-                </p>
-              </div>
-            )}
-          </div>
-        )}
-
         <input
           className={`w-full p-4 rounded-2xl border outline-none ${innerCardClassName}`}
           placeholder="Phone number"
@@ -728,14 +717,73 @@ export default function BookingForm({
           onChange={(e) => setPhone(e.target.value)}
         />
 
-        {!usePackageSession && (
-          <input
-            className={`w-full p-4 rounded-2xl border outline-none ${innerCardClassName}`}
-            placeholder="Gift voucher code optional"
-            value={voucherCode}
-            onChange={(e) => setVoucherCode(e.target.value.toUpperCase())}
-          />
-        )}
+        <div className={`rounded-2xl border p-5 ${innerCardClassName}`}>
+          <p className={`text-sm font-bold uppercase tracking-[0.2em] mb-2 ${mutedClassName}`}>
+            Gift voucher
+          </p>
+
+          <p className={`${textClassName} mb-4`}>
+            Enter a voucher code to apply it to this booking.
+          </p>
+
+          <div className="grid gap-3 md:grid-cols-[1fr_auto]">
+            <input
+              className={`w-full p-4 rounded-2xl border outline-none ${innerCardClassName}`}
+              placeholder="Gift voucher code"
+              value={voucherCode}
+              onChange={(e) => setVoucherCode(e.target.value.toUpperCase())}
+            />
+
+            <button
+              type="button"
+              onClick={validateVoucher}
+              disabled={voucherValidating || !voucherCode.trim()}
+              className="rounded-2xl px-5 py-4 font-black text-white disabled:opacity-50"
+              style={{
+                background: `linear-gradient(135deg, ${primaryColour}, ${secondaryColour})`,
+              }}
+            >
+              {voucherValidating ? 'Checking...' : 'Apply'}
+            </button>
+          </div>
+
+          {voucherMessage && (
+            <p className={`${textClassName} mt-4`}>{voucherMessage}</p>
+          )}
+
+          {appliedVoucher && (
+            <div className="mt-5 rounded-2xl border border-purple-500/30 bg-purple-500/10 p-5">
+              <p className="font-black text-purple-300">
+                Valid voucher: {appliedVoucher.code}
+              </p>
+
+              <div className={`${textClassName} mt-3 space-y-1`}>
+                <p>
+                  Voucher balance: £{appliedVoucher.remainingAmount.toFixed(2)}
+                </p>
+
+                <p>
+                  Applied to this booking: £
+                  {appliedVoucher.discountAmount.toFixed(2)}
+                </p>
+
+                <p>
+                  Remaining after booking: £
+                  {Math.max(
+                    appliedVoucher.remainingAmount -
+                      appliedVoucher.discountAmount,
+                    0
+                  ).toFixed(2)}
+                </p>
+
+                <p className="font-black">
+                  Amount due after voucher: £
+                  {amountDueAfterVoucher.toFixed(2)}
+                </p>
+              </div>
+            </div>
+          )}
+        </div>
 
         <button
           type="button"
@@ -748,8 +796,8 @@ export default function BookingForm({
         >
           {loading
             ? 'Booking...'
-            : usePackageSession
-              ? 'Confirm booking using package'
+            : appliedVoucher
+              ? `Book appointment — £${amountDueAfterVoucher.toFixed(2)} due`
               : 'Book appointment'}
         </button>
 

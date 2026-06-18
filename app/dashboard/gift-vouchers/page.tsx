@@ -176,6 +176,52 @@ export default function GiftVouchersDashboardPage() {
     setSuccess(`Copied ${code}`)
   }
 
+  function exportCsv() {
+    const headers = [
+      'Code',
+      'Recipient Name',
+      'Recipient Email',
+      'Purchaser Name',
+      'Purchaser Email',
+      'Original Amount',
+      'Remaining Amount',
+      'Expiry Date',
+      'Status',
+      'Created At',
+    ]
+
+    const rows = filteredVouchers.map((voucher) => [
+      voucher.code,
+      voucher.recipient_name || '',
+      voucher.recipient_email || '',
+      voucher.purchaser_name || '',
+      voucher.purchaser_email || '',
+      Number(voucher.amount || 0).toFixed(2),
+      Number(voucher.remaining_amount || 0).toFixed(2),
+      voucher.expiry_date || '',
+      voucher.status || 'active',
+      voucher.created_at || '',
+    ])
+
+    const csv = [headers, ...rows]
+      .map((row) =>
+        row
+          .map((cell) => `"${String(cell).replaceAll('"', '""')}"`)
+          .join(',')
+      )
+      .join('\n')
+
+    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' })
+    const url = URL.createObjectURL(blob)
+
+    const link = document.createElement('a')
+    link.href = url
+    link.download = `gift-vouchers-${new Date().toISOString().split('T')[0]}.csv`
+    link.click()
+
+    URL.revokeObjectURL(url)
+  }
+
   const filteredVouchers = useMemo(() => {
     const q = search.toLowerCase().trim()
     if (!q) return vouchers
@@ -185,18 +231,34 @@ export default function GiftVouchersDashboardPage() {
         voucher.code?.toLowerCase().includes(q) ||
         voucher.recipient_name?.toLowerCase().includes(q) ||
         voucher.recipient_email?.toLowerCase().includes(q) ||
-        voucher.purchaser_name?.toLowerCase().includes(q)
+        voucher.purchaser_name?.toLowerCase().includes(q) ||
+        voucher.purchaser_email?.toLowerCase().includes(q) ||
+        voucher.status?.toLowerCase().includes(q)
       )
     })
   }, [search, vouchers])
+
+  const today = new Date().toISOString().split('T')[0]
+  const monthKey = new Date().toISOString().slice(0, 7)
 
   const totalSold = vouchers.reduce((sum, v) => sum + Number(v.amount || 0), 0)
   const totalRemaining = vouchers.reduce(
     (sum, v) => sum + Number(v.remaining_amount || 0),
     0
   )
+
+  const soldToday = vouchers
+    .filter((v) => v.created_at?.startsWith(today))
+    .reduce((sum, v) => sum + Number(v.amount || 0), 0)
+
+  const soldThisMonth = vouchers
+    .filter((v) => v.created_at?.startsWith(monthKey))
+    .reduce((sum, v) => sum + Number(v.amount || 0), 0)
+
   const activeCount = vouchers.filter((v) => v.status === 'active').length
   const redeemedCount = vouchers.filter((v) => v.status === 'redeemed').length
+  const cancelledCount = vouchers.filter((v) => v.status === 'cancelled').length
+  const expiredCount = vouchers.filter((v) => v.status === 'expired').length
 
   if (loading) {
     return (
@@ -208,15 +270,25 @@ export default function GiftVouchersDashboardPage() {
 
   return (
     <main className="min-h-screen space-y-8 bg-slate-950 p-6 text-white md:p-8">
-      <div>
-        <p className="text-sm font-bold uppercase tracking-[0.25em] text-slate-500">
-          Revenue tools
-        </p>
-        <h1 className="mt-2 text-4xl font-black">Gift vouchers</h1>
-        <p className="mt-3 max-w-2xl text-slate-400">
-          Manage purchased vouchers, manual vouchers, balances, expiry dates and
-          redemptions.
-        </p>
+      <div className="flex flex-col gap-5 md:flex-row md:items-end md:justify-between">
+        <div>
+          <p className="text-sm font-bold uppercase tracking-[0.25em] text-slate-500">
+            Revenue tools
+          </p>
+          <h1 className="mt-2 text-4xl font-black">Gift vouchers</h1>
+          <p className="mt-3 max-w-2xl text-slate-400">
+            Manage voucher sales, outstanding balances, redemptions, expiry dates
+            and manual voucher creation.
+          </p>
+        </div>
+
+        <button
+          type="button"
+          onClick={exportCsv}
+          className="rounded-2xl border border-white/10 bg-white/[0.04] px-5 py-4 font-black text-white hover:bg-white/10"
+        >
+          Export CSV
+        </button>
       </div>
 
       {error && (
@@ -231,34 +303,26 @@ export default function GiftVouchersDashboardPage() {
         </div>
       )}
 
+      <section className="grid gap-4 md:grid-cols-3 xl:grid-cols-6">
+        <StatCard label="Sold today" value={`£${soldToday.toFixed(2)}`} />
+        <StatCard label="Sold this month" value={`£${soldThisMonth.toFixed(2)}`} />
+        <StatCard label="Total sold" value={`£${totalSold.toFixed(2)}`} />
+        <StatCard label="Outstanding liability" value={`£${totalRemaining.toFixed(2)}`} />
+        <StatCard label="Active vouchers" value={activeCount} />
+        <StatCard label="Redeemed" value={redeemedCount} />
+      </section>
+
       <section className="grid gap-4 md:grid-cols-4">
-        <div className="rounded-3xl border border-white/10 bg-white/[0.04] p-6">
-          <p className="text-sm font-bold text-slate-500">Total sold</p>
-          <p className="mt-2 text-3xl font-black">£{totalSold.toFixed(2)}</p>
-        </div>
-
-        <div className="rounded-3xl border border-white/10 bg-white/[0.04] p-6">
-          <p className="text-sm font-bold text-slate-500">Remaining value</p>
-          <p className="mt-2 text-3xl font-black">
-            £{totalRemaining.toFixed(2)}
-          </p>
-        </div>
-
-        <div className="rounded-3xl border border-white/10 bg-white/[0.04] p-6">
-          <p className="text-sm font-bold text-slate-500">Active</p>
-          <p className="mt-2 text-3xl font-black">{activeCount}</p>
-        </div>
-
-        <div className="rounded-3xl border border-white/10 bg-white/[0.04] p-6">
-          <p className="text-sm font-bold text-slate-500">Redeemed</p>
-          <p className="mt-2 text-3xl font-black">{redeemedCount}</p>
-        </div>
+        <StatusCard label="Active" count={activeCount} tone="emerald" />
+        <StatusCard label="Redeemed" count={redeemedCount} tone="blue" />
+        <StatusCard label="Expired" count={expiredCount} tone="amber" />
+        <StatusCard label="Cancelled" count={cancelledCount} tone="red" />
       </section>
 
       <section className="rounded-3xl border border-white/10 bg-white/[0.04] p-6 md:p-8">
         <h2 className="text-2xl font-black">Create manual voucher</h2>
         <p className="mt-2 text-slate-400">
-          Useful for goodwill gestures, prizes, walk-in purchases or offline payments.
+          Issue goodwill vouchers, competition prizes, offline purchases or refund credits.
         </p>
 
         <form
@@ -311,7 +375,7 @@ export default function GiftVouchersDashboardPage() {
           <div>
             <h2 className="text-2xl font-black">All vouchers</h2>
             <p className="mt-2 text-slate-400">
-              Search, copy, cancel or redeem voucher codes.
+              Search by code, recipient, purchaser, email or status.
             </p>
           </div>
 
@@ -324,11 +388,12 @@ export default function GiftVouchersDashboardPage() {
         </div>
 
         <div className="mt-6 overflow-x-auto">
-          <table className="w-full min-w-[900px] text-left">
+          <table className="w-full min-w-[1050px] text-left">
             <thead>
               <tr className="border-b border-white/10 text-sm text-slate-500">
                 <th className="py-4">Code</th>
                 <th className="py-4">Recipient</th>
+                <th className="py-4">Purchaser</th>
                 <th className="py-4">Amount</th>
                 <th className="py-4">Remaining</th>
                 <th className="py-4">Expiry</th>
@@ -351,6 +416,15 @@ export default function GiftVouchersDashboardPage() {
                     </p>
                   </td>
 
+                  <td className="py-5">
+                    <p className="font-bold text-slate-300">
+                      {voucher.purchaser_name || 'Unknown'}
+                    </p>
+                    <p className="text-sm text-slate-500">
+                      {voucher.purchaser_email || 'No email'}
+                    </p>
+                  </td>
+
                   <td className="py-5 text-slate-300">
                     £{Number(voucher.amount || 0).toFixed(2)}
                   </td>
@@ -366,17 +440,7 @@ export default function GiftVouchersDashboardPage() {
                   </td>
 
                   <td className="py-5">
-                    <span
-                      className={`rounded-full px-3 py-1 text-sm font-bold capitalize ${
-                        voucher.status === 'redeemed'
-                          ? 'bg-blue-500/10 text-blue-300'
-                          : voucher.status === 'cancelled'
-                            ? 'bg-red-500/10 text-red-300'
-                            : 'bg-emerald-500/10 text-emerald-300'
-                      }`}
-                    >
-                      {voucher.status || 'active'}
-                    </span>
+                    <VoucherBadge status={voucher.status || 'active'} />
                   </td>
 
                   <td className="py-5">
@@ -412,7 +476,7 @@ export default function GiftVouchersDashboardPage() {
 
               {filteredVouchers.length === 0 && (
                 <tr>
-                  <td colSpan={7} className="py-10 text-center text-slate-500">
+                  <td colSpan={8} className="py-10 text-center text-slate-500">
                     No gift vouchers found.
                   </td>
                 </tr>
@@ -422,5 +486,78 @@ export default function GiftVouchersDashboardPage() {
         </div>
       </section>
     </main>
+  )
+}
+
+function StatCard({
+  label,
+  value,
+}: {
+  label: string
+  value: string | number
+}) {
+  return (
+    <div className="rounded-3xl border border-white/10 bg-white/[0.04] p-6">
+      <p className="text-sm font-bold text-slate-500">{label}</p>
+      <p className="mt-2 text-3xl font-black text-white">{value}</p>
+    </div>
+  )
+}
+
+function StatusCard({
+  label,
+  count,
+  tone,
+}: {
+  label: string
+  count: number
+  tone: 'emerald' | 'blue' | 'amber' | 'red'
+}) {
+  const classes = {
+    emerald: 'border-emerald-500/20 bg-emerald-500/10 text-emerald-300',
+    blue: 'border-blue-500/20 bg-blue-500/10 text-blue-300',
+    amber: 'border-amber-500/20 bg-amber-500/10 text-amber-300',
+    red: 'border-red-500/20 bg-red-500/10 text-red-300',
+  }
+
+  return (
+    <div className={`rounded-3xl border p-5 ${classes[tone]}`}>
+      <p className="text-sm font-bold opacity-80">{label}</p>
+      <p className="mt-2 text-3xl font-black">{count}</p>
+    </div>
+  )
+}
+
+function VoucherBadge({ status }: { status: string }) {
+  const normalised = status.toLowerCase()
+
+  if (normalised === 'redeemed') {
+    return (
+      <span className="rounded-full bg-blue-500/10 px-3 py-1 text-sm font-bold text-blue-300">
+        Redeemed
+      </span>
+    )
+  }
+
+  if (normalised === 'expired') {
+    return (
+      <span className="rounded-full bg-amber-500/10 px-3 py-1 text-sm font-bold text-amber-300">
+        Expired
+      </span>
+    )
+  }
+
+  if (normalised === 'cancelled') {
+    return (
+      <span className="rounded-full bg-red-500/10 px-3 py-1 text-sm font-bold text-red-300">
+        Cancelled
+      </span>
+    )
+  }
+
+  return (
+    <span className="rounded-full bg-emerald-500/10 px-3 py-1 text-sm font-bold text-emerald-300">
+      Active
+    </span>
   )
 }

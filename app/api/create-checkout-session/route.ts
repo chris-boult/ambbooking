@@ -12,14 +12,19 @@ type Booking = {
   booking_date: string
   booking_time: string
   payment_status: string | null
+  total_price: number | null
+  total_duration_minutes: number | null
 }
 
-type Service = {
-  id: string
-  name: string
+type BookingService = {
+  service_id: string
+  service_name: string
   price: number
-  payment_type: string | null
-  deposit_amount: number | null
+  duration_minutes: number
+  services: {
+    payment_type: string | null
+    deposit_amount: number | null
+  } | null
 }
 
 type Customer = {
@@ -31,13 +36,8 @@ type Customer = {
 
 function getBaseUrl(request: Request) {
   const origin = request.headers.get('origin')
-
   if (origin) return origin
-
-  if (process.env.NEXT_PUBLIC_SITE_URL) {
-    return process.env.NEXT_PUBLIC_SITE_URL
-  }
-
+  if (process.env.NEXT_PUBLIC_SITE_URL) return process.env.NEXT_PUBLIC_SITE_URL
   return 'http://localhost:3000'
 }
 
@@ -60,47 +60,25 @@ export async function POST(request: Request) {
     const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY
     const stripeSecretKey = process.env.STRIPE_SECRET_KEY
 
-    if (!supabaseUrl) {
+    if (!supabaseUrl || !supabaseServiceKey || !stripeSecretKey) {
       return NextResponse.json(
-        { success: false, error: 'Missing NEXT_PUBLIC_SUPABASE_URL' },
-        { status: 500 }
-      )
-    }
-
-    if (!supabaseServiceKey) {
-      return NextResponse.json(
-        { success: false, error: 'Missing SUPABASE_SERVICE_ROLE_KEY' },
-        { status: 500 }
-      )
-    }
-
-    if (!stripeSecretKey) {
-      return NextResponse.json(
-        { success: false, error: 'Missing STRIPE_SECRET_KEY' },
+        {
+          success: false,
+          error: 'Missing required server environment variables',
+        },
         { status: 500 }
       )
     }
 
     const supabase = createClient(supabaseUrl, supabaseServiceKey)
-
-console.log(
-  "Stripe key prefix:",
-  stripeSecretKey.substring(0, 15),
-  "length:",
-  stripeSecretKey.length
-)
-
-const stripe = new Stripe(stripeSecretKey)
+    const stripe = new Stripe(stripeSecretKey)
 
     const body = await request.json()
     const bookingId = body.bookingId as string | undefined
 
     if (!bookingId) {
       return NextResponse.json(
-        {
-          success: false,
-          error: 'Missing bookingId',
-        },
+        { success: false, error: 'Missing bookingId' },
         { status: 400 }
       )
     }
@@ -114,7 +92,9 @@ const stripe = new Stripe(stripeSecretKey)
         service_id,
         booking_date,
         booking_time,
-        payment_status
+        payment_status,
+        total_price,
+        total_duration_minutes
       `)
       .eq('id', bookingId)
       .single()
@@ -132,34 +112,49 @@ const stripe = new Stripe(stripeSecretKey)
 
     const booking = bookingData as Booking
 
-    if (!booking.service_id) {
+    const { data: bookingServicesData, error: bookingServicesError } =
+      await supabase
+        .from('booking_services')
+        .select(`
+          service_id,
+          service_name,
+          price,
+          duration_minutes,
+          services (
+            payment_type,
+            deposit_amount
+          )
+        `)
+        .eq('booking_id', booking.id)
+
+    if (bookingServicesError) {
       return NextResponse.json(
         {
           success: false,
-          error: 'Booking has no service_id',
+          step: 'fetch_booking_services',
+          error: bookingServicesError.message,
+        },
+        { status: 500 }
+      )
+    }
+
+    const bookingServices = (bookingServicesData || []).map((item: any) => ({
+  service_id: item.service_id,
+  service_name: item.service_name,
+  price: Number(item.price || 0),
+  duration_minutes: Number(item.duration_minutes || 0),
+  services: Array.isArray(item.services) ? item.services[0] : item.services,
+})) as BookingService[]
+
+    if (bookingServices.length === 0) {
+      return NextResponse.json(
+        {
+          success: false,
+          error: 'Booking has no booking_services rows',
         },
         { status: 400 }
       )
     }
-
-    const { data: serviceData, error: serviceError } = await supabase
-      .from('services')
-      .select('id, name, price, payment_type, deposit_amount')
-      .eq('id', booking.service_id)
-      .single()
-
-    if (serviceError || !serviceData) {
-      return NextResponse.json(
-        {
-          success: false,
-          step: 'fetch_service',
-          error: serviceError?.message || 'Service not found',
-        },
-        { status: 404 }
-      )
-    }
-
-    const service = serviceData as Service
 
     let customer: Customer | null = null
 
@@ -184,20 +179,52 @@ const stripe = new Stripe(stripeSecretKey)
       customer = (customerData as Customer | null) || null
     }
 
-    const paymentType = service.payment_type || 'none'
-    const servicePrice = Number(service.price || 0)
-    const depositAmount = Number(service.deposit_amount || 0)
+    const totalPrice =
+      Number(booking.total_price || 0) ||
+      bookingServices.reduce((sum, item) => sum + Number(item.price || 0), 0)
 
-    if (paymentType === 'none' || paymentType === 'card_hold') {
+    let amountToCharge = 0
+    let paymentLabel = ''
+    let paymentType = 'pay_later'
+
+    const fullPaymentServices = bookingServices.filter(
+      (item) => item.services?.payment_type === 'full_payment'
+    )
+
+    const depositServices = bookingServices.filter(
+      (item) => item.services?.payment_type === 'deposit'
+    )
+
+    if (fullPaymentServices.length > 0) {
+      paymentType = 'full_payment'
+      amountToCharge = totalPrice
+      paymentLabel =
+        bookingServices.length === 1
+          ? `Full payment for ${bookingServices[0].service_name}`
+          : `Full payment for ${bookingServices.length} services`
+    } else if (depositServices.length > 0) {
+      paymentType = 'deposit'
+      amountToCharge = depositServices.reduce(
+        (sum, item) => sum + Number(item.services?.deposit_amount || 0),
+        0
+      )
+      paymentLabel =
+        bookingServices.length === 1
+          ? `Deposit for ${bookingServices[0].service_name}`
+          : `Deposit for ${bookingServices.length} services`
+    } else {
+      paymentType = 'pay_later'
+    }
+
+    const amountDue = Math.max(totalPrice - amountToCharge, 0)
+
+    if (paymentType === 'pay_later') {
       const { error: updateError } = await supabase
         .from('bookings')
         .update({
-          payment_status:
-            paymentType === 'card_hold'
-              ? 'card_hold_not_yet_enabled'
-              : 'not_required',
+          payment_status: 'not_required',
           amount_paid: 0,
-          amount_due: servicePrice,
+          amount_due: totalPrice,
         })
         .eq('id', booking.id)
 
@@ -216,33 +243,10 @@ const stripe = new Stripe(stripeSecretKey)
         success: true,
         requiresPayment: false,
         paymentType,
-        message:
-          paymentType === 'card_hold'
-            ? 'Card hold is not enabled yet. Booking can continue without payment for now.'
-            : 'No payment required for this service.',
+        amountToCharge: 0,
+        amountDue: totalPrice,
+        message: 'No payment required for this booking.',
       })
-    }
-
-    let amountToCharge = 0
-    let amountDue = 0
-    let paymentLabel = ''
-
-    if (paymentType === 'full') {
-      amountToCharge = servicePrice
-      amountDue = 0
-      paymentLabel = `Full payment for ${service.name}`
-    } else if (paymentType === 'deposit') {
-      amountToCharge = depositAmount
-      amountDue = Math.max(servicePrice - depositAmount, 0)
-      paymentLabel = `Deposit for ${service.name}`
-    } else {
-      return NextResponse.json(
-        {
-          success: false,
-          error: `Unsupported payment_type: ${paymentType}`,
-        },
-        { status: 400 }
-      )
     }
 
     if (amountToCharge <= 0) {
@@ -251,8 +255,8 @@ const stripe = new Stripe(stripeSecretKey)
           success: false,
           error: 'Payment amount must be greater than zero',
           paymentType,
-          servicePrice,
-          depositAmount,
+          totalPrice,
+          amountToCharge,
         },
         { status: 400 }
       )
@@ -275,7 +279,10 @@ const stripe = new Stripe(stripeSecretKey)
             unit_amount: moneyToPence(amountToCharge),
             product_data: {
               name: paymentLabel,
-              description: `${formatDate(booking.booking_date)} at ${booking.booking_time?.slice(0, 5)}`,
+              description: `${formatDate(booking.booking_date)} at ${booking.booking_time?.slice(
+                0,
+                5
+              )}`,
             },
           },
         },
@@ -286,7 +293,7 @@ const stripe = new Stripe(stripeSecretKey)
         customer_id: booking.customer_id || '',
         service_id: booking.service_id || '',
         payment_type: paymentType,
-        service_price: String(servicePrice),
+        service_price: String(totalPrice),
         amount_to_charge: String(amountToCharge),
         amount_due: String(amountDue),
         customer_name: customerName,
