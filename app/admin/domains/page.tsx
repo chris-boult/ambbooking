@@ -18,9 +18,26 @@ type DomainBusiness = {
   domain_target: string | null
   domain_verified_by: string | null
   ssl_error: string | null
+  ssl_expires_at: string | null
+  ssl_last_checked_at: string | null
+  ssl_provider: string | null
+  ssl_days_remaining: number | null
+  ssl_health_score: number | null
+  launch_readiness_score: number | null
+  launch_readiness_status: string | null
   white_label_mode: string | null
   hide_amb_branding: boolean | null
   branding_status: string | null
+  logo_url: string | null
+  primary_colour: string | null
+  secondary_colour: string | null
+  custom_booking_headline: string | null
+  custom_booking_intro: string | null
+  sender_name: string | null
+  sender_email: string | null
+  reply_to_email: string | null
+  privacy_policy_url: string | null
+  terms_url: string | null
 }
 
 type DomainCheck = {
@@ -47,19 +64,50 @@ function statusLabel(value?: string | null) {
 function statusClass(value?: string | null) {
   const normalised = value || ''
 
-  if (['connected', 'active', 'verified', 'ssl_active'].includes(normalised)) {
+  if (['connected', 'active', 'verified', 'ssl_active', 'ready'].includes(normalised)) {
     return 'bg-emerald-500/10 text-emerald-300 border-emerald-500/20'
   }
 
-  if (['pending', 'pending_verification', 'ssl_provisioning', 'not_checked'].includes(normalised)) {
+  if (['pending', 'pending_verification', 'ssl_provisioning', 'not_checked', 'expiring_soon', 'in_progress'].includes(normalised)) {
     return 'bg-amber-500/10 text-amber-300 border-amber-500/20'
   }
 
-  if (['failed', 'error', 'ssl_failed'].includes(normalised)) {
+  if (['failed', 'error', 'ssl_failed', 'expired', 'blocked'].includes(normalised)) {
     return 'bg-red-500/10 text-red-300 border-red-500/20'
   }
 
   return 'bg-slate-500/10 text-slate-300 border-white/10'
+}
+
+function calculateLaunchReadiness(business: DomainBusiness) {
+  const checks = [
+    Boolean(business.logo_url),
+    Boolean(business.primary_colour),
+    Boolean(business.secondary_colour),
+    Boolean(business.custom_booking_headline),
+    Boolean(business.custom_booking_intro),
+    Boolean(business.sender_name),
+    Boolean(business.reply_to_email || business.sender_email),
+    Boolean(business.privacy_policy_url),
+    Boolean(business.terms_url),
+    business.domain_status === 'connected',
+    business.ssl_status === 'active',
+  ]
+
+  const complete = checks.filter(Boolean).length
+  const score = Math.round((complete / checks.length) * 100)
+
+  let status = 'not_started'
+  if (score >= 90) status = 'ready'
+  else if (score >= 60) status = 'in_progress'
+  else if (score > 0) status = 'needs_work'
+
+  return {
+    complete,
+    total: checks.length,
+    score,
+    status,
+  }
 }
 
 export default function AdminDomainsPage() {
@@ -67,11 +115,12 @@ export default function AdminDomainsPage() {
   const [checks, setChecks] = useState<DomainCheck[]>([])
   const [selectedBusinessId, setSelectedBusinessId] = useState('')
   const [search, setSearch] = useState('')
-  const [filter, setFilter] = useState<'all' | 'connected' | 'pending' | 'failed' | 'missing'>('all')
+  const [filter, setFilter] = useState<'all' | 'connected' | 'pending' | 'failed' | 'missing' | 'ssl_issues' | 'launch_ready'>('all')
   const [message, setMessage] = useState('')
   const [error, setError] = useState('')
   const [loading, setLoading] = useState(true)
   const [workingId, setWorkingId] = useState('')
+  const [checkingAllSsl, setCheckingAllSsl] = useState(false)
 
   useEffect(() => {
     loadDomains()
@@ -99,9 +148,26 @@ export default function AdminDomainsPage() {
           domain_target,
           domain_verified_by,
           ssl_error,
+          ssl_expires_at,
+          ssl_last_checked_at,
+          ssl_provider,
+          ssl_days_remaining,
+          ssl_health_score,
+          launch_readiness_score,
+          launch_readiness_status,
           white_label_mode,
           hide_amb_branding,
-          branding_status
+          branding_status,
+          logo_url,
+          primary_colour,
+          secondary_colour,
+          custom_booking_headline,
+          custom_booking_intro,
+          sender_name,
+          sender_email,
+          reply_to_email,
+          privacy_policy_url,
+          terms_url
         `)
         .order('business_name', { ascending: true }),
 
@@ -157,6 +223,20 @@ export default function AdminDomainsPage() {
     })
   }
 
+  async function updateLaunchReadiness(business: DomainBusiness) {
+    const readiness = calculateLaunchReadiness(business)
+
+    await supabase
+      .from('businesses')
+      .update({
+        launch_readiness_score: readiness.score,
+        launch_readiness_status: readiness.status,
+      })
+      .eq('id', business.id)
+
+    return readiness
+  }
+
   async function generateVerificationToken(business: DomainBusiness) {
     setWorkingId(business.id)
     setMessage('')
@@ -173,7 +253,7 @@ export default function AdminDomainsPage() {
         domain_last_checked_at: new Date().toISOString(),
         domain_error: null,
         ssl_error: null,
-        domain_target: business.domain_target || 'cname.ambbooking.com',
+        domain_target: business.domain_target || 'cname.vercel-dns.com',
       })
       .eq('id', business.id)
 
@@ -278,6 +358,12 @@ export default function AdminDomainsPage() {
       },
     })
 
+    await updateLaunchReadiness({
+      ...business,
+      domain_status: 'connected',
+      ssl_status: 'active',
+    })
+
     setMessage('Domain marked as connected.')
     await loadDomains()
     setWorkingId('')
@@ -315,6 +401,12 @@ export default function AdminDomainsPage() {
       errorMessage: reason,
     })
 
+    await updateLaunchReadiness({
+      ...business,
+      domain_status: 'failed',
+      ssl_status: 'not_checked',
+    })
+
     setMessage('Domain marked as failed.')
     await loadDomains()
     setWorkingId('')
@@ -338,23 +430,94 @@ export default function AdminDomainsPage() {
         throw new Error(result?.error || 'Domain verification failed.')
       }
 
+      await updateLaunchReadiness({
+        ...business,
+        domain_status: result.domainStatus || 'connected',
+        ssl_status: result.sslStatus || business.ssl_status,
+      })
+
       setMessage(result?.message || 'Domain verification completed.')
       await loadDomains()
-    } catch (err: any) {
-      setError(err.message || 'Domain verification failed. The API route may not exist yet.')
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : 'Domain verification failed. The API route may not exist yet.'
+      setError(msg)
     }
 
     setWorkingId('')
   }
 
+  async function checkSsl(business: DomainBusiness) {
+    setWorkingId(business.id)
+    setMessage('')
+    setError('')
+
+    try {
+      const response = await fetch('/api/admin/domains/check-ssl', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ businessId: business.id }),
+      })
+
+      const result = await response.json()
+
+      if (!response.ok) {
+        throw new Error(result?.error || 'SSL check failed.')
+      }
+
+      await updateLaunchReadiness({
+        ...business,
+        ssl_status: result.sslStatus || 'active',
+      })
+
+      setMessage(result?.message || 'SSL check completed.')
+      await loadDomains()
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : 'SSL check failed.'
+      setError(msg)
+    }
+
+    setWorkingId('')
+  }
+
+  async function checkAllSsl() {
+    setCheckingAllSsl(true)
+    setMessage('')
+    setError('')
+
+    try {
+      const response = await fetch('/api/admin/domains/check-ssl', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ checkAll: true }),
+      })
+
+      const result = await response.json()
+
+      if (!response.ok) {
+        throw new Error(result?.error || 'SSL check failed.')
+      }
+
+      setMessage(result?.message || 'SSL checks completed.')
+      await loadDomains()
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : 'SSL bulk check failed.'
+      setError(msg)
+    }
+
+    setCheckingAllSsl(false)
+  }
+
   const filteredBusinesses = useMemo(() => {
     return businesses.filter(business => {
+      const readiness = calculateLaunchReadiness(business)
+
       const haystack = [
         business.business_name,
         business.custom_domain,
         business.slug,
         business.domain_status,
         business.ssl_status,
+        business.ssl_provider,
       ]
         .filter(Boolean)
         .join(' ')
@@ -367,7 +530,9 @@ export default function AdminDomainsPage() {
         (filter === 'connected' && business.domain_status === 'connected') ||
         (filter === 'pending' && business.domain_status === 'pending_verification') ||
         (filter === 'failed' && business.domain_status === 'failed') ||
-        (filter === 'missing' && !business.custom_domain)
+        (filter === 'missing' && !business.custom_domain) ||
+        (filter === 'ssl_issues' && ['failed', 'expired', 'expiring_soon'].includes(business.ssl_status || '')) ||
+        (filter === 'launch_ready' && readiness.score >= 90)
 
       return matchesSearch && matchesFilter
     })
@@ -385,6 +550,8 @@ export default function AdminDomainsPage() {
     const failed = businesses.filter(business => business.domain_status === 'failed').length
     const missing = businesses.filter(business => !business.custom_domain).length
     const sslActive = businesses.filter(business => business.ssl_status === 'active').length
+    const sslIssues = businesses.filter(business => ['failed', 'expired', 'expiring_soon'].includes(business.ssl_status || '')).length
+    const launchReady = businesses.filter(business => calculateLaunchReadiness(business).score >= 90).length
 
     return {
       total: businesses.length,
@@ -393,8 +560,12 @@ export default function AdminDomainsPage() {
       failed,
       missing,
       sslActive,
+      sslIssues,
+      launchReady,
     }
   }, [businesses])
+
+  const selectedReadiness = selectedBusiness ? calculateLaunchReadiness(selectedBusiness) : null
 
   if (loading) {
     return (
@@ -414,7 +585,7 @@ export default function AdminDomainsPage() {
             <p className="text-sm font-bold text-indigo-300">Platform Admin</p>
             <h1 className="mt-1 text-3xl font-black md:text-4xl">Custom Domain Centre</h1>
             <p className="mt-2 max-w-3xl text-sm text-slate-300">
-              Manage white-label domains, DNS verification, SSL status and domain health across every business.
+              Manage white-label domains, DNS verification, SSL monitoring and launch readiness across every business.
             </p>
           </div>
 
@@ -422,6 +593,13 @@ export default function AdminDomainsPage() {
             <Link href="/admin/branding" className="rounded-2xl border border-white/10 px-4 py-3 text-sm font-black text-white hover:bg-white/10">
               Branding Centre
             </Link>
+            <button
+              onClick={checkAllSsl}
+              disabled={checkingAllSsl}
+              className="rounded-2xl border border-white/10 px-4 py-3 text-sm font-black text-emerald-300 hover:bg-emerald-500/10 disabled:cursor-not-allowed disabled:opacity-60"
+            >
+              {checkingAllSsl ? 'Checking SSL...' : 'Check All SSL'}
+            </button>
             <button onClick={loadDomains} className="rounded-2xl bg-white px-4 py-3 text-sm font-black text-slate-950">
               Refresh
             </button>
@@ -440,22 +618,24 @@ export default function AdminDomainsPage() {
           </div>
         )}
 
-        <section className="grid gap-4 md:grid-cols-3 xl:grid-cols-6">
+        <section className="grid gap-4 md:grid-cols-4 xl:grid-cols-8">
           <Metric label="Businesses" value={metrics.total} />
           <Metric label="Connected" value={metrics.connected} />
           <Metric label="Pending" value={metrics.pending} />
           <Metric label="Failed" value={metrics.failed} />
           <Metric label="Missing" value={metrics.missing} />
           <Metric label="SSL Active" value={metrics.sslActive} />
+          <Metric label="SSL Issues" value={metrics.sslIssues} />
+          <Metric label="Launch Ready" value={metrics.launchReady} />
         </section>
 
-        <section className="grid gap-6 xl:grid-cols-[1fr_420px]">
+        <section className="grid gap-6 xl:grid-cols-[1fr_440px]">
           <div className="rounded-3xl border border-white/10 bg-white/[0.04] p-5">
-            <div className="mb-5 grid gap-3 md:grid-cols-[1fr_220px]">
+            <div className="mb-5 grid gap-3 md:grid-cols-[1fr_240px]">
               <input
                 value={search}
                 onChange={event => setSearch(event.target.value)}
-                placeholder="Search by business, domain, slug or status..."
+                placeholder="Search by business, domain, slug, SSL provider or status..."
                 className="rounded-2xl border border-white/10 bg-black/20 px-4 py-3 text-sm text-white outline-none placeholder:text-slate-600 focus:border-indigo-400"
               />
 
@@ -469,6 +649,8 @@ export default function AdminDomainsPage() {
                 <option value="pending">Pending</option>
                 <option value="failed">Failed</option>
                 <option value="missing">Missing domain</option>
+                <option value="ssl_issues">SSL issues</option>
+                <option value="launch_ready">Launch ready</option>
               </select>
             </div>
 
@@ -478,52 +660,87 @@ export default function AdminDomainsPage() {
                   No domains found.
                 </div>
               ) : (
-                filteredBusinesses.map(business => (
-                  <button
-                    key={business.id}
-                    onClick={() => setSelectedBusinessId(business.id)}
-                    className={`w-full rounded-2xl border p-4 text-left transition ${
-                      selectedBusiness?.id === business.id
-                        ? 'border-indigo-400 bg-indigo-500/10'
-                        : 'border-white/10 bg-black/20 hover:bg-white/[0.06]'
-                    }`}
-                  >
-                    <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
-                      <div>
-                        <p className="text-lg font-black">{business.business_name || 'Unnamed business'}</p>
-                        <p className="mt-1 text-sm text-slate-400">
-                          {business.custom_domain || 'No custom domain set'}
-                        </p>
-                        <p className="mt-1 text-xs text-slate-600">
-                          Target: {business.domain_target || 'cname.ambbooking.com'}
-                        </p>
-                      </div>
+                filteredBusinesses.map(business => {
+                  const readiness = calculateLaunchReadiness(business)
 
-                      <div className="flex flex-wrap gap-2">
-                        <StatusPill value={business.domain_status || 'not_connected'} />
-                        <StatusPill value={business.ssl_status || 'not_checked'} />
+                  return (
+                    <button
+                      key={business.id}
+                      onClick={() => setSelectedBusinessId(business.id)}
+                      className={`w-full rounded-2xl border p-4 text-left transition ${
+                        selectedBusiness?.id === business.id
+                          ? 'border-indigo-400 bg-indigo-500/10'
+                          : 'border-white/10 bg-black/20 hover:bg-white/[0.06]'
+                      }`}
+                    >
+                      <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
+                        <div>
+                          <p className="text-lg font-black">{business.business_name || 'Unnamed business'}</p>
+                          <p className="mt-1 text-sm text-slate-400">
+                            {business.custom_domain || 'No custom domain set'}
+                          </p>
+                          <p className="mt-1 text-xs text-slate-600">
+                            Target: {business.domain_target || 'cname.vercel-dns.com'}
+                          </p>
+                          <p className="mt-1 text-xs text-slate-600">
+                            SSL: {business.ssl_days_remaining != null ? `${business.ssl_days_remaining} days remaining` : 'Not checked'}
+                          </p>
+                        </div>
+
+                        <div className="flex flex-wrap gap-2">
+                          <StatusPill value={business.domain_status || 'not_connected'} />
+                          <StatusPill value={business.ssl_status || 'not_checked'} />
+                          <StatusPill value={readiness.status} />
+                        </div>
                       </div>
-                    </div>
-                  </button>
-                ))
+                    </button>
+                  )
+                })
               )}
             </div>
           </div>
 
           <aside className="space-y-6">
-            {selectedBusiness ? (
+            {selectedBusiness && selectedReadiness ? (
               <>
                 <div className="rounded-3xl border border-white/10 bg-white/[0.04] p-5">
                   <h2 className="text-2xl font-black">{selectedBusiness.business_name || 'Unnamed business'}</h2>
                   <p className="mt-1 text-sm text-slate-400">{selectedBusiness.custom_domain || 'No custom domain set'}</p>
 
+                  <div className="mt-5 grid gap-3 md:grid-cols-2">
+                    <SmallMetric label="Launch readiness" value={`${selectedReadiness.score}%`} />
+                    <SmallMetric label="SSL health" value={`${selectedBusiness.ssl_health_score ?? 0}%`} />
+                  </div>
+
+                  <div className="mt-5 rounded-2xl border border-white/10 bg-black/20 p-4">
+                    <div className="mb-2 flex items-center justify-between gap-3">
+                      <p className="text-sm font-black text-slate-300">Launch readiness</p>
+                      <StatusPill value={selectedReadiness.status} />
+                    </div>
+
+                    <div className="h-3 overflow-hidden rounded-full bg-slate-800">
+                      <div
+                        className="h-full rounded-full bg-white"
+                        style={{ width: `${selectedReadiness.score}%` }}
+                      />
+                    </div>
+
+                    <p className="mt-2 text-xs text-slate-500">
+                      {selectedReadiness.complete} of {selectedReadiness.total} white-label requirements complete.
+                    </p>
+                  </div>
+
                   <div className="mt-5 space-y-3">
                     <Detail label="Domain status" value={statusLabel(selectedBusiness.domain_status)} />
                     <Detail label="SSL status" value={statusLabel(selectedBusiness.ssl_status)} />
+                    <Detail label="SSL provider" value={selectedBusiness.ssl_provider || 'Not checked'} />
+                    <Detail label="SSL expires" value={selectedBusiness.ssl_expires_at ? new Date(selectedBusiness.ssl_expires_at).toLocaleString('en-GB') : 'Not checked'} />
+                    <Detail label="SSL days remaining" value={selectedBusiness.ssl_days_remaining != null ? selectedBusiness.ssl_days_remaining : 'Not checked'} />
+                    <Detail label="SSL last checked" value={selectedBusiness.ssl_last_checked_at ? new Date(selectedBusiness.ssl_last_checked_at).toLocaleString('en-GB') : 'Never'} />
                     <Detail label="White label mode" value={statusLabel(selectedBusiness.white_label_mode)} />
                     <Detail label="Branding status" value={statusLabel(selectedBusiness.branding_status)} />
-                    <Detail label="Last checked" value={selectedBusiness.domain_last_checked_at ? new Date(selectedBusiness.domain_last_checked_at).toLocaleString('en-GB') : 'Never'} />
-                    <Detail label="Verified at" value={selectedBusiness.domain_verified_at ? new Date(selectedBusiness.domain_verified_at).toLocaleString('en-GB') : 'Not verified'} />
+                    <Detail label="Last domain checked" value={selectedBusiness.domain_last_checked_at ? new Date(selectedBusiness.domain_last_checked_at).toLocaleString('en-GB') : 'Never'} />
+                    <Detail label="Domain verified at" value={selectedBusiness.domain_verified_at ? new Date(selectedBusiness.domain_verified_at).toLocaleString('en-GB') : 'Not verified'} />
                     <Detail label="Verified by" value={selectedBusiness.domain_verified_by || 'Not set'} />
                   </div>
 
@@ -539,7 +756,7 @@ export default function AdminDomainsPage() {
 
                     <p className="mt-4 text-xs font-bold uppercase tracking-wide text-slate-500">CNAME</p>
                     <code className="mt-1 block rounded-xl bg-slate-950 p-3 text-xs text-indigo-200">
-                      {selectedBusiness.custom_domain || 'bookings.customer-domain.co.uk'} → {selectedBusiness.domain_target || 'cname.ambbooking.com'}
+                      {selectedBusiness.custom_domain || 'bookings.customer-domain.co.uk'} → {selectedBusiness.domain_target || 'cname.vercel-dns.com'}
                     </code>
 
                     <p className="mt-4 text-xs font-bold uppercase tracking-wide text-slate-500">TXT host</p>
@@ -560,6 +777,14 @@ export default function AdminDomainsPage() {
                       className="rounded-2xl bg-white px-4 py-3 text-sm font-black text-slate-950 disabled:cursor-not-allowed disabled:opacity-60"
                     >
                       {workingId === selectedBusiness.id ? 'Checking...' : 'Run Verification'}
+                    </button>
+
+                    <button
+                      onClick={() => checkSsl(selectedBusiness)}
+                      disabled={workingId === selectedBusiness.id}
+                      className="rounded-2xl border border-white/10 px-4 py-3 text-sm font-black text-emerald-300 hover:bg-emerald-500/10 disabled:cursor-not-allowed disabled:opacity-60"
+                    >
+                      {workingId === selectedBusiness.id ? 'Checking...' : 'Check SSL'}
                     </button>
 
                     <button
@@ -647,6 +872,15 @@ function Metric({ label, value }: { label: string; value: string | number }) {
     <div className="rounded-3xl border border-white/10 bg-white/[0.04] p-5">
       <p className="text-sm font-bold text-slate-500">{label}</p>
       <p className="mt-2 text-3xl font-black">{value}</p>
+    </div>
+  )
+}
+
+function SmallMetric({ label, value }: { label: string; value: string | number }) {
+  return (
+    <div className="rounded-2xl border border-white/10 bg-black/20 p-4">
+      <p className="text-xs font-bold uppercase tracking-wide text-slate-500">{label}</p>
+      <p className="mt-2 text-2xl font-black">{value}</p>
     </div>
   )
 }
