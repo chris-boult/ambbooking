@@ -1,9 +1,10 @@
 'use client'
 
 import Link from 'next/link'
+import { Suspense } from 'react'
 import { useSearchParams } from 'next/navigation'
 
-export default function BookingSuccessPage() {
+function BookingSuccessContent() {
   const searchParams = useSearchParams()
 
   const isPackage = searchParams.get('package') === 'success'
@@ -80,5 +81,19 @@ export default function BookingSuccessPage() {
         </div>
       </div>
     </main>
+  )
+}
+
+export default function BookingSuccessPage() {
+  return (
+    <Suspense
+      fallback={
+        <main className="min-h-screen bg-slate-950 text-white flex items-center justify-center px-6">
+          <p className="text-slate-400">Loading confirmation...</p>
+        </main>
+      }
+    >
+      <BookingSuccessContent />
+    </Suspense>
   )
 }
