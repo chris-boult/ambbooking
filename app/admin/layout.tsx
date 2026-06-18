@@ -19,6 +19,8 @@ const navItems = [
   { name: 'Businesses', href: '/admin/businesses' },
   { name: 'Create Business', href: '/admin/businesses/create' },
 
+  { name: 'Partner Centre', href: '/admin/partners' },
+
   { name: 'Customers', href: '/admin/customers' },
   { name: 'Bookings', href: '/admin/bookings' },
 
@@ -28,6 +30,7 @@ const navItems = [
   { name: 'White Label', href: '/admin/branding' },
   { name: 'Domains', href: '/admin/domains' },
   { name: 'Email Branding', href: '/admin/email-branding' },
+  { name: 'Launch Readiness', href: '/admin/launch-readiness' },
 
   { name: 'Support', href: '/admin/support' },
   { name: 'Platform Health', href: '/admin/health' },
@@ -38,7 +41,6 @@ const navItems = [
   { name: 'Settings', href: '/admin/settings' },
 ]
 
-
 export default function AdminLayout({ children }: { children: React.ReactNode }) {
   const router = useRouter()
   const pathname = usePathname()
@@ -47,6 +49,7 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
 
   useEffect(() => {
     checkPlatformAdmin()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
   async function checkPlatformAdmin() {
@@ -78,7 +81,12 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
   }
 
   const title = useMemo(() => {
-    const match = navItems.find((item) => item.href === pathname)
+    const match = [...navItems]
+      .sort((a, b) => b.href.length - a.href.length)
+      .find((item) =>
+        item.href === '/admin' ? pathname === '/admin' : pathname.startsWith(item.href)
+      )
+
     return match?.name || 'Master Admin'
   }, [pathname])
 
@@ -100,7 +108,10 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
           <p className="mt-3 text-red-200">
             This area is restricted to active platform administrators.
           </p>
-          <Link href="/dashboard" className="mt-6 inline-block rounded-2xl bg-white px-5 py-3 font-black text-slate-950">
+          <Link
+            href="/dashboard"
+            className="mt-6 inline-block rounded-2xl bg-white px-5 py-3 font-black text-slate-950"
+          >
             Return to dashboard
           </Link>
         </div>
@@ -109,11 +120,11 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
   }
 
   return (
-    <div className="min-h-screen bg-[#020617] text-white">
+    <div className="min-h-screen overflow-x-hidden bg-[#020617] text-white">
       <div className="fixed inset-0 pointer-events-none bg-[radial-gradient(circle_at_top_left,#8B5CF633_0%,transparent_30%),radial-gradient(circle_at_bottom_right,#2563EB33_0%,transparent_32%)]" />
 
-      <div className="relative z-10 flex min-h-screen">
-        <aside className="hidden w-72 shrink-0 flex-col border-r border-white/10 bg-black/50 px-6 py-7 backdrop-blur-2xl lg:flex">
+      <div className="relative z-10 flex min-h-screen w-full">
+        <aside className="hidden h-screen w-72 shrink-0 flex-col overflow-y-auto border-r border-white/10 bg-black/50 px-6 py-7 backdrop-blur-2xl lg:flex">
           <Link href="/admin" className="mb-8 block">
             <div className="rounded-2xl border border-white/10 bg-black p-4">
               <img src="/logo.png" alt="AMB360" className="block h-auto w-full max-w-[170px]" />
@@ -123,15 +134,19 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
             </div>
           </Link>
 
-          <nav className="space-y-1">
+          <nav className="space-y-1 pb-6">
             {navItems.map((item) => {
-              const active = item.href === '/admin' ? pathname === '/admin' : pathname.startsWith(item.href)
+              const active =
+                item.href === '/admin' ? pathname === '/admin' : pathname.startsWith(item.href)
+
               return (
                 <Link
                   key={item.href}
                   href={item.href}
                   className={`block rounded-2xl px-4 py-3 text-sm font-bold transition ${
-                    active ? 'bg-white text-slate-950' : 'text-slate-400 hover:bg-white/5 hover:text-white'
+                    active
+                      ? 'bg-white text-slate-950'
+                      : 'text-slate-400 hover:bg-white/5 hover:text-white'
                   }`}
                 >
                   {item.name}
@@ -144,30 +159,35 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
             <div className="text-[10px] uppercase tracking-[0.3em] text-slate-500">
               {admin.role}
             </div>
-            <div className="mt-2 text-lg font-bold">{admin.full_name || admin.email}</div>
+            <div className="mt-2 break-words text-lg font-bold">
+              {admin.full_name || admin.email}
+            </div>
             <p className="mt-2 text-sm text-slate-400">Full platform control enabled.</p>
           </div>
         </aside>
 
-        <div className="flex-1">
-          <header className="sticky top-0 z-20 border-b border-white/10 bg-[#020617]/80 px-6 py-5 backdrop-blur-2xl lg:px-10">
+        <div className="min-w-0 flex-1">
+          <header className="sticky top-0 z-20 border-b border-white/10 bg-[#020617]/80 px-4 py-5 backdrop-blur-2xl sm:px-6 lg:px-8">
             <div className="flex items-center justify-between gap-4">
-              <div>
+              <div className="min-w-0">
                 <div className="text-[10px] uppercase tracking-[0.45em] text-slate-500">
                   AMB BOOKING
                 </div>
-                <h1 className="mt-1 text-2xl font-black">{title}</h1>
+                <h1 className="mt-1 truncate text-2xl font-black">{title}</h1>
               </div>
 
-              <div className="flex gap-3">
-                <Link href="/dashboard" className="rounded-full border border-white/10 bg-white/[0.04] px-4 py-2 text-sm font-bold text-slate-300 hover:text-white">
-                  Business dashboard
-                </Link>
-              </div>
+              <Link
+                href="/dashboard"
+                className="shrink-0 rounded-full border border-white/10 bg-white/[0.04] px-4 py-2 text-sm font-bold text-slate-300 hover:text-white"
+              >
+                Business dashboard
+              </Link>
             </div>
           </header>
 
-          <main className="px-6 py-8 lg:px-10 lg:py-10">{children}</main>
+          <main className="w-full max-w-none overflow-x-auto px-4 py-8 sm:px-6 lg:px-8 lg:py-10">
+            <div className="w-full min-w-0">{children}</div>
+          </main>
         </div>
       </div>
     </div>

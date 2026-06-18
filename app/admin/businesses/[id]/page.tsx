@@ -18,9 +18,14 @@ type AuditLog = any
 type SubscriptionOverride = any
 type BusinessHealth = any
 type SupportTicket = any
+type LaunchReadiness = any
+type EmailBranding = any
 
 const tabs = [
   'overview',
+  'launch',
+  'white-label',
+  'commercial',
   'health',
   'customers',
   'bookings',
@@ -32,7 +37,6 @@ const tabs = [
   'support',
   'notes',
   'billing',
-  'branding',
   'audit',
 ] as const
 
@@ -45,6 +49,9 @@ export default function AdminBusinessDetailPage() {
   const [activeTab, setActiveTab] = useState<Tab>('overview')
   const [business, setBusiness] = useState<Business | null>(null)
   const [health, setHealth] = useState<BusinessHealth | null>(null)
+  const [launchReadiness, setLaunchReadiness] = useState<LaunchReadiness | null>(null)
+  const [emailBranding, setEmailBranding] = useState<EmailBranding | null>(null)
+
   const [customers, setCustomers] = useState<Customer[]>([])
   const [bookings, setBookings] = useState<Booking[]>([])
   const [teamMembers, setTeamMembers] = useState<TeamMember[]>([])
@@ -57,9 +64,11 @@ export default function AdminBusinessDetailPage() {
   const [notes, setNotes] = useState<BusinessNote[]>([])
   const [auditLogs, setAuditLogs] = useState<AuditLog[]>([])
   const [subscriptionOverrides, setSubscriptionOverrides] = useState<SubscriptionOverride[]>([])
+
   const [newNote, setNewNote] = useState('')
   const [message, setMessage] = useState('')
   const [loading, setLoading] = useState(true)
+  const [savingSuccess, setSavingSuccess] = useState(false)
 
   useEffect(() => {
     loadBusinessDetail()
@@ -73,6 +82,8 @@ export default function AdminBusinessDetailPage() {
     const [
       businessRes,
       healthRes,
+      launchRes,
+      emailBrandingRes,
       customersRes,
       bookingsRes,
       teamRes,
@@ -88,6 +99,8 @@ export default function AdminBusinessDetailPage() {
     ] = await Promise.all([
       supabase.from('businesses').select('*').eq('id', businessId).single(),
       supabase.from('business_health').select('*').eq('business_id', businessId).maybeSingle(),
+      supabase.from('launch_readiness_checks').select('*').eq('business_id', businessId).maybeSingle(),
+      supabase.from('email_branding').select('*').eq('business_id', businessId).maybeSingle(),
       supabase.from('customers').select('*').eq('business_id', businessId).order('created_at', { ascending: false }).limit(200),
       supabase.from('bookings').select('*,customers(first_name,last_name,email,phone),team_members(full_name),services(name)').eq('business_id', businessId).order('booking_date', { ascending: false }).limit(250),
       supabase.from('team_members').select('*').eq('business_id', businessId).order('full_name'),
@@ -106,6 +119,8 @@ export default function AdminBusinessDetailPage() {
 
     setBusiness(businessRes.data || null)
     setHealth(healthRes.data || null)
+    setLaunchReadiness(launchRes.data || null)
+    setEmailBranding(emailBrandingRes.data || null)
     setCustomers(customersRes.data || [])
     setBookings(bookingsRes.data || [])
     setTeamMembers(teamRes.data || [])
@@ -173,45 +188,30 @@ export default function AdminBusinessDetailPage() {
       noShows,
       voucherLiability,
       openSupport,
+      bookings: activeBookings.length,
     }
   }, [bookings, customers, teamMembers, services, packages, giftVouchers, waitingList, supportTickets])
 
+  const launchScore = launchReadiness?.overall_score ?? business?.launch_readiness_score ?? 0
+  const launchStatus = launchReadiness?.readiness_status ?? business?.launch_readiness_status ?? 'not_ready'
+  const suspended = (business?.status || business?.subscription_status) === 'suspended'
 
-  const brandingSummary = useMemo(() => {
-    if (!business) {
-      return {
-        score: 0,
-        completed: 0,
-        total: 9,
-        emailStatus: 'Not configured',
-        bookingStatus: 'Not customised',
-        legalStatus: 'Missing',
-      }
-    }
-
+  const whiteLabelScore = useMemo(() => {
     const checks = [
-      Boolean(business.logo_url),
-      Boolean(business.primary_colour),
-      Boolean(business.custom_booking_headline),
-      Boolean(business.custom_booking_intro),
-      Boolean(business.privacy_policy_url),
-      Boolean(business.terms_url),
-      Boolean(business.sender_name),
-      Boolean(business.reply_to_email || business.sender_email),
-      Boolean(business.custom_domain),
+      Boolean(business?.logo_url),
+      Boolean(business?.primary_colour),
+      Boolean(business?.secondary_colour),
+      Boolean(business?.custom_booking_headline),
+      Boolean(business?.custom_booking_intro),
+      Boolean(business?.custom_domain),
+      business?.domain_status === 'connected',
+      business?.ssl_status === 'active',
+      Boolean(emailBranding?.sender_name || business?.sender_name),
+      Boolean(emailBranding?.reply_to_email || business?.reply_to_email),
     ]
 
-    const completed = checks.filter(Boolean).length
-
-    return {
-      score: Math.round((completed / checks.length) * 100),
-      completed,
-      total: checks.length,
-      emailStatus: business.sender_name && (business.reply_to_email || business.sender_email) ? 'Configured' : 'Not configured',
-      bookingStatus: business.custom_booking_headline || business.custom_booking_intro ? 'Customised' : 'Not customised',
-      legalStatus: business.privacy_policy_url && business.terms_url ? 'Complete' : 'Missing',
-    }
-  }, [business])
+    return Math.round((checks.filter(Boolean).length / checks.length) * 100)
+  }, [business, emailBranding])
 
   async function audit(action: string, metadata: any = {}) {
     const { data: userData } = await supabase.auth.getUser()
@@ -235,6 +235,45 @@ export default function AdminBusinessDetailPage() {
 
     await audit(action, patch)
     setMessage('Business updated.')
+    await loadBusinessDetail()
+  }
+
+  async function updateCustomerSuccess() {
+    if (!business) return
+
+    setSavingSuccess(true)
+
+    const patch = {
+      onboarding_status: valueById('onboarding_status') || null,
+      acquisition_source: valueById('acquisition_source') || null,
+      acquisition_reference: valueById('acquisition_reference') || null,
+      account_manager: valueById('account_manager') || null,
+      launch_date: valueById('launch_date') ? new Date(valueById('launch_date')).toISOString() : null,
+      last_contacted_at: valueById('last_contacted_at') ? new Date(valueById('last_contacted_at')).toISOString() : null,
+      next_review_at: valueById('next_review_at') ? new Date(valueById('next_review_at')).toISOString() : null,
+    }
+
+    await updateBusiness(patch, 'customer_success_updated')
+    setSavingSuccess(false)
+  }
+
+  async function recalculateLaunchReadiness() {
+    setMessage('Recalculating launch readiness...')
+
+    const response = await fetch('/api/admin/launch-readiness/recalculate', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ businessId }),
+    })
+
+    const result = await response.json()
+
+    if (!response.ok) {
+      setMessage(result?.error || 'Launch readiness recalculation failed.')
+      return
+    }
+
+    setMessage('Launch readiness recalculated.')
     await loadBusinessDetail()
   }
 
@@ -291,10 +330,7 @@ export default function AdminBusinessDetailPage() {
     const amount = window.prompt('New monthly amount?', String(business?.monthly_amount || 0))
     if (amount === null) return
 
-    await updateBusiness(
-      { monthly_amount: Number(amount || 0) },
-      'monthly_amount_changed'
-    )
+    await updateBusiness({ monthly_amount: Number(amount || 0) }, 'monthly_amount_changed')
 
     await supabase.from('subscription_overrides').insert({
       business_id: businessId,
@@ -359,8 +395,6 @@ export default function AdminBusinessDetailPage() {
     )
   }
 
-  const suspended = (business.status || business.subscription_status) === 'suspended'
-
   return (
     <div className="space-y-8">
       <div className="flex flex-col gap-5 xl:flex-row xl:items-start xl:justify-between">
@@ -375,6 +409,7 @@ export default function AdminBusinessDetailPage() {
             <Badge label={suspended ? 'Suspended' : business.subscription_status || 'No status'} tone={suspended ? 'red' : 'green'} />
             {business.is_internal && <Badge label="Internal" tone="blue" />}
             {business.lifetime_access && <Badge label="Lifetime" tone="purple" />}
+            <ReadinessBadge status={launchStatus} />
             {health?.status && <HealthBadge status={health.status} />}
             {health?.churn_level && <ChurnBadge level={health.churn_level} />}
           </div>
@@ -387,6 +422,10 @@ export default function AdminBusinessDetailPage() {
         <div className="flex flex-wrap gap-2">
           <button onClick={impersonate} className="rounded-2xl bg-blue-500/15 px-4 py-3 font-bold text-blue-300 hover:bg-blue-500/25">
             Impersonate
+          </button>
+
+          <button onClick={recalculateLaunchReadiness} className="rounded-2xl bg-emerald-500/15 px-4 py-3 font-bold text-emerald-300 hover:bg-emerald-500/25">
+            Recalculate launch
           </button>
 
           <button onClick={extendTrial} className="rounded-2xl bg-violet-500/15 px-4 py-3 font-bold text-violet-300 hover:bg-violet-500/25">
@@ -427,7 +466,43 @@ export default function AdminBusinessDetailPage() {
         </div>
       )}
 
-      <section className="grid gap-4 md:grid-cols-4 xl:grid-cols-9">
+      <section className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+        <HeroCard
+          label="Launch readiness"
+          value={`${launchScore}%`}
+          sub={statusLabel(launchStatus)}
+          tone={launchScore >= 90 ? 'green' : launchScore >= 70 ? 'blue' : launchScore >= 40 ? 'amber' : 'red'}
+          href="/admin/launch-readiness"
+        />
+
+        <HeroCard
+          label="White label health"
+          value={`${whiteLabelScore}%`}
+          sub={`${statusLabel(business.white_label_mode || 'amb_branded')} · ${business.domain_status || 'No domain'}`}
+          tone={whiteLabelScore >= 90 ? 'green' : whiteLabelScore >= 60 ? 'amber' : 'red'}
+          href="/admin/branding"
+        />
+
+        <HeroCard
+          label="Subscription"
+          value={business.plan || 'No plan'}
+          sub={`${money(business.monthly_amount || 0)} / month · ${business.billing_type || 'stripe'}`}
+          tone={suspended ? 'red' : 'green'}
+          href="#billing"
+          onClick={() => setActiveTab('billing')}
+        />
+
+        <HeroCard
+          label="Commercial"
+          value={money(metrics.revenueAll)}
+          sub={`${metrics.bookings} bookings · ${metrics.customers} customers`}
+          tone="blue"
+          href="#commercial"
+          onClick={() => setActiveTab('commercial')}
+        />
+      </section>
+
+      <section className="grid gap-4 md:grid-cols-4 xl:grid-cols-8">
         <StatCard label="MRR" value={money(business.monthly_amount || 0)} />
         <StatCard label="Health" value={health?.health_score != null ? `${health.health_score}/100` : 'N/A'} />
         <StatCard label="Risk" value={health?.risk_score != null ? `${health.risk_score}/100` : 'N/A'} />
@@ -435,7 +510,6 @@ export default function AdminBusinessDetailPage() {
         <StatCard label="30d bookings" value={health?.bookings_last_30_days ?? metrics.monthBookings} />
         <StatCard label="Customers" value={metrics.customers} />
         <StatCard label="Support" value={metrics.openSupport} />
-        <StatCard label="Branding" value={`${brandingSummary.score}%`} />
         <StatCard label="Waiting" value={metrics.waiting} />
       </section>
 
@@ -464,54 +538,148 @@ export default function AdminBusinessDetailPage() {
 
       {activeTab === 'overview' && (
         <section className="grid gap-6 xl:grid-cols-[1fr_0.8fr]">
-          <Panel title="Account overview">
+          <Panel title="Executive overview">
             <Detail label="Business name" value={business.business_name} />
             <Detail label="Owner" value={[business.owner_first_name, business.owner_last_name].filter(Boolean).join(' ') || 'Not set'} />
             <Detail label="Email" value={business.email || 'Not set'} />
             <Detail label="Phone" value={business.phone || 'Not set'} />
             <Detail label="Website" value={business.website || 'Not set'} />
             <Detail label="Slug" value={business.slug || 'Not set'} />
-            <Detail label="Custom domain" value={business.custom_domain || 'Not set'} />
             <Detail label="Industry" value={business.industry || 'Not set'} />
-            <Detail label="Plan" value={business.plan || 'Not set'} />
-            <Detail label="Billing type" value={business.billing_type || 'Not set'} />
-            <Detail label="Monthly amount" value={money(business.monthly_amount || 0)} />
-            <Detail label="Trial ends" value={business.trial_ends_at ? new Date(business.trial_ends_at).toLocaleDateString('en-GB') : 'Not set'} />
+            <Detail label="Status" value={business.status || business.subscription_status || 'Not set'} />
+            <Detail label="Onboarding status" value={statusLabel(business.onboarding_status || 'setup')} />
             <Detail label="Created" value={business.created_at ? new Date(business.created_at).toLocaleString('en-GB') : 'Not set'} />
+
+            <div className="mt-6 flex flex-wrap gap-2">
+              <Link href="/admin/launch-readiness" className="rounded-2xl bg-white px-5 py-3 font-black text-slate-950">
+                View Launch Readiness
+              </Link>
+
+              <Link href="/admin/branding" className="rounded-2xl border border-white/10 px-5 py-3 font-black text-white hover:bg-white/10">
+                Manage Branding
+              </Link>
+
+              <Link href="/admin/domains" className="rounded-2xl border border-white/10 px-5 py-3 font-black text-white hover:bg-white/10">
+                Manage Domain
+              </Link>
+
+              <Link href="/admin/email-branding" className="rounded-2xl border border-white/10 px-5 py-3 font-black text-white hover:bg-white/10">
+                Manage Emails
+              </Link>
+            </div>
           </Panel>
 
-          <Panel title="Commercial summary">
+          <Panel title="Customer success">
+            <EditableSuccessField id="onboarding_status" label="Onboarding status" defaultValue={business.onboarding_status || 'setup'} />
+            <EditableSuccessField id="account_manager" label="Account manager" defaultValue={business.account_manager || ''} />
+            <EditableSuccessField id="acquisition_source" label="Acquisition source" defaultValue={business.acquisition_source || ''} />
+            <EditableSuccessField id="acquisition_reference" label="Acquisition reference" defaultValue={business.acquisition_reference || ''} />
+            <EditableSuccessField id="launch_date" label="Launch date" type="date" defaultValue={dateInput(business.launch_date)} />
+            <EditableSuccessField id="last_contacted_at" label="Last contacted" type="date" defaultValue={dateInput(business.last_contacted_at)} />
+            <EditableSuccessField id="next_review_at" label="Next review" type="date" defaultValue={dateInput(business.next_review_at)} />
+
+            <button
+              onClick={updateCustomerSuccess}
+              disabled={savingSuccess}
+              className="mt-5 rounded-2xl bg-white px-5 py-3 font-black text-slate-950 disabled:opacity-60"
+            >
+              {savingSuccess ? 'Saving...' : 'Save customer success'}
+            </button>
+          </Panel>
+        </section>
+      )}
+
+      {activeTab === 'launch' && (
+        <Panel title="Launch readiness">
+          <div className="grid gap-6 xl:grid-cols-[320px_1fr]">
+            <div className="rounded-3xl border border-white/10 bg-black/20 p-6 text-center">
+              <p className={`text-7xl font-black ${scoreClass(launchScore)}`}>{launchScore}%</p>
+              <p className="mt-3 text-sm font-black uppercase tracking-wide text-slate-500">{statusLabel(launchStatus)}</p>
+
+              <div className="mt-6 h-4 overflow-hidden rounded-full bg-slate-800">
+                <div className={`h-full rounded-full ${progressClass(launchScore)}`} style={{ width: `${launchScore}%` }} />
+              </div>
+
+              <button onClick={recalculateLaunchReadiness} className="mt-6 rounded-2xl bg-white px-5 py-3 font-black text-slate-950">
+                Recalculate
+              </button>
+            </div>
+
+            <div className="grid gap-3">
+              <ScoreDetail label="Branding" value={Number(launchReadiness?.branding_score || 0)} />
+              <ScoreDetail label="Domain" value={Number(launchReadiness?.domain_score || 0)} />
+              <ScoreDetail label="SSL" value={Number(launchReadiness?.ssl_score || 0)} />
+              <ScoreDetail label="Email" value={Number(launchReadiness?.email_score || 0)} />
+              <ScoreDetail label="Services" value={Number(launchReadiness?.services_score || 0)} />
+              <ScoreDetail label="Team" value={Number(launchReadiness?.team_score || 0)} />
+              <ScoreDetail label="Availability" value={Number(launchReadiness?.availability_score || 0)} />
+            </div>
+          </div>
+        </Panel>
+      )}
+
+      {activeTab === 'white-label' && (
+        <section className="grid gap-6 xl:grid-cols-2">
+          <Panel title="White label health">
+            <ScoreDetail label="White label health" value={whiteLabelScore} />
+            <Detail label="White label mode" value={statusLabel(business.white_label_mode || 'amb_branded')} />
+            <Detail label="Hide AMB branding" value={business.hide_amb_branding ? 'Yes' : 'No'} />
+            <Detail label="Branding status" value={statusLabel(business.branding_status || 'live')} />
+            <Detail label="Logo" value={business.logo_url ? 'Configured' : 'Missing'} />
+            <Detail label="Booking headline" value={business.custom_booking_headline || 'Missing'} />
+            <Detail label="Booking intro" value={business.custom_booking_intro || 'Missing'} />
+
+            <div className="mt-6">
+              <Link href="/admin/branding" className="inline-block rounded-2xl bg-white px-5 py-3 font-black text-slate-950">
+                Open Branding Centre
+              </Link>
+            </div>
+          </Panel>
+
+          <Panel title="Domain and email">
+            <Detail label="Custom domain" value={business.custom_domain || 'Not set'} />
+            <Detail label="Domain status" value={statusLabel(business.domain_status || 'not_connected')} />
+            <Detail label="SSL status" value={statusLabel(business.ssl_status || 'not_checked')} />
+            <Detail label="SSL days remaining" value={business.ssl_days_remaining ?? 'Not checked'} />
+            <Detail label="Email sender" value={emailBranding?.sender_name || business.sender_name || 'Not set'} />
+            <Detail label="Reply to" value={emailBranding?.reply_to_email || business.reply_to_email || 'Not set'} />
+            <Detail label="Email footer" value={emailBranding?.footer_text || 'Not set'} />
+
+            <div className="mt-6 flex flex-wrap gap-2">
+              <Link href="/admin/domains" className="rounded-2xl bg-white px-5 py-3 font-black text-slate-950">
+                Open Domain Centre
+              </Link>
+
+              <Link href="/admin/email-branding" className="rounded-2xl border border-white/10 px-5 py-3 font-black text-white hover:bg-white/10">
+                Open Email Branding
+              </Link>
+            </div>
+          </Panel>
+        </section>
+      )}
+
+      {activeTab === 'commercial' && (
+        <section className="grid gap-6 xl:grid-cols-2">
+          <Panel title="Commercial intelligence">
+            <Detail label="Plan" value={business.plan || 'Not set'} />
+            <Detail label="Subscription status" value={business.subscription_status || 'Not set'} />
+            <Detail label="Billing type" value={business.billing_type || 'stripe'} />
+            <Detail label="Monthly amount" value={money(business.monthly_amount || 0)} />
             <Detail label="Revenue this month" value={money(metrics.revenueMonth)} />
             <Detail label="All-time revenue" value={money(metrics.revenueAll)} />
             <Detail label="Average booking value" value={money(metrics.averageBookingValue)} />
+            <Detail label="Lifetime access" value={business.lifetime_access ? 'Yes' : 'No'} />
+          </Panel>
+
+          <Panel title="Operational commercial summary">
             <Detail label="Bookings today" value={metrics.todayBookings} />
+            <Detail label="Bookings this month" value={metrics.monthBookings} />
+            <Detail label="Total customers" value={metrics.customers} />
+            <Detail label="VIP customers" value={metrics.vipCustomers} />
             <Detail label="No-shows" value={metrics.noShows} />
             <Detail label="Voucher liability" value={money(metrics.voucherLiability)} />
             <Detail label="Outstanding balance" value={money(metrics.outstandingBalance)} />
-            <Detail label="VIP customers" value={metrics.vipCustomers} />
-          </Panel>
-
-          <Panel title="White label branding">
-            <Detail label="Branding health" value={`${brandingSummary.score}% (${brandingSummary.completed}/${brandingSummary.total})`} />
-            <Detail label="White label mode" value={humanAction(business.white_label_mode || 'amb_branded')} />
-            <Detail label="AMB branding" value={business.hide_amb_branding ? 'Hidden' : 'Visible'} />
-            <Detail label="Booking page" value={brandingSummary.bookingStatus} />
-            <Detail label="Email branding" value={brandingSummary.emailStatus} />
-            <Detail label="Legal links" value={brandingSummary.legalStatus} />
-            <Detail label="Domain status" value={humanAction(business.domain_status || 'not_connected')} />
-            <Detail label="SSL status" value={humanAction(business.ssl_status || 'not_checked')} />
-
-            <div className="mt-6 flex flex-wrap gap-3">
-              <Link href="/admin/branding" className="rounded-2xl bg-white px-5 py-3 font-black text-slate-950">
-                Manage branding
-              </Link>
-
-              {business.slug && (
-                <Link href={`/b/${business.slug}`} target="_blank" className="rounded-2xl border border-white/10 px-5 py-3 font-black text-white hover:bg-white/10">
-                  Preview booking page
-                </Link>
-              )}
-            </div>
+            <Detail label="Open support tickets" value={metrics.openSupport} />
           </Panel>
         </section>
       )}
@@ -728,56 +896,6 @@ export default function AdminBusinessDetailPage() {
         </Panel>
       )}
 
-      {activeTab === 'branding' && (
-        <section className="grid gap-6 xl:grid-cols-[1fr_0.8fr]">
-          <Panel title="White label status">
-            <Detail label="Branding health" value={`${brandingSummary.score}% (${brandingSummary.completed}/${brandingSummary.total})`} />
-            <Detail label="Branding status" value={humanAction(business.branding_status || 'live')} />
-            <Detail label="White label mode" value={humanAction(business.white_label_mode || 'amb_branded')} />
-            <Detail label="Hide AMB branding" value={business.hide_amb_branding ? 'Yes' : 'No'} />
-            <Detail label="Booking page" value={brandingSummary.bookingStatus} />
-            <Detail label="Email branding" value={brandingSummary.emailStatus} />
-            <Detail label="Legal links" value={brandingSummary.legalStatus} />
-            <Detail label="Custom domain" value={business.custom_domain || 'Not set'} />
-            <Detail label="Domain status" value={humanAction(business.domain_status || 'not_connected')} />
-            <Detail label="SSL status" value={humanAction(business.ssl_status || 'not_checked')} />
-            <Detail label="Last domain check" value={business.domain_last_checked_at ? new Date(business.domain_last_checked_at).toLocaleString('en-GB') : 'Never'} />
-            <Detail label="Domain verified" value={business.domain_verified_at ? new Date(business.domain_verified_at).toLocaleString('en-GB') : 'Not verified'} />
-
-            <div className="mt-6 flex flex-wrap gap-3">
-              <Link href="/admin/branding" className="rounded-2xl bg-white px-5 py-3 font-black text-slate-950">
-                Open Branding Centre
-              </Link>
-
-              {business.slug && (
-                <Link href={`/b/${business.slug}`} target="_blank" className="rounded-2xl border border-white/10 px-5 py-3 font-black text-white hover:bg-white/10">
-                  Preview booking page
-                </Link>
-              )}
-            </div>
-          </Panel>
-
-          <Panel title="Branding checklist">
-            <ChecklistItem label="Logo uploaded" done={Boolean(business.logo_url)} />
-            <ChecklistItem label="Primary colour set" done={Boolean(business.primary_colour)} />
-            <ChecklistItem label="Booking headline customised" done={Boolean(business.custom_booking_headline)} />
-            <ChecklistItem label="Booking intro customised" done={Boolean(business.custom_booking_intro)} />
-            <ChecklistItem label="Sender name configured" done={Boolean(business.sender_name)} />
-            <ChecklistItem label="Reply-to or sender email configured" done={Boolean(business.reply_to_email || business.sender_email)} />
-            <ChecklistItem label="Privacy policy added" done={Boolean(business.privacy_policy_url)} />
-            <ChecklistItem label="Terms URL added" done={Boolean(business.terms_url)} />
-            <ChecklistItem label="Custom domain added" done={Boolean(business.custom_domain)} />
-
-            <div className="mt-8 rounded-2xl border border-white/10 bg-black/20 p-5">
-              <p className="text-sm font-bold text-slate-500">DNS verification token</p>
-              <p className="mt-2 break-all font-mono text-sm text-slate-300">
-                {business.domain_verification_token || 'Not generated yet'}
-              </p>
-            </div>
-          </Panel>
-        </section>
-      )}
-
       {activeTab === 'audit' && (
         <Panel title="Audit logs">
           <DataList rows={auditLogs} empty="No audit logs for this business yet." render={(log) => (
@@ -827,17 +945,18 @@ function Detail({ label, value }: { label: string; value: string | number }) {
   return (
     <div className="grid gap-2 border-b border-white/10 py-3 md:grid-cols-[220px_1fr]">
       <p className="text-sm font-bold text-slate-500">{label}</p>
-      <p className="font-medium text-slate-200">{value}</p>
+      <p className="break-words font-medium text-slate-200">{value}</p>
     </div>
   )
 }
 
-function Badge({ label, tone }: { label: string; tone: 'green' | 'red' | 'blue' | 'purple' }) {
+function Badge({ label, tone }: { label: string; tone: 'green' | 'red' | 'blue' | 'purple' | 'amber' }) {
   const classes = {
     green: 'bg-emerald-500/10 text-emerald-300',
     red: 'bg-red-500/10 text-red-300',
     blue: 'bg-blue-500/10 text-blue-300',
     purple: 'bg-violet-500/10 text-violet-300',
+    amber: 'bg-amber-500/10 text-amber-300',
   }
 
   return <span className={`rounded-full px-3 py-1 text-sm font-bold ${classes[tone]}`}>{label}</span>
@@ -869,15 +988,17 @@ function ChurnBadge({ level }: { level: string }) {
   return <span className={`rounded-full px-3 py-1 text-sm font-bold ${classes}`}>{level}</span>
 }
 
-function ChecklistItem({ label, done }: { label: string; done: boolean }) {
-  return (
-    <div className="flex items-center justify-between gap-4 border-b border-white/10 py-3">
-      <p className="font-medium text-slate-200">{label}</p>
-      <span className={`rounded-full px-3 py-1 text-sm font-black ${done ? 'bg-emerald-500/10 text-emerald-300' : 'bg-amber-500/10 text-amber-300'}`}>
-        {done ? 'Done' : 'Missing'}
-      </span>
-    </div>
-  )
+function ReadinessBadge({ status }: { status: string }) {
+  const tone =
+    status === 'ready_for_launch'
+      ? 'green'
+      : status === 'nearly_ready'
+        ? 'blue'
+        : status === 'in_progress'
+          ? 'amber'
+          : 'red'
+
+  return <Badge label={statusLabel(status)} tone={tone as any} />
 }
 
 function StatCard({ label, value }: { label: string; value: string | number }) {
@@ -889,10 +1010,120 @@ function StatCard({ label, value }: { label: string; value: string | number }) {
   )
 }
 
+function HeroCard({
+  label,
+  value,
+  sub,
+  tone,
+  href,
+  onClick,
+}: {
+  label: string
+  value: string | number
+  sub: string
+  tone: 'green' | 'red' | 'blue' | 'purple' | 'amber'
+  href: string
+  onClick?: () => void
+}) {
+  const toneClasses = {
+    green: 'from-emerald-500/20 to-emerald-500/5 text-emerald-200',
+    red: 'from-red-500/20 to-red-500/5 text-red-200',
+    blue: 'from-blue-500/20 to-blue-500/5 text-blue-200',
+    purple: 'from-violet-500/20 to-violet-500/5 text-violet-200',
+    amber: 'from-amber-500/20 to-amber-500/5 text-amber-200',
+  }
+
+  const content = (
+    <div className={`rounded-3xl border border-white/10 bg-gradient-to-br p-6 ${toneClasses[tone]}`}>
+      <p className="text-sm font-black uppercase tracking-wide opacity-80">{label}</p>
+      <p className="mt-3 text-4xl font-black text-white">{value}</p>
+      <p className="mt-2 text-sm">{sub}</p>
+    </div>
+  )
+
+  if (onClick) {
+    return (
+      <button onClick={onClick} className="text-left">
+        {content}
+      </button>
+    )
+  }
+
+  return <Link href={href}>{content}</Link>
+}
+
+function ScoreDetail({ label, value }: { label: string; value: number }) {
+  return (
+    <div className="rounded-2xl border border-white/10 bg-black/20 p-4">
+      <div className="mb-2 flex items-center justify-between">
+        <p className="text-sm font-black text-slate-300">{label}</p>
+        <p className={`text-lg font-black ${scoreClass(value)}`}>{value}%</p>
+      </div>
+
+      <div className="h-2 overflow-hidden rounded-full bg-slate-800">
+        <div
+          className={`h-full rounded-full ${progressClass(value)}`}
+          style={{ width: `${value}%` }}
+        />
+      </div>
+    </div>
+  )
+}
+
+function EditableSuccessField({
+  id,
+  label,
+  defaultValue,
+  type = 'text',
+}: {
+  id: string
+  label: string
+  defaultValue: string
+  type?: string
+}) {
+  return (
+    <label className="mb-3 block">
+      <span className="mb-2 block text-sm font-bold text-slate-500">{label}</span>
+      <input
+        id={id}
+        type={type}
+        defaultValue={defaultValue}
+        className="w-full rounded-2xl border border-white/10 bg-black/20 px-4 py-3 text-white outline-none focus:border-indigo-400"
+      />
+    </label>
+  )
+}
+
+function valueById(id: string) {
+  if (typeof document === 'undefined') return ''
+  const el = document.getElementById(id) as HTMLInputElement | null
+  return el?.value || ''
+}
+
 function humanAction(action: string) {
   return action
     .replaceAll('_', ' ')
     .replace(/\b\w/g, (letter) => letter.toUpperCase())
+}
+
+function statusLabel(value: string) {
+  return String(value || 'not_ready')
+    .replaceAll('_', ' ')
+    .replace(/\b\w/g, (letter) => letter.toUpperCase())
+}
+
+function scoreClass(score: number) {
+  if (score >= 90) return 'text-emerald-300'
+  if (score >= 70) return 'text-blue-300'
+  if (score >= 40) return 'text-amber-300'
+  return 'text-red-300'
+}
+
+function progressClass(score: number) {
+  if (score >= 90) return 'bg-emerald-400'
+  if (score >= 70) return 'bg-blue-400'
+  if (score >= 40) return 'bg-amber-400'
+  return 'bg-red-400'
 }
 
 function money(value: number) {
@@ -910,4 +1141,9 @@ function monthStartISO() {
   const date = new Date()
   date.setDate(1)
   return date.toISOString().split('T')[0]
+}
+
+function dateInput(value: string | null | undefined) {
+  if (!value) return ''
+  return new Date(value).toISOString().split('T')[0]
 }
