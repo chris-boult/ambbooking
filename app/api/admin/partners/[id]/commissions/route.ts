@@ -1,27 +1,41 @@
 import { NextResponse } from 'next/server'
-import { adminSupabase } from '@/lib/adminSupabase'
+import { createClient } from '@supabase/supabase-js'
 
-export async function POST(request: Request, { params }: { params: { id: string } }) {
-  const body = await request.json()
+export async function POST(
+  request: Request,
+  context: { params: Promise<{ id: string }> }
+) {
+  const { id } = await context.params
 
-  if (!body.amount) {
-    return NextResponse.json({ error: 'Amount is required.' }, { status: 400 })
+  const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL
+  const supabaseServiceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY
+
+  if (!supabaseUrl || !supabaseServiceRoleKey) {
+    return NextResponse.json(
+      { error: 'Missing Supabase environment variables.' },
+      { status: 500 }
+    )
   }
 
-  const { data, error } = await adminSupabase
+  const body = await request.json()
+
+  const { data, error } = await createClient(
+    supabaseUrl,
+    supabaseServiceRoleKey
+  )
     .from('partner_commissions')
     .insert({
-      partner_id: params.id,
-      referral_id: body.referral_id || null,
+      partner_id: id,
       business_id: body.business_id || null,
+      referral_id: body.referral_id || null,
       commission_type: body.commission_type || 'manual',
-      commission_month: body.commission_month || new Date().toISOString().slice(0, 10),
-      amount: Number(body.amount),
+      commission_month: body.commission_month || null,
+      amount: Number(body.amount || 0),
       status: body.status || 'pending',
-      notes: body.notes || 'Manual commission created by master admin.',
+      notes: body.notes || 'Manual commission created by admin.',
     })
-    .select('*')
-    .single()
+    .select()
+    .maybeSingle()
 
   if (error) {
     return NextResponse.json({ error: error.message }, { status: 500 })

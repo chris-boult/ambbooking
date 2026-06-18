@@ -1,36 +1,38 @@
 import { NextResponse } from 'next/server'
-import { adminSupabase } from '@/lib/adminSupabase'
+import { createClient } from '@supabase/supabase-js'
 
-export async function POST(request: Request, { params }: { params: { id: string } }) {
-  const body = await request.json().catch(() => ({}))
+export async function POST(
+  request: Request,
+  context: { params: Promise<{ id: string }> }
+) {
+  const { id } = await context.params
 
-  const { data: commissions, error: commissionError } = await adminSupabase
-    .from('partner_commissions')
-    .select('amount')
-    .eq('partner_id', params.id)
-    .eq('status', 'pending')
+  const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL
+  const supabaseServiceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY
 
-  if (commissionError) {
-    return NextResponse.json({ error: commissionError.message }, { status: 500 })
+  if (!supabaseUrl || !supabaseServiceRoleKey) {
+    return NextResponse.json(
+      { error: 'Missing Supabase environment variables.' },
+      { status: 500 }
+    )
   }
 
-  const pendingAmount = (commissions || []).reduce((sum, row) => sum + Number(row.amount || 0), 0)
-  const payoutAmount = Number(body.payout_amount || pendingAmount)
+  const body = await request.json()
 
-  if (payoutAmount <= 0) {
-    return NextResponse.json({ error: 'No pending payout amount available.' }, { status: 400 })
-  }
-
-  const { data, error } = await adminSupabase
+  const { data, error } = await createClient(
+    supabaseUrl,
+    supabaseServiceRoleKey
+  )
     .from('partner_payouts')
     .insert({
-      partner_id: params.id,
-      payout_amount: payoutAmount,
-      status: 'pending',
-      notes: body.notes || 'Generated from Admin Partner Centre.',
+      partner_id: id,
+      payout_amount: Number(body.payout_amount || body.amount || 0),
+      payout_date: body.payout_date || null,
+      notes: body.notes || 'Payout created by admin.',
+      status: body.status || 'pending',
     })
-    .select('*')
-    .single()
+    .select()
+    .maybeSingle()
 
   if (error) {
     return NextResponse.json({ error: error.message }, { status: 500 })
