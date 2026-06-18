@@ -15,6 +15,102 @@ function generateVoucherCode() {
   return `GV-${Math.random().toString(36).substring(2, 8).toUpperCase()}`
 }
 
+async function sendGiftVoucherEmail({
+  to,
+  recipientName,
+  purchaserName,
+  businessName,
+  code,
+  amount,
+  expiryDate,
+  message,
+}: {
+  to: string
+  recipientName: string
+  purchaserName: string
+  businessName: string
+  code: string
+  amount: number
+  expiryDate: string
+  message: string
+}) {
+  if (!process.env.RESEND_API_KEY) {
+    console.warn('RESEND_API_KEY missing. Gift voucher email not sent.')
+    return
+  }
+
+  const res = await fetch('https://api.resend.com/emails', {
+    method: 'POST',
+    headers: {
+      Authorization: `Bearer ${process.env.RESEND_API_KEY}`,
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({
+      from: process.env.RESEND_FROM_EMAIL || 'AMB Booking <noreply@ambbooking.co.uk>',
+      to,
+      subject: `You’ve received a ${businessName} gift voucher`,
+      html: `
+        <div style="margin:0;padding:0;background:#020617;font-family:Arial,sans-serif;color:#ffffff;">
+          <div style="max-width:640px;margin:0 auto;padding:40px 20px;">
+            <div style="border:1px solid rgba(255,255,255,0.12);background:rgba(255,255,255,0.05);border-radius:28px;padding:32px;">
+              <p style="margin:0 0 12px;color:#94a3b8;font-size:12px;font-weight:bold;letter-spacing:3px;text-transform:uppercase;">
+                Gift voucher
+              </p>
+
+              <h1 style="margin:0 0 18px;font-size:34px;line-height:1.1;color:#ffffff;">
+                You’ve received a gift voucher
+              </h1>
+
+              <p style="margin:0 0 26px;color:#cbd5e1;font-size:16px;line-height:1.7;">
+                Hi ${recipientName || 'there'}, ${purchaserName || 'someone'} has sent you a gift voucher for <strong>${businessName}</strong>.
+              </p>
+
+              ${
+                message
+                  ? `<div style="border:1px solid rgba(255,255,255,0.12);background:rgba(0,0,0,0.25);border-radius:20px;padding:20px;margin-bottom:24px;">
+                      <p style="margin:0;color:#e2e8f0;font-size:15px;line-height:1.7;">“${message}”</p>
+                    </div>`
+                  : ''
+              }
+
+              <div style="border:1px solid rgba(255,255,255,0.12);background:#ffffff;border-radius:24px;padding:28px;text-align:center;color:#020617;margin-bottom:24px;">
+                <p style="margin:0 0 8px;color:#64748b;font-size:12px;font-weight:bold;letter-spacing:3px;text-transform:uppercase;">
+                  Voucher code
+                </p>
+
+                <div style="font-size:34px;font-weight:900;letter-spacing:3px;margin-bottom:16px;">
+                  ${code}
+                </div>
+
+                <p style="margin:0;font-size:28px;font-weight:900;">
+                  £${amount.toFixed(2)}
+                </p>
+
+                <p style="margin:10px 0 0;color:#64748b;font-size:14px;">
+                  Expires ${new Date(expiryDate).toLocaleDateString('en-GB')}
+                </p>
+              </div>
+
+              <p style="margin:0;color:#94a3b8;font-size:14px;line-height:1.7;">
+                Keep this email safe. You’ll need your voucher code when redeeming it with ${businessName}.
+              </p>
+            </div>
+
+            <p style="margin:24px 0 0;text-align:center;color:#64748b;font-size:12px;">
+              Powered by AMB Booking
+            </p>
+          </div>
+        </div>
+      `,
+    }),
+  })
+
+  if (!res.ok) {
+    const text = await res.text()
+    console.error('Gift voucher email failed:', text)
+  }
+}
+
 export async function POST(req: Request) {
   const body = await req.text()
   const signature = req.headers.get('stripe-signature')
@@ -59,7 +155,7 @@ export async function POST(req: Request) {
 
         const { data: business, error: businessError } = await supabase
           .from('businesses')
-          .select('id')
+          .select('id, business_name')
           .eq('slug', businessSlug)
           .single()
 
@@ -102,7 +198,18 @@ export async function POST(req: Request) {
 
         if (voucherError) throw voucherError
 
-        console.log('Gift voucher created:', code, message)
+        await sendGiftVoucherEmail({
+          to: recipientEmail.trim().toLowerCase(),
+          recipientName,
+          purchaserName,
+          businessName: business.business_name || 'this business',
+          code,
+          amount,
+          expiryDate: expiryDate.toISOString(),
+          message,
+        })
+
+        console.log('Gift voucher created and email attempted:', code)
       }
 
       if (type === 'package_purchase') {

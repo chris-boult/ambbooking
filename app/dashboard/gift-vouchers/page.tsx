@@ -1,10 +1,11 @@
 'use client'
 
-import { useEffect, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { supabase } from '@/lib/supabase'
 
-type Voucher = {
+type GiftVoucher = {
   id: string
+  business_id: string
   code: string
   amount: number
   remaining_amount: number
@@ -13,343 +14,413 @@ type Voucher = {
   purchaser_name: string | null
   purchaser_email: string | null
   expiry_date: string | null
-  status: string
-  created_at: string
+  status: string | null
+  created_at?: string | null
 }
 
-type Business = {
-  id: string
-}
-
-export default function GiftVouchersPage() {
-  const [vouchers, setVouchers] = useState<Voucher[]>([])
+export default function GiftVouchersDashboardPage() {
   const [businessId, setBusinessId] = useState('')
+  const [vouchers, setVouchers] = useState<GiftVoucher[]>([])
   const [loading, setLoading] = useState(true)
-  const [message, setMessage] = useState('')
+  const [saving, setSaving] = useState(false)
+  const [search, setSearch] = useState('')
+  const [error, setError] = useState('')
+  const [success, setSuccess] = useState('')
 
+  const [manualAmount, setManualAmount] = useState('')
   const [recipientName, setRecipientName] = useState('')
   const [recipientEmail, setRecipientEmail] = useState('')
-  const [amount, setAmount] = useState('50')
+  const [purchaserName, setPurchaserName] = useState('')
 
   useEffect(() => {
-    loadVouchers()
+    loadData()
   }, [])
 
-  async function getBusinessId() {
+  async function loadData() {
+    setLoading(true)
+    setError('')
+
     const {
       data: { user },
     } = await supabase.auth.getUser()
 
-    if (!user) return ''
+    if (!user) {
+      setError('You need to be logged in.')
+      setLoading(false)
+      return
+    }
 
-    const { data: ownerBusiness } = await supabase
-      .from('businesses')
-      .select('id')
-      .eq('owner_id', user.id)
-      .maybeSingle()
+    let business = null
 
-    if (ownerBusiness) return (ownerBusiness as Business).id
-
-    const { data: userBusiness } = await supabase
+    const { data: ownedBusiness } = await supabase
       .from('businesses')
       .select('id')
       .eq('user_id', user.id)
       .maybeSingle()
 
-    if (userBusiness) return (userBusiness as Business).id
+    if (ownedBusiness) {
+      business = ownedBusiness
+    } else {
+      const { data: firstBusiness } = await supabase
+        .from('businesses')
+        .select('id')
+        .limit(1)
+        .maybeSingle()
 
-    const { data: anyBusiness } = await supabase
-      .from('businesses')
-      .select('id')
-      .limit(1)
-      .maybeSingle()
+      business = firstBusiness
+    }
 
-    if (anyBusiness) return (anyBusiness as Business).id
-
-    return ''
-  }
-
-  async function loadVouchers() {
-    setLoading(true)
-    setMessage('')
-
-    const foundBusinessId = await getBusinessId()
-
-    if (!foundBusinessId) {
-      setMessage('No business found.')
+    if (!business) {
+      setError('No business found.')
       setLoading(false)
       return
     }
 
-    setBusinessId(foundBusinessId)
+    setBusinessId(business.id)
 
-    const { data, error } = await supabase
+    const { data, error: vouchersError } = await supabase
       .from('gift_vouchers')
       .select('*')
-      .eq('business_id', foundBusinessId)
+      .eq('business_id', business.id)
       .order('created_at', { ascending: false })
 
-    if (error) {
-      setMessage(error.message)
-      setLoading(false)
-      return
-    }
+    if (vouchersError) setError(vouchersError.message)
+    else setVouchers(data || [])
 
-    setVouchers((data as Voucher[]) || [])
     setLoading(false)
   }
 
   function generateCode() {
-    return (
-      'AMB-' +
-      Math.random().toString(36).substring(2, 6).toUpperCase() +
-      '-' +
-      Math.random().toString(36).substring(2, 6).toUpperCase()
-    )
+    return `GV-${Math.random().toString(36).substring(2, 8).toUpperCase()}`
   }
 
-  async function createVoucher() {
-    setMessage('')
+  async function createManualVoucher(e: React.FormEvent) {
+    e.preventDefault()
+    setError('')
+    setSuccess('')
+
+    const amount = Number(manualAmount)
 
     if (!businessId) {
-      setMessage('No business found.')
+      setError('No business selected.')
       return
     }
 
-    const numericAmount = Number(amount)
-
-    if (!numericAmount || numericAmount <= 0) {
-      setMessage('Please enter a valid voucher amount.')
+    if (!amount || amount < 1) {
+      setError('Enter a valid voucher amount.')
       return
     }
 
-    const voucherCode = generateCode()
+    if (!recipientName || !recipientEmail) {
+      setError('Recipient name and email are required.')
+      return
+    }
+
+    setSaving(true)
+
+    const expiryDate = new Date()
+    expiryDate.setFullYear(expiryDate.getFullYear() + 1)
 
     const { error } = await supabase.from('gift_vouchers').insert({
       business_id: businessId,
-      code: voucherCode,
-      amount: numericAmount,
-      remaining_amount: numericAmount,
-      recipient_name: recipientName || null,
-      recipient_email: recipientEmail || null,
+      code: generateCode(),
+      amount,
+      remaining_amount: amount,
+      recipient_name: recipientName,
+      recipient_email: recipientEmail.trim().toLowerCase(),
+      purchaser_name: purchaserName || 'Manual voucher',
+      purchaser_email: null,
+      expiry_date: expiryDate.toISOString().split('T')[0],
       status: 'active',
     })
 
     if (error) {
-      setMessage(error.message)
-      return
+      setError(error.message)
+    } else {
+      setSuccess('Gift voucher created.')
+      setManualAmount('')
+      setRecipientName('')
+      setRecipientEmail('')
+      setPurchaserName('')
+      await loadData()
     }
 
-    setRecipientName('')
-    setRecipientEmail('')
-    setAmount('50')
-    setMessage(`Voucher created: ${voucherCode}`)
-
-    await loadVouchers()
+    setSaving(false)
   }
 
-  async function updateVoucherStatus(id: string, status: string) {
+  async function markRedeemed(voucher: GiftVoucher) {
     const { error } = await supabase
       .from('gift_vouchers')
       .update({
-        status,
-        redeemed_at: status === 'redeemed' ? new Date().toISOString() : null,
-        remaining_amount: status === 'redeemed' ? 0 : undefined,
+        remaining_amount: 0,
+        status: 'redeemed',
       })
-      .eq('id', id)
+      .eq('id', voucher.id)
 
-    if (error) {
-      setMessage(error.message)
-      return
-    }
-
-    await loadVouchers()
+    if (error) setError(error.message)
+    else await loadData()
   }
 
-  const activeCount = vouchers.filter(
-    (voucher) => voucher.status === 'active'
-  ).length
+  async function cancelVoucher(voucher: GiftVoucher) {
+    const { error } = await supabase
+      .from('gift_vouchers')
+      .update({ status: 'cancelled' })
+      .eq('id', voucher.id)
 
-  const redeemedCount = vouchers.filter(
-    (voucher) => voucher.status === 'redeemed'
-  ).length
+    if (error) setError(error.message)
+    else await loadData()
+  }
 
-  const cancelledCount = vouchers.filter(
-    (voucher) => voucher.status === 'cancelled'
-  ).length
+  async function copyCode(code: string) {
+    await navigator.clipboard.writeText(code)
+    setSuccess(`Copied ${code}`)
+  }
 
-  const activeValue = vouchers
-    .filter((voucher) => voucher.status === 'active')
-    .reduce((sum, voucher) => sum + Number(voucher.remaining_amount || 0), 0)
+  const filteredVouchers = useMemo(() => {
+    const q = search.toLowerCase().trim()
+    if (!q) return vouchers
+
+    return vouchers.filter((voucher) => {
+      return (
+        voucher.code?.toLowerCase().includes(q) ||
+        voucher.recipient_name?.toLowerCase().includes(q) ||
+        voucher.recipient_email?.toLowerCase().includes(q) ||
+        voucher.purchaser_name?.toLowerCase().includes(q)
+      )
+    })
+  }, [search, vouchers])
+
+  const totalSold = vouchers.reduce((sum, v) => sum + Number(v.amount || 0), 0)
+  const totalRemaining = vouchers.reduce(
+    (sum, v) => sum + Number(v.remaining_amount || 0),
+    0
+  )
+  const activeCount = vouchers.filter((v) => v.status === 'active').length
+  const redeemedCount = vouchers.filter((v) => v.status === 'redeemed').length
 
   if (loading) {
-    return <div className="p-8 text-white">Loading gift vouchers...</div>
+    return (
+      <main className="min-h-screen bg-slate-950 p-8 text-white">
+        <p className="text-slate-400">Loading gift vouchers...</p>
+      </main>
+    )
   }
 
   return (
-    <div className="p-8 text-white">
-      <div className="mb-8">
-        <h1 className="text-4xl font-bold mb-2">Gift Vouchers</h1>
-        <p className="text-slate-400">
-          Create, track and redeem gift vouchers.
+    <main className="min-h-screen space-y-8 bg-slate-950 p-6 text-white md:p-8">
+      <div>
+        <p className="text-sm font-bold uppercase tracking-[0.25em] text-slate-500">
+          Revenue tools
+        </p>
+        <h1 className="mt-2 text-4xl font-black">Gift vouchers</h1>
+        <p className="mt-3 max-w-2xl text-slate-400">
+          Manage purchased vouchers, manual vouchers, balances, expiry dates and
+          redemptions.
         </p>
       </div>
 
-      {message && (
-        <div className="mb-6 bg-slate-900 border border-slate-800 rounded-xl p-4 text-slate-300">
-          {message}
+      {error && (
+        <div className="rounded-2xl border border-red-500/20 bg-red-500/10 p-4 text-red-300">
+          {error}
         </div>
       )}
 
-      <div className="grid md:grid-cols-4 gap-4 mb-8">
-        <StatCard title="Active vouchers" value={activeCount.toString()} />
-        <StatCard title="Redeemed" value={redeemedCount.toString()} />
-        <StatCard title="Cancelled" value={cancelledCount.toString()} />
-        <StatCard title="Outstanding value" value={`£${activeValue.toFixed(2)}`} />
-      </div>
+      {success && (
+        <div className="rounded-2xl border border-emerald-500/20 bg-emerald-500/10 p-4 text-emerald-300">
+          {success}
+        </div>
+      )}
 
-      <div className="bg-slate-900 border border-slate-800 rounded-2xl p-6 mb-8">
-        <h2 className="text-2xl font-bold mb-4">Create voucher</h2>
+      <section className="grid gap-4 md:grid-cols-4">
+        <div className="rounded-3xl border border-white/10 bg-white/[0.04] p-6">
+          <p className="text-sm font-bold text-slate-500">Total sold</p>
+          <p className="mt-2 text-3xl font-black">£{totalSold.toFixed(2)}</p>
+        </div>
 
-        <div className="grid md:grid-cols-3 gap-4">
+        <div className="rounded-3xl border border-white/10 bg-white/[0.04] p-6">
+          <p className="text-sm font-bold text-slate-500">Remaining value</p>
+          <p className="mt-2 text-3xl font-black">
+            £{totalRemaining.toFixed(2)}
+          </p>
+        </div>
+
+        <div className="rounded-3xl border border-white/10 bg-white/[0.04] p-6">
+          <p className="text-sm font-bold text-slate-500">Active</p>
+          <p className="mt-2 text-3xl font-black">{activeCount}</p>
+        </div>
+
+        <div className="rounded-3xl border border-white/10 bg-white/[0.04] p-6">
+          <p className="text-sm font-bold text-slate-500">Redeemed</p>
+          <p className="mt-2 text-3xl font-black">{redeemedCount}</p>
+        </div>
+      </section>
+
+      <section className="rounded-3xl border border-white/10 bg-white/[0.04] p-6 md:p-8">
+        <h2 className="text-2xl font-black">Create manual voucher</h2>
+        <p className="mt-2 text-slate-400">
+          Useful for goodwill gestures, prizes, walk-in purchases or offline payments.
+        </p>
+
+        <form
+          onSubmit={createManualVoucher}
+          className="mt-6 grid gap-4 md:grid-cols-4"
+        >
           <input
-            value={recipientName}
-            onChange={(event) => setRecipientName(event.target.value)}
-            placeholder="Recipient name"
-            className="bg-slate-950 border border-slate-700 rounded-lg p-3 text-white"
-          />
-
-          <input
-            value={recipientEmail}
-            onChange={(event) => setRecipientEmail(event.target.value)}
-            placeholder="Recipient email"
-            className="bg-slate-950 border border-slate-700 rounded-lg p-3 text-white"
-          />
-
-          <input
-            value={amount}
-            onChange={(event) => setAmount(event.target.value)}
-            placeholder="Amount"
             type="number"
             min="1"
-            className="bg-slate-950 border border-slate-700 rounded-lg p-3 text-white"
+            value={manualAmount}
+            onChange={(e) => setManualAmount(e.target.value)}
+            placeholder="Amount"
+            className="rounded-2xl border border-white/10 bg-black/20 px-4 py-4 text-white outline-none placeholder:text-slate-600"
+          />
+
+          <input
+            value={recipientName}
+            onChange={(e) => setRecipientName(e.target.value)}
+            placeholder="Recipient name"
+            className="rounded-2xl border border-white/10 bg-black/20 px-4 py-4 text-white outline-none placeholder:text-slate-600"
+          />
+
+          <input
+            type="email"
+            value={recipientEmail}
+            onChange={(e) => setRecipientEmail(e.target.value)}
+            placeholder="Recipient email"
+            className="rounded-2xl border border-white/10 bg-black/20 px-4 py-4 text-white outline-none placeholder:text-slate-600"
+          />
+
+          <input
+            value={purchaserName}
+            onChange={(e) => setPurchaserName(e.target.value)}
+            placeholder="Purchaser name"
+            className="rounded-2xl border border-white/10 bg-black/20 px-4 py-4 text-white outline-none placeholder:text-slate-600"
+          />
+
+          <button
+            type="submit"
+            disabled={saving}
+            className="rounded-2xl bg-white px-5 py-4 font-black text-slate-950 disabled:opacity-50 md:col-span-4"
+          >
+            {saving ? 'Creating...' : 'Create voucher'}
+          </button>
+        </form>
+      </section>
+
+      <section className="rounded-3xl border border-white/10 bg-white/[0.04] p-6 md:p-8">
+        <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
+          <div>
+            <h2 className="text-2xl font-black">All vouchers</h2>
+            <p className="mt-2 text-slate-400">
+              Search, copy, cancel or redeem voucher codes.
+            </p>
+          </div>
+
+          <input
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            placeholder="Search vouchers..."
+            className="rounded-2xl border border-white/10 bg-black/20 px-4 py-4 text-white outline-none placeholder:text-slate-600"
           />
         </div>
 
-        <button
-          type="button"
-          onClick={createVoucher}
-          className="mt-4 bg-white text-slate-950 font-bold px-6 py-3 rounded-lg"
-        >
-          Create voucher
-        </button>
-      </div>
+        <div className="mt-6 overflow-x-auto">
+          <table className="w-full min-w-[900px] text-left">
+            <thead>
+              <tr className="border-b border-white/10 text-sm text-slate-500">
+                <th className="py-4">Code</th>
+                <th className="py-4">Recipient</th>
+                <th className="py-4">Amount</th>
+                <th className="py-4">Remaining</th>
+                <th className="py-4">Expiry</th>
+                <th className="py-4">Status</th>
+                <th className="py-4 text-right">Actions</th>
+              </tr>
+            </thead>
 
-      <div className="mb-10">
-        <h2 className="text-2xl font-bold mb-4">Voucher register</h2>
+            <tbody>
+              {filteredVouchers.map((voucher) => (
+                <tr key={voucher.id} className="border-b border-white/10">
+                  <td className="py-5 font-black text-white">{voucher.code}</td>
 
-        {vouchers.length === 0 && (
-          <div className="bg-slate-900 border border-slate-800 rounded-xl p-6 text-slate-400">
-            No vouchers created yet.
-          </div>
-        )}
-
-        <div className="space-y-4">
-          {vouchers.map((voucher) => (
-            <div
-              key={voucher.id}
-              className="bg-slate-900 border border-slate-800 rounded-xl p-6"
-            >
-              <div className="flex flex-col lg:flex-row lg:items-start lg:justify-between gap-4">
-                <div>
-                  <h3 className="text-xl font-bold font-mono">
-                    {voucher.code}
-                  </h3>
-
-                  <p className="text-slate-400">
-                    {voucher.recipient_name || 'No recipient name'}{' '}
-                    {voucher.recipient_email
-                      ? `• ${voucher.recipient_email}`
-                      : ''}
-                  </p>
-
-                  <div className="mt-4 grid gap-2 text-sm text-slate-300">
-                    <p>
-                      <span className="text-slate-500">Original value:</span>{' '}
-                      £{Number(voucher.amount).toFixed(2)}
+                  <td className="py-5">
+                    <p className="font-bold text-white">
+                      {voucher.recipient_name || 'No name'}
                     </p>
-
-                    <p>
-                      <span className="text-slate-500">Remaining:</span>{' '}
-                      £{Number(voucher.remaining_amount).toFixed(2)}
+                    <p className="text-sm text-slate-500">
+                      {voucher.recipient_email || 'No email'}
                     </p>
+                  </td>
 
-                    <p>
-                      <span className="text-slate-500">Status:</span>{' '}
-                      <span
-                        className={
-                          voucher.status === 'active'
-                            ? 'text-emerald-400'
-                            : voucher.status === 'redeemed'
-                              ? 'text-sky-400'
-                              : 'text-red-400'
-                        }
-                      >
-                        {voucher.status}
-                      </span>
-                    </p>
+                  <td className="py-5 text-slate-300">
+                    £{Number(voucher.amount || 0).toFixed(2)}
+                  </td>
 
-                    <p>
-                      <span className="text-slate-500">Created:</span>{' '}
-                      {new Date(voucher.created_at).toLocaleDateString('en-GB', {
-                        weekday: 'short',
-                        day: 'numeric',
-                        month: 'long',
-                        year: 'numeric',
-                      })}
-                    </p>
-                  </div>
-                </div>
+                  <td className="py-5 text-slate-300">
+                    £{Number(voucher.remaining_amount || 0).toFixed(2)}
+                  </td>
 
-                <div className="flex flex-wrap gap-2 lg:justify-end">
-                  {voucher.status === 'active' && (
-                    <>
+                  <td className="py-5 text-slate-300">
+                    {voucher.expiry_date
+                      ? new Date(voucher.expiry_date).toLocaleDateString('en-GB')
+                      : 'No expiry'}
+                  </td>
+
+                  <td className="py-5">
+                    <span
+                      className={`rounded-full px-3 py-1 text-sm font-bold capitalize ${
+                        voucher.status === 'redeemed'
+                          ? 'bg-blue-500/10 text-blue-300'
+                          : voucher.status === 'cancelled'
+                            ? 'bg-red-500/10 text-red-300'
+                            : 'bg-emerald-500/10 text-emerald-300'
+                      }`}
+                    >
+                      {voucher.status || 'active'}
+                    </span>
+                  </td>
+
+                  <td className="py-5">
+                    <div className="flex justify-end gap-2">
                       <button
-                        type="button"
-                        onClick={() =>
-                          updateVoucherStatus(voucher.id, 'redeemed')
-                        }
-                        className="bg-emerald-600 hover:bg-emerald-700 px-4 py-2 rounded-lg font-semibold"
+                        onClick={() => copyCode(voucher.code)}
+                        className="rounded-xl border border-white/10 px-3 py-2 text-sm font-bold text-white hover:bg-white/10"
                       >
-                        Mark redeemed
+                        Copy
                       </button>
 
-                      <button
-                        type="button"
-                        onClick={() =>
-                          updateVoucherStatus(voucher.id, 'cancelled')
-                        }
-                        className="bg-red-600 hover:bg-red-700 px-4 py-2 rounded-lg font-semibold"
-                      >
-                        Cancel
-                      </button>
-                    </>
-                  )}
-                </div>
-              </div>
-            </div>
-          ))}
+                      {voucher.status === 'active' && (
+                        <button
+                          onClick={() => markRedeemed(voucher)}
+                          className="rounded-xl bg-emerald-500/15 px-3 py-2 text-sm font-bold text-emerald-300 hover:bg-emerald-500/25"
+                        >
+                          Redeem
+                        </button>
+                      )}
+
+                      {voucher.status !== 'cancelled' && (
+                        <button
+                          onClick={() => cancelVoucher(voucher)}
+                          className="rounded-xl bg-red-500/15 px-3 py-2 text-sm font-bold text-red-300 hover:bg-red-500/25"
+                        >
+                          Cancel
+                        </button>
+                      )}
+                    </div>
+                  </td>
+                </tr>
+              ))}
+
+              {filteredVouchers.length === 0 && (
+                <tr>
+                  <td colSpan={7} className="py-10 text-center text-slate-500">
+                    No gift vouchers found.
+                  </td>
+                </tr>
+              )}
+            </tbody>
+          </table>
         </div>
-      </div>
-    </div>
-  )
-}
-
-function StatCard({ title, value }: { title: string; value: string }) {
-  return (
-    <div className="bg-slate-900 border border-slate-800 rounded-xl p-5">
-      <p className="text-slate-400 text-sm mb-2">{title}</p>
-      <p className="text-3xl font-bold">{value}</p>
-    </div>
+      </section>
+    </main>
   )
 }
