@@ -1,6 +1,11 @@
 import { NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
 import { Resend } from 'resend'
+import {
+  getEmailBranding,
+  resolveEmailBranding,
+  buildBrandedEmail,
+} from '@/lib/email-branding'
 
 export const dynamic = 'force-dynamic'
 
@@ -49,6 +54,15 @@ function getDateTime(bookingDate: string, bookingTime: string) {
   return new Date(`${bookingDate}T${bookingTime}`)
 }
 
+function fromAddress() {
+  const fromEmail =
+    process.env.RESEND_FROM_EMAIL || 'AMB Booking <onboarding@resend.dev>'
+
+  return fromEmail.includes('<')
+    ? fromEmail.split('<')[1].replace('>', '')
+    : fromEmail
+}
+
 async function sendReviewRequest({
   booking,
   customer,
@@ -58,9 +72,6 @@ async function sendReviewRequest({
   customer: Customer | undefined
   service: Service | undefined
 }) {
-  const fromEmail =
-    process.env.RESEND_FROM_EMAIL || 'AMB Booking <onboarding@resend.dev>'
-
   if (!customer?.email || !customer.email.includes('@')) {
     return {
       sent: false,
@@ -75,29 +86,25 @@ async function sendReviewRequest({
   const serviceName = service?.name || 'appointment'
   const reviewUrl = process.env.REVIEW_URL || '#'
 
+  const branding = await getEmailBranding(booking.business_id)
+  const resolvedBranding = resolveEmailBranding(branding)
+
   const { data, error } = await resend.emails.send({
-    from: fromEmail,
+    from: `${resolvedBranding.brandName} <${fromAddress()}>`,
     to: customer.email,
+    replyTo: resolvedBranding.replyTo,
     subject: 'How was your appointment?',
-    html: `
-      <div style="font-family: Arial, sans-serif; line-height: 1.6; color: #111;">
-        <h1>How did we do?</h1>
-
-        <p>Hi ${customerName || 'there'},</p>
-
-        <p>Thanks for visiting us for your ${serviceName}.</p>
-
-        <p>We would really appreciate it if you could leave a quick review.</p>
-
-        <p>
-          <a href="${reviewUrl}" style="background: #111827; color: #ffffff; padding: 14px 22px; border-radius: 10px; text-decoration: none; font-weight: bold;">
-            Leave a review
-          </a>
-        </p>
-
-        <p>Thank you.</p>
-      </div>
-    `,
+    html: buildBrandedEmail({
+      title: 'How did we do?',
+      customerName: customerName || 'there',
+      intro: `Thanks for visiting us for your ${serviceName}. We would really appreciate it if you could leave a quick review.`,
+      serviceName,
+      teamMemberName: 'Your specialist',
+      bookingDate: booking.booking_date,
+      bookingTime: booking.booking_time,
+      buttonText: 'Leave a review',
+      branding,
+    }).replace('Leave a review</span>', `<a href="${reviewUrl}" style="color:#fff;text-decoration:none;">Leave a review</a></span>`),
   })
 
   if (error) {
@@ -222,11 +229,13 @@ export async function GET() {
       sent: results.filter((item) => item.sent).length,
       results,
     })
-  } catch (error: any) {
+  } catch (error) {
+    const message = error instanceof Error ? error.message : 'Review request route failed'
+
     console.error('Review request route error:', error)
 
     return NextResponse.json(
-      { success: false, error: error.message || 'Review request route failed' },
+      { success: false, error: message },
       { status: 500 }
     )
   }

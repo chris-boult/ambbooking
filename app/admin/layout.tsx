@@ -19,21 +19,22 @@ const navItems = [
   { name: 'Businesses', href: '/admin/businesses' },
   { name: 'Create Business', href: '/admin/businesses/create' },
 
+  { name: 'Customers', href: '/admin/customers' },
+  { name: 'Bookings', href: '/admin/bookings' },
+
   { name: 'Revenue', href: '/admin/revenue' },
   { name: 'Subscriptions', href: '/admin/subscriptions' },
 
   { name: 'White Label', href: '/admin/branding' },
+  { name: 'Domains', href: '/admin/domains' },
+  { name: 'Email Branding', href: '/admin/email-branding' },
 
-  { name: 'Customers', href: '/admin/customers' },
-  { name: 'Bookings', href: '/admin/bookings' },
-
-  { name: 'Activity', href: '/admin/activity' },
   { name: 'Support', href: '/admin/support' },
-
   { name: 'Platform Health', href: '/admin/health' },
   { name: 'Feature Flags', href: '/admin/feature-flags' },
   { name: 'Audit Logs', href: '/admin/audit' },
 
+  { name: 'Activity', href: '/admin/activity' },
   { name: 'Settings', href: '/admin/settings' },
 ]
 

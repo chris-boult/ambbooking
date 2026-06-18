@@ -1,5 +1,10 @@
 import { NextResponse } from 'next/server'
 import { Resend } from 'resend'
+import {
+  getEmailBranding,
+  resolveEmailBranding,
+  buildBrandedEmail,
+} from '@/lib/email-branding'
 
 export const dynamic = 'force-dynamic'
 
@@ -10,16 +15,17 @@ export async function POST(request: Request) {
     const body = await request.json()
 
     const {
+      businessId,
       customerName,
       customerEmail,
       bookingDate,
       bookingTime,
+      serviceName,
+      teamMemberName,
       action,
     } = body
 
     if (!customerEmail || !customerEmail.includes('@')) {
-      console.log('Booking update email skipped: missing customer email')
-
       return NextResponse.json({
         success: true,
         skipped: true,
@@ -35,42 +41,56 @@ export async function POST(request: Request) {
     }
 
     const safeCustomerName = customerName?.trim() || 'there'
+    const safeServiceName = serviceName?.trim() || 'Your appointment'
+    const safeTeamMemberName = teamMemberName?.trim() || 'Your specialist'
+
+    const branding = await getEmailBranding(businessId)
+    const resolvedBranding = resolveEmailBranding(branding)
 
     const subject =
       action === 'cancelled'
         ? 'Your appointment has been cancelled'
         : 'Your appointment has been rescheduled'
 
-    const heading =
+    const title =
       action === 'cancelled'
         ? 'Booking cancelled'
         : 'Booking rescheduled'
 
-    const message =
+    const intro =
       action === 'cancelled'
         ? 'Your appointment has been cancelled.'
         : 'Your appointment has been moved to a new date and time.'
 
+    const buttonText =
+      action === 'cancelled'
+        ? 'Booking cancelled'
+        : 'View updated booking'
+
+    const fromEmail =
+      process.env.RESEND_FROM_EMAIL ||
+      'AMB Booking <onboarding@resend.dev>'
+
+    const fromAddress = fromEmail.includes('<')
+      ? fromEmail.split('<')[1].replace('>', '')
+      : fromEmail
+
     const { data, error } = await resend.emails.send({
-      from:
-        process.env.RESEND_FROM_EMAIL ||
-        'AMB Booking <onboarding@resend.dev>',
+      from: `${resolvedBranding.brandName} <${fromAddress}>`,
       to: customerEmail,
+      replyTo: resolvedBranding.replyTo,
       subject,
-      html: `
-        <div style="font-family: Arial, sans-serif; line-height: 1.6; color: #111;">
-          <h1>${heading}</h1>
-
-          <p>Hi ${safeCustomerName},</p>
-
-          <p>${message}</p>
-
-          <p>
-            <strong>Date:</strong> ${bookingDate}<br />
-            <strong>Time:</strong> ${bookingTime}
-          </p>
-        </div>
-      `,
+      html: buildBrandedEmail({
+        title,
+        customerName: safeCustomerName,
+        intro,
+        serviceName: safeServiceName,
+        teamMemberName: safeTeamMemberName,
+        bookingDate,
+        bookingTime,
+        buttonText,
+        branding,
+      }),
     })
 
     if (error) {
@@ -86,11 +106,13 @@ export async function POST(request: Request) {
       success: true,
       data,
     })
-  } catch (error: any) {
+  } catch (error) {
+    const message = error instanceof Error ? error.message : 'Email failed'
+
     console.error('Booking update email failed:', error)
 
     return NextResponse.json(
-      { error: error.message || 'Email failed' },
+      { error: message },
       { status: 500 }
     )
   }

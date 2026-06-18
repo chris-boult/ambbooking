@@ -1,6 +1,11 @@
 import { NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
 import { Resend } from 'resend'
+import {
+  getEmailBranding,
+  resolveEmailBranding,
+  buildBrandedEmail,
+} from '@/lib/email-branding'
 
 export const dynamic = 'force-dynamic'
 
@@ -72,6 +77,15 @@ function formatTime(time: string) {
   return time?.slice(0, 5)
 }
 
+function fromAddress() {
+  const fromEmail =
+    process.env.RESEND_FROM_EMAIL || 'AMB Booking <onboarding@resend.dev>'
+
+  return fromEmail.includes('<')
+    ? fromEmail.split('<')[1].replace('>', '')
+    : fromEmail
+}
+
 async function sendReminder({
   booking,
   customer,
@@ -85,9 +99,6 @@ async function sendReminder({
   teamMember: TeamMember | undefined
   reminderType: '24h' | '2h'
 }) {
-  const fromEmail =
-    process.env.RESEND_FROM_EMAIL || 'AMB Booking <onboarding@resend.dev>'
-
   if (!customer?.email || !customer.email.includes('@')) {
     return {
       sent: false,
@@ -102,36 +113,40 @@ async function sendReminder({
   const serviceName = service?.name || 'Appointment'
   const teamMemberName = teamMember?.full_name || 'Your specialist'
 
-  const heading =
+  const branding = await getEmailBranding(booking.business_id)
+  const resolvedBranding = resolveEmailBranding(branding)
+
+  const title =
     reminderType === '24h'
       ? 'Your appointment is tomorrow'
       : 'Your appointment is coming up soon'
 
+  const subject =
+    reminderType === '24h'
+      ? 'Reminder: your appointment is tomorrow'
+      : 'Reminder: your appointment is coming up soon'
+
+  const intro =
+    reminderType === '24h'
+      ? 'This is a friendly reminder about your appointment tomorrow.'
+      : 'This is a friendly reminder that your appointment is coming up soon.'
+
   const { data, error } = await resend.emails.send({
-    from: fromEmail,
+    from: `${resolvedBranding.brandName} <${fromAddress()}>`,
     to: customer.email,
-    subject:
-      reminderType === '24h'
-        ? 'Reminder: your appointment is tomorrow'
-        : 'Reminder: your appointment is coming up soon',
-    html: `
-      <div style="font-family: Arial, sans-serif; line-height: 1.6; color: #111;">
-        <h1>${heading}</h1>
-
-        <p>Hi ${customerName || 'there'},</p>
-
-        <p>This is a reminder about your upcoming appointment.</p>
-
-        <p>
-          <strong>Date:</strong> ${formatDate(booking.booking_date)}<br />
-          <strong>Time:</strong> ${formatTime(booking.booking_time)}<br />
-          <strong>Service:</strong> ${serviceName}<br />
-          <strong>Team member:</strong> ${teamMemberName}
-        </p>
-
-        <p>We look forward to seeing you.</p>
-      </div>
-    `,
+    replyTo: resolvedBranding.replyTo,
+    subject,
+    html: buildBrandedEmail({
+      title,
+      customerName: customerName || 'there',
+      intro,
+      serviceName,
+      teamMemberName,
+      bookingDate: formatDate(booking.booking_date),
+      bookingTime: formatTime(booking.booking_time),
+      buttonText: 'View booking',
+      branding,
+    }),
   })
 
   if (error) {
@@ -333,11 +348,13 @@ export async function GET() {
       sent: results.filter((item) => item.sent).length,
       results,
     })
-  } catch (error: any) {
+  } catch (error) {
+    const message = error instanceof Error ? error.message : 'Reminder route failed'
+
     console.error('Reminder route error:', error)
 
     return NextResponse.json(
-      { success: false, error: error.message || 'Reminder route failed' },
+      { success: false, error: message },
       { status: 500 }
     )
   }
