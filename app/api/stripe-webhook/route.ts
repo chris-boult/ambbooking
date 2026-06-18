@@ -11,6 +11,10 @@ const supabase = createClient(
   process.env.SUPABASE_SERVICE_ROLE_KEY as string
 )
 
+function generateVoucherCode() {
+  return `GV-${Math.random().toString(36).substring(2, 8).toUpperCase()}`
+}
+
 export async function POST(req: Request) {
   const body = await req.text()
   const signature = req.headers.get('stripe-signature')
@@ -40,6 +44,66 @@ export async function POST(req: Request) {
       const bookingId = session.metadata?.booking_id
       const businessId = session.metadata?.business_id
       const plan = session.metadata?.plan
+
+      if (type === 'gift_voucher') {
+        const businessSlug = session.metadata?.businessSlug || ''
+        const amount = Number(session.metadata?.amount || 0)
+        const recipientName = session.metadata?.recipientName || ''
+        const recipientEmail = session.metadata?.recipientEmail || ''
+        const purchaserName = session.metadata?.fromName || ''
+        const message = session.metadata?.message || ''
+
+        if (!businessSlug || !amount || !recipientEmail) {
+          throw new Error('Missing gift voucher metadata')
+        }
+
+        const { data: business, error: businessError } = await supabase
+          .from('businesses')
+          .select('id')
+          .eq('slug', businessSlug)
+          .single()
+
+        if (businessError || !business) {
+          throw new Error('Gift voucher business not found')
+        }
+
+        const expiryDate = new Date()
+        expiryDate.setFullYear(expiryDate.getFullYear() + 1)
+
+        let code = generateVoucherCode()
+
+        const { data: existingVoucher } = await supabase
+          .from('gift_vouchers')
+          .select('id')
+          .eq('code', code)
+          .maybeSingle()
+
+        if (existingVoucher) {
+          code = generateVoucherCode()
+        }
+
+        const { error: voucherError } = await supabase
+          .from('gift_vouchers')
+          .insert({
+            business_id: business.id,
+            code,
+            amount,
+            remaining_amount: amount,
+            recipient_name: recipientName,
+            recipient_email: recipientEmail.trim().toLowerCase(),
+            purchaser_name: purchaserName,
+            purchaser_email:
+              session.customer_details?.email ||
+              session.customer_email ||
+              null,
+            expiry_date: expiryDate.toISOString().split('T')[0],
+            status: 'active',
+          })
+
+        if (voucherError) throw voucherError
+
+        console.log('Gift voucher created:', code, message)
+      }
 
       if (type === 'package_purchase') {
         const packageId = session.metadata?.package_id
