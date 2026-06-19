@@ -76,7 +76,7 @@ export default async function BookingPage({
 
   if (!business) {
     return (
-      <main className="min-h-screen bg-slate-950 text-white flex items-center justify-center">
+      <main className="flex min-h-screen items-center justify-center bg-slate-950 text-white">
         <h1 className="text-4xl font-bold">Business not found</h1>
       </main>
     )
@@ -84,9 +84,27 @@ export default async function BookingPage({
 
   const { data: services } = await supabase
     .from('services')
-    .select('*')
+    .select(`
+      id,
+      name,
+      description,
+      price,
+      duration_minutes,
+      category,
+      service_type,
+      is_add_on,
+      parent_service_id,
+      recommended_service_ids,
+      requires_service_id,
+      bundle_price,
+      bundle_discount_type,
+      bundle_discount_value,
+      sort_order,
+      is_active
+    `)
     .eq('business_id', business.id)
-    .order('name')
+    .eq('is_active', true)
+    .order('sort_order', { ascending: true })
 
   const { data: teamMembers } = await supabase
     .from('team_members')
@@ -94,156 +112,82 @@ export default async function BookingPage({
     .eq('business_id', business.id)
     .order('full_name')
 
-  const theme =
-    themes[business.brand_theme || 'classic_dark'] || themes.classic_dark
-
+  const theme = themes[business.brand_theme || 'classic_dark'] || themes.classic_dark
   const primaryColour = business.primary_colour || '#7c3aed'
   const secondaryColour = business.secondary_colour || '#2563eb'
 
   const description =
     business.business_description ||
-    'Choose a service, select a team member and book your appointment online.'
+    'Book your appointment online in just a few steps.'
 
   return (
-    <main className={`min-h-screen relative overflow-hidden ${theme.page}`}>
+    <main className={`relative min-h-screen overflow-hidden ${theme.page}`}>
       <div
-        className="absolute inset-0 opacity-40"
+        className="absolute inset-0 opacity-35"
         style={{
-          background: `radial-gradient(circle at top left, ${primaryColour}66 0%, transparent 32%), radial-gradient(circle at bottom right, ${secondaryColour}66 0%, transparent 34%)`,
+          background: `radial-gradient(circle at top left, ${primaryColour}55 0%, transparent 30%), radial-gradient(circle at bottom right, ${secondaryColour}55 0%, transparent 34%)`,
         }}
       />
 
       {business.hero_image_url && (
         <div
-          className="absolute inset-0 opacity-20 bg-cover bg-center"
-          style={{
-            backgroundImage: `url(${business.hero_image_url})`,
-          }}
+          className="absolute inset-0 bg-cover bg-center opacity-15"
+          style={{ backgroundImage: `url(${business.hero_image_url})` }}
         />
       )}
 
-      <div className="relative z-10 max-w-6xl mx-auto px-6 py-16">
-        <header className="mb-14">
-          <div
-            className={`rounded-[32px] border backdrop-blur-2xl p-8 md:p-10 ${theme.card}`}
-          >
-            {business.logo_url && (
-              <div className="mb-8">
-                <img
-                  src={business.logo_url}
-                  alt={business.business_name}
-                  className="max-h-20 max-w-56 object-contain"
-                />
+      <div className="relative z-10 mx-auto max-w-5xl px-4 py-6 md:px-6 md:py-8">
+        <header className="mb-5">
+          <div className={`rounded-[28px] border p-5 backdrop-blur-2xl md:p-6 ${theme.card}`}>
+            <div className="flex flex-col gap-5 md:flex-row md:items-center md:justify-between">
+              <div className="min-w-0">
+                {business.logo_url && (
+                  <img
+                    src={business.logo_url}
+                    alt={business.business_name}
+                    className="mb-4 max-h-14 max-w-44 object-contain"
+                  />
+                )}
+
+                <div
+                  className="mb-3 inline-flex rounded-full px-3 py-1.5 text-xs font-bold text-white"
+                  style={{
+                    background: `linear-gradient(135deg, ${primaryColour}, ${secondaryColour})`,
+                  }}
+                >
+                  Online booking
+                </div>
+
+                <h1 className="text-3xl font-black tracking-tight md:text-5xl">
+                  {business.business_name}
+                </h1>
+
+                <p className={`mt-3 max-w-2xl text-base leading-7 ${theme.text}`}>
+                  {description}
+                </p>
               </div>
-            )}
 
-            <div
-              className="inline-flex rounded-full px-4 py-2 text-sm font-bold mb-6 text-white"
-              style={{
-                background: `linear-gradient(135deg, ${primaryColour}, ${secondaryColour})`,
-              }}
-            >
-              Online booking
+              <div className={`rounded-2xl border px-4 py-3 text-sm ${theme.innerCard}`}>
+                <p className={`font-bold ${theme.muted}`}>Book online</p>
+                <p className={theme.text}>Choose services, time and confirm.</p>
+              </div>
             </div>
-
-            <h1 className="text-5xl md:text-7xl font-black tracking-tight mb-6">
-              {business.business_name}
-            </h1>
-
-            <p className={`text-xl leading-8 max-w-3xl ${theme.text}`}>
-              {description}
-            </p>
           </div>
         </header>
 
-        <div className="grid lg:grid-cols-2 gap-8 mb-10">
-          <section
-            className={`rounded-[28px] border backdrop-blur-xl p-8 ${theme.card}`}
-          >
-            <p className={`text-sm font-bold uppercase tracking-[0.25em] mb-2 ${theme.muted}`}>
-              Step one
-            </p>
+        <BookingForm
+          businessId={business.id}
+          services={services || []}
+          teamMembers={teamMembers || []}
+          primaryColour={primaryColour}
+          secondaryColour={secondaryColour}
+          cardClassName={theme.card}
+          innerCardClassName={theme.innerCard}
+          textClassName={theme.text}
+          mutedClassName={theme.muted}
+        />
 
-            <h2 className="text-3xl font-bold mb-8">Choose a service</h2>
-
-            <div className="space-y-4">
-              {(services || []).map((service) => (
-                <div
-                  key={service.id}
-                  className={`border rounded-2xl p-5 ${theme.innerCard}`}
-                >
-                  <h3 className="text-xl font-bold">{service.name}</h3>
-
-                  {service.description && (
-                    <p className={`mt-2 leading-6 ${theme.text}`}>
-                      {service.description}
-                    </p>
-                  )}
-
-                  <div className={`flex flex-wrap gap-3 mt-4 text-sm ${theme.text}`}>
-                    <span>{service.duration_minutes} mins</span>
-                    <span>£{service.price}</span>
-                  </div>
-                </div>
-              ))}
-            </div>
-          </section>
-
-          <section
-            className={`rounded-[28px] border backdrop-blur-xl p-8 ${theme.card}`}
-          >
-            <p className={`text-sm font-bold uppercase tracking-[0.25em] mb-2 ${theme.muted}`}>
-              Step two
-            </p>
-
-            <h2 className="text-3xl font-bold mb-8">Choose your specialist</h2>
-
-            <div className="space-y-4">
-              {(teamMembers || []).map((member) => (
-                <div
-                  key={member.id}
-                  className={`border rounded-2xl p-5 ${theme.innerCard}`}
-                >
-                  <h3 className="text-xl font-bold">{member.full_name}</h3>
-
-                  {member.role && (
-                    <p className={`mt-1 ${theme.text}`}>{member.role}</p>
-                  )}
-                </div>
-              ))}
-            </div>
-          </section>
-        </div>
-
-        <section
-          className={`rounded-[32px] border backdrop-blur-2xl p-8 md:p-10 ${theme.card}`}
-        >
-          <p className={`text-sm font-bold uppercase tracking-[0.25em] mb-2 ${theme.muted}`}>
-            Step three
-          </p>
-
-          <h2 className="text-3xl md:text-4xl font-bold mb-3">
-            Book your appointment
-          </h2>
-
-          <p className={`mb-8 ${theme.text}`}>
-            Select your service, team member, date and time to confirm your booking.
-          </p>
-
-          <BookingForm
-  businessId={business.id}
-  services={services || []}
-  teamMembers={teamMembers || []}
-  primaryColour={primaryColour}
-  secondaryColour={secondaryColour}
-  cardClassName={theme.card}
-  innerCardClassName={theme.innerCard}
-  textClassName={theme.text}
-  mutedClassName={theme.muted}
-/>
-        </section>
-
-        <footer className={`text-center text-sm mt-10 ${theme.muted}`}>
+        <footer className={`mt-8 text-center text-sm ${theme.muted}`}>
           Powered by AMB Booking
         </footer>
       </div>
