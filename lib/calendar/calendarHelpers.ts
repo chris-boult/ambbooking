@@ -142,7 +142,7 @@ export function buildStaffColumns(teamMembers: TeamMember[], selectedDateBooking
       role: 'Needs assigning',
       colour: UNASSIGNED_COLOUR,
       bookings: grouped.unassigned.sort((a, b) => a.booking_time.localeCompare(b.booking_time)),
-      isUnassigned: true,
+      
     })
   }
 
