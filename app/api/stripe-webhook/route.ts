@@ -15,6 +15,143 @@ function generateVoucherCode() {
   return `GV-${Math.random().toString(36).substring(2, 8).toUpperCase()}`
 }
 
+function getInvoiceSubscriptionId(invoice: Stripe.Invoice) {
+  return (invoice as any).subscription as string | null
+}
+
+function getInvoiceAmountPaid(invoice: Stripe.Invoice) {
+  return Number(invoice.amount_paid || invoice.amount_due || 0) / 100
+}
+
+function getCurrentMonth() {
+  return new Date().toISOString().slice(0, 7) + '-01'
+}
+
+async function createPartnerCommissionForBusiness({
+  businessId,
+  source,
+  amountOverride,
+}: {
+  businessId: string
+  source: string
+  amountOverride?: number
+}) {
+  const { data: business, error: businessError } = await supabase
+    .from('businesses')
+    .select('id, business_name, partner_id, acquisition_reference, monthly_amount, plan, subscription_status')
+    .eq('id', businessId)
+    .maybeSingle()
+
+  if (businessError) throw businessError
+  if (!business?.partner_id) return
+
+  const { data: partner, error: partnerError } = await supabase
+    .from('partners')
+    .select('id, commission_type, commission_value, fixed_bounty, lifetime_commission, status')
+    .eq('id', business.partner_id)
+    .maybeSingle()
+
+  if (partnerError) throw partnerError
+  if (!partner || partner.status === 'suspended') return
+
+  const commissionMonth = getCurrentMonth()
+
+  const { data: existingCommission, error: existingCommissionError } = await supabase
+    .from('partner_commissions')
+    .select('id')
+    .eq('business_id', business.id)
+    .eq('partner_id', partner.id)
+    .eq('commission_month', commissionMonth)
+    .maybeSingle()
+
+  if (existingCommissionError) throw existingCommissionError
+  if (existingCommission) return
+
+  const { data: referral } = await supabase
+    .from('partner_referrals')
+    .select('id')
+    .eq('business_id', business.id)
+    .eq('partner_id', partner.id)
+    .maybeSingle()
+
+  const baseAmount = Number(amountOverride || business.monthly_amount || 0)
+
+  if (baseAmount <= 0 && Number(partner.fixed_bounty || 0) <= 0) {
+    return
+  }
+
+  let commissionAmount = 0
+
+  if (partner.commission_type === 'fixed') {
+    commissionAmount = Number(partner.fixed_bounty || 0)
+  } else if (partner.commission_type === 'hybrid') {
+    commissionAmount = Number(partner.fixed_bounty || 0) + (baseAmount * Number(partner.commission_value || 0)) / 100
+  } else {
+    commissionAmount = (baseAmount * Number(partner.commission_value || 0)) / 100
+  }
+
+  if (commissionAmount <= 0) return
+
+  const { error: commissionError } = await supabase.from('partner_commissions').insert({
+    partner_id: partner.id,
+    referral_id: referral?.id || null,
+    business_id: business.id,
+    commission_type: partner.commission_type || 'percentage',
+    commission_month: commissionMonth,
+    amount: Number(commissionAmount.toFixed(2)),
+    status: 'pending',
+    notes: `Auto-generated from ${source} for ${business.business_name || business.id}.`,
+  })
+
+  if (commissionError) throw commissionError
+}
+
+async function ensurePartnerReferralForBusiness(businessId: string) {
+  const { data: business, error: businessError } = await supabase
+    .from('businesses')
+    .select('id, partner_id, acquisition_reference, monthly_amount, status')
+    .eq('id', businessId)
+    .maybeSingle()
+
+  if (businessError) throw businessError
+  if (!business?.partner_id) return
+
+  const { data: existingReferral, error: existingReferralError } = await supabase
+    .from('partner_referrals')
+    .select('id')
+    .eq('business_id', business.id)
+    .maybeSingle()
+
+  if (existingReferralError) throw existingReferralError
+  if (existingReferral) return
+
+  const { error: referralError } = await supabase.from('partner_referrals').insert({
+    partner_id: business.partner_id,
+    business_id: business.id,
+    referral_code: business.acquisition_reference || null,
+    referral_source: 'signup',
+    referral_url: business.acquisition_reference ? `/signup?ref=${business.acquisition_reference}` : null,
+    subscription_value: Number(business.monthly_amount || 0),
+    monthly_recurring_revenue: Number(business.monthly_amount || 0),
+    status: business.status || 'active',
+  })
+
+  if (referralError) throw referralError
+}
+
+async function syncReferralMrrForBusiness(businessId: string, mrr: number) {
+  const { error } = await supabase
+    .from('partner_referrals')
+    .update({
+      subscription_value: mrr,
+      monthly_recurring_revenue: mrr,
+      status: 'active',
+    })
+    .eq('business_id', businessId)
+
+  if (error) throw error
+}
+
 async function sendGiftVoucherEmail({
   to,
   recipientName,
@@ -140,6 +277,7 @@ export async function POST(req: Request) {
       const bookingId = session.metadata?.booking_id
       const businessId = session.metadata?.business_id
       const plan = session.metadata?.plan
+      const monthlyAmount = Number(session.metadata?.monthly_amount || session.metadata?.amount || 0)
 
       if (type === 'gift_voucher') {
         const businessSlug = session.metadata?.businessSlug || ''
@@ -297,23 +435,35 @@ export async function POST(req: Request) {
       }
 
       if (businessId && plan) {
+        const updateData: Record<string, any> = {
+          plan,
+          subscription_status: 'trial',
+          stripe_customer_id:
+            typeof session.customer === 'string'
+              ? session.customer
+              : null,
+          stripe_subscription_id:
+            typeof session.subscription === 'string'
+              ? session.subscription
+              : null,
+        }
+
+        if (monthlyAmount > 0) {
+          updateData.monthly_amount = monthlyAmount
+        }
+
         const { error } = await supabase
           .from('businesses')
-          .update({
-            plan,
-            subscription_status: 'trial',
-            stripe_customer_id:
-              typeof session.customer === 'string'
-                ? session.customer
-                : null,
-            stripe_subscription_id:
-              typeof session.subscription === 'string'
-                ? session.subscription
-                : null,
-          })
+          .update(updateData)
           .eq('id', businessId)
 
         if (error) throw error
+
+        await ensurePartnerReferralForBusiness(businessId)
+
+        if (monthlyAmount > 0) {
+          await syncReferralMrrForBusiness(businessId, monthlyAmount)
+        }
       }
     }
 
@@ -359,23 +509,48 @@ export async function POST(req: Request) {
 
     if (event.type === 'invoice.payment_succeeded') {
       const invoice = event.data.object as Stripe.Invoice
-      const subscriptionId = (invoice as any).subscription as string | null
+      const subscriptionId = getInvoiceSubscriptionId(invoice)
+      const amountPaid = getInvoiceAmountPaid(invoice)
 
       if (subscriptionId) {
+        const { data: business, error: businessLookupError } = await supabase
+          .from('businesses')
+          .select('id, monthly_amount')
+          .eq('stripe_subscription_id', subscriptionId)
+          .maybeSingle()
+
+        if (businessLookupError) throw businessLookupError
+
+        const updateData: Record<string, any> = {
+          subscription_status: 'active',
+        }
+
+        if (amountPaid > 0) {
+          updateData.monthly_amount = amountPaid
+        }
+
         const { error } = await supabase
           .from('businesses')
-          .update({
-            subscription_status: 'active',
-          })
+          .update(updateData)
           .eq('stripe_subscription_id', subscriptionId)
 
         if (error) throw error
+
+        if (business?.id) {
+          await ensurePartnerReferralForBusiness(business.id)
+          await syncReferralMrrForBusiness(business.id, amountPaid || Number(business.monthly_amount || 0))
+          await createPartnerCommissionForBusiness({
+            businessId: business.id,
+            source: `invoice.payment_succeeded:${invoice.id}`,
+            amountOverride: amountPaid || Number(business.monthly_amount || 0),
+          })
+        }
       }
     }
 
     if (event.type === 'invoice.payment_failed') {
       const invoice = event.data.object as Stripe.Invoice
-      const subscriptionId = (invoice as any).subscription as string | null
+      const subscriptionId = getInvoiceSubscriptionId(invoice)
 
       if (subscriptionId) {
         const { error } = await supabase
