@@ -93,3 +93,10 @@ export type StaffUtilisation = {
   utilisationPercent: number
   revenue: number
 }
+
+export type BookingLayoutItem = {
+  booking: Booking
+  lane: number
+  totalLanes: number
+  hasCollision: boolean
+}

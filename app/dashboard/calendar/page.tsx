@@ -5,6 +5,7 @@ import { supabase } from '@/lib/supabase'
 import { CalendarStats } from '@/components/calendar/CalendarStats'
 import { TimelineDayView } from '@/components/calendar/TimelineDayView'
 import type { Booking, TeamMember, ViewMode } from '@/lib/calendar/calendarTypes'
+import { canMoveBooking } from '@/lib/calendar/calendarScheduling'
 import {
   bookingDuration,
   bookingPrice,
@@ -18,6 +19,7 @@ import {
   startOfWeek,
   statusClass,
   statusLabel,
+  TimelineZoom,
   toDateValue,
 } from '@/lib/calendar/calendarHelpers'
 import { calculateDayUtilisation } from '@/lib/calendar/utilisation'
@@ -32,6 +34,7 @@ export default function CalendarPage() {
     return new Date(now.getFullYear(), now.getMonth(), 1)
   })
   const [viewMode, setViewMode] = useState<ViewMode>('day')
+  const [timelineZoom, setTimelineZoom] = useState<TimelineZoom>('normal')
   const [selectedStaffId, setSelectedStaffId] = useState('all')
   const [selectedBooking, setSelectedBooking] = useState<Booking | null>(null)
   const [message, setMessage] = useState('')
@@ -109,10 +112,7 @@ export default function CalendarPage() {
   async function updateBookingStatus(bookingId: string, status: string) {
     setMessage('')
 
-    const { error } = await supabase
-      .from('bookings')
-      .update({ status })
-      .eq('id', bookingId)
+    const { error } = await supabase.from('bookings').update({ status }).eq('id', bookingId)
 
     if (error) {
       setMessage(error.message)
@@ -137,6 +137,19 @@ export default function CalendarPage() {
   async function rescheduleBooking(bookingId: string, date: string, time: string) {
     setMessage('')
 
+    const validation = canMoveBooking({
+      bookingId,
+      bookingDate: date,
+      bookingTime: time,
+      teamMemberId: selectedBooking?.team_member_id || null,
+      bookings,
+    })
+
+    if (!validation.valid) {
+      setMessage(validation.reason)
+      return
+    }
+
     const { error } = await supabase
       .from('bookings')
       .update({ booking_date: date, booking_time: time })
@@ -160,28 +173,23 @@ export default function CalendarPage() {
     setMessage('Booking rescheduled.')
   }
 
-
-  async function moveBooking(
-    bookingId: string,
-    bookingDate: string,
-    bookingTime: string,
-    teamMemberId: string | null
-  ) {
+  async function moveBooking(bookingId: string, bookingDate: string, bookingTime: string, teamMemberId: string | null) {
     setMessage('')
 
-    const { error } = await supabase
-      .from('bookings')
-      .update({
-        booking_date: bookingDate,
-        booking_time: bookingTime,
-        team_member_id: teamMemberId,
-      })
-      .eq('id', bookingId)
+    const validation = canMoveBooking({
+      bookingId,
+      bookingDate,
+      bookingTime,
+      teamMemberId,
+      bookings,
+    })
 
-    if (error) {
-      setMessage(error.message)
+    if (!validation.valid) {
+      setMessage(validation.reason)
       return
     }
+
+    const previousBookings = bookings
 
     setBookings((current) =>
       current.map((booking) =>
@@ -207,6 +215,21 @@ export default function CalendarPage() {
         : current
     )
 
+    const { error } = await supabase
+      .from('bookings')
+      .update({
+        booking_date: bookingDate,
+        booking_time: bookingTime,
+        team_member_id: teamMemberId,
+      })
+      .eq('id', bookingId)
+
+    if (error) {
+      setBookings(previousBookings)
+      setMessage(error.message)
+      return
+    }
+
     setMessage('Booking moved.')
   }
 
@@ -222,6 +245,7 @@ export default function CalendarPage() {
 
   const upcomingBookings = useMemo(() => {
     const today = toDateValue(new Date())
+
     return filteredBookings
       .filter((booking) => booking.booking_date >= today)
       .sort((a, b) => `${a.booking_date} ${a.booking_time}`.localeCompare(`${b.booking_date} ${b.booking_time}`))
@@ -283,10 +307,10 @@ export default function CalendarPage() {
     <div className="space-y-8 text-white">
       <div className="flex flex-col gap-5 lg:flex-row lg:items-end lg:justify-between">
         <div>
-          <p className="mb-2 text-sm font-bold uppercase tracking-[0.25em] text-cyan-300">Staff calendar V3.2</p>
+          <p className="mb-2 text-sm font-bold uppercase tracking-[0.25em] text-cyan-300">Staff calendar V3.4</p>
           <h1 className="text-4xl font-black">Your schedule</h1>
           <p className="mt-3 max-w-2xl text-slate-400">
-            Timeline calendar with staff columns, utilisation, revenue, duration blocks and drag-and-drop scheduling.
+            Smart staff timeline with drag-and-drop, collision stacking, current-time indicator, timeline zoom and conflict prevention.
           </p>
         </div>
 
@@ -333,7 +357,9 @@ export default function CalendarPage() {
                 >
                   <option value="all">All staff</option>
                   {teamMembers.map((member) => (
-                    <option key={member.id} value={member.id}>{member.full_name}</option>
+                    <option key={member.id} value={member.id}>
+                      {member.full_name}
+                    </option>
                   ))}
                 </select>
               </div>
@@ -350,34 +376,42 @@ export default function CalendarPage() {
                 >
                   Today
                 </button>
-                <button type="button" onClick={loadCalendar} className="rounded-2xl bg-cyan-400 px-5 py-3 font-black text-slate-950 hover:bg-cyan-300">
+
+                <button
+                  type="button"
+                  onClick={loadCalendar}
+                  className="rounded-2xl bg-cyan-400 px-5 py-3 font-black text-slate-950 hover:bg-cyan-300"
+                >
                   Refresh
                 </button>
               </div>
             </div>
           </section>
 
-  {viewMode === 'day' && (
-  <TimelineDayView
-    selectedDate={selectedDate}
-    setSelectedDate={setSelectedDate}
-    formattedSelectedDate={formatDate(selectedDate)}
-    selectedDateBookings={selectedDateBookings}
-    staffColumns={staffColumns}
-    setSelectedBooking={setSelectedBooking}
-    onMoveBooking={moveBooking}
-  />
-)}
+          {viewMode === 'day' && (
+            <TimelineDayView
+              selectedDate={selectedDate}
+              setSelectedDate={setSelectedDate}
+              formattedSelectedDate={formatDate(selectedDate)}
+              selectedDateBookings={selectedDateBookings}
+              staffColumns={staffColumns}
+              timelineZoom={timelineZoom}
+              setTimelineZoom={setTimelineZoom}
+              setSelectedBooking={setSelectedBooking}
+              onMoveBooking={moveBooking}
+            />
+          )}
 
-  {viewMode === 'week' && (
-  <WeekView
-    weekDays={weekDays}
-    selectedDate={selectedDate}
-    setSelectedDate={setSelectedDate}
-    setViewMode={setViewMode}
-    setSelectedBooking={setSelectedBooking}
-  />
-)}
+          {viewMode === 'week' && (
+            <WeekView
+              weekDays={weekDays}
+              selectedDate={selectedDate}
+              setSelectedDate={setSelectedDate}
+              setViewMode={setViewMode}
+              setSelectedBooking={setSelectedBooking}
+            />
+          )}
+
           {viewMode === 'month' && (
             <MonthView
               calendarMonth={calendarMonth}
@@ -440,23 +474,44 @@ function WeekView({
       <div className="grid gap-4 lg:grid-cols-7">
         {weekDays.map((day) => {
           const selected = selectedDate === day.value
+
           return (
-            <div key={day.value} className={`rounded-2xl border p-4 ${selected ? 'border-cyan-300/40 bg-cyan-300/10' : 'border-white/10 bg-black/20'}`}>
-              <button type="button" onClick={() => { setSelectedDate(day.value); setViewMode('day') }} className="mb-4 w-full text-left">
+            <div
+              key={day.value}
+              className={`rounded-2xl border p-4 ${
+                selected ? 'border-cyan-300/40 bg-cyan-300/10' : 'border-white/10 bg-black/20'
+              }`}
+            >
+              <button
+                type="button"
+                onClick={() => {
+                  setSelectedDate(day.value)
+                  setViewMode('day')
+                }}
+                className="mb-4 w-full text-left"
+              >
                 <p className="text-sm font-bold uppercase tracking-[0.2em] text-slate-500">{day.label}</p>
                 <p className="text-3xl font-black">{day.day}</p>
                 <p className="text-sm text-slate-400">{day.month}</p>
-                <p className="mt-3 text-sm font-bold text-cyan-300">{day.bookings.length} booking{day.bookings.length === 1 ? '' : 's'}</p>
+                <p className="mt-3 text-sm font-bold text-cyan-300">
+                  {day.bookings.length} booking{day.bookings.length === 1 ? '' : 's'}
+                </p>
                 <p className="text-sm text-slate-400">{money(day.revenue)}</p>
               </button>
 
               <div className="space-y-2">
                 {day.bookings.slice(0, 4).map((booking) => (
-                  <button key={booking.id} type="button" onClick={() => setSelectedBooking(booking)} className="w-full rounded-xl border border-white/10 bg-white/[0.03] p-3 text-left hover:bg-white/10">
+                  <button
+                    key={booking.id}
+                    type="button"
+                    onClick={() => setSelectedBooking(booking)}
+                    className="w-full rounded-xl border border-white/10 bg-white/[0.03] p-3 text-left hover:bg-white/10"
+                  >
                     <p className="text-sm font-black">{booking.booking_time.slice(0, 5)}</p>
                     <p className="truncate text-sm text-slate-400">{customerName(booking)}</p>
                   </button>
                 ))}
+
                 {day.bookings.length > 4 && <p className="text-xs text-slate-500">+{day.bookings.length - 4} more</p>}
               </div>
             </div>
@@ -485,28 +540,65 @@ function MonthView({
   return (
     <section className="rounded-3xl border border-white/10 bg-white/[0.04] p-5 md:p-6">
       <div className="mb-6 flex items-center justify-between gap-4">
-        <button type="button" onClick={() => setCalendarMonth(new Date(calendarMonth.getFullYear(), calendarMonth.getMonth() - 1, 1))} className="rounded-2xl border border-white/10 px-4 py-3 font-black hover:bg-white/10">←</button>
-        <h2 className="text-center text-2xl font-black">{calendarMonth.toLocaleDateString('en-GB', { month: 'long', year: 'numeric' })}</h2>
-        <button type="button" onClick={() => setCalendarMonth(new Date(calendarMonth.getFullYear(), calendarMonth.getMonth() + 1, 1))} className="rounded-2xl border border-white/10 px-4 py-3 font-black hover:bg-white/10">→</button>
+        <button
+          type="button"
+          onClick={() => setCalendarMonth(new Date(calendarMonth.getFullYear(), calendarMonth.getMonth() - 1, 1))}
+          className="rounded-2xl border border-white/10 px-4 py-3 font-black hover:bg-white/10"
+        >
+          ←
+        </button>
+
+        <h2 className="text-center text-2xl font-black">
+          {calendarMonth.toLocaleDateString('en-GB', { month: 'long', year: 'numeric' })}
+        </h2>
+
+        <button
+          type="button"
+          onClick={() => setCalendarMonth(new Date(calendarMonth.getFullYear(), calendarMonth.getMonth() + 1, 1))}
+          className="rounded-2xl border border-white/10 px-4 py-3 font-black hover:bg-white/10"
+        >
+          →
+        </button>
       </div>
 
       <div className="mb-2 grid grid-cols-7 gap-2 text-center text-xs font-black uppercase text-slate-500">
-        {['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'].map((day) => <div key={day}>{day}</div>)}
+        {['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'].map((day) => (
+          <div key={day}>{day}</div>
+        ))}
       </div>
 
       <div className="grid grid-cols-7 gap-2">
         {monthDays.map((day, index) => {
           if (!day) return <div key={index} />
+
           const selected = selectedDate === day.value
+
           return (
-            <button key={day.value} type="button" onClick={() => { setSelectedDate(day.value); setViewMode('day') }} className={`min-h-28 rounded-2xl border p-3 text-left transition ${selected ? 'border-cyan-300/40 bg-cyan-300/10' : 'border-white/10 bg-black/20 hover:bg-white/10'}`}>
+            <button
+              key={day.value}
+              type="button"
+              onClick={() => {
+                setSelectedDate(day.value)
+                setViewMode('day')
+              }}
+              className={`min-h-28 rounded-2xl border p-3 text-left transition ${
+                selected ? 'border-cyan-300/40 bg-cyan-300/10' : 'border-white/10 bg-black/20 hover:bg-white/10'
+              }`}
+            >
               <div className="flex items-center justify-between">
                 <span className="font-black">{day.day}</span>
-                {day.isToday && <span className="rounded-full bg-cyan-300 px-2 py-0.5 text-[10px] font-black text-slate-950">Today</span>}
+                {day.isToday && (
+                  <span className="rounded-full bg-cyan-300 px-2 py-0.5 text-[10px] font-black text-slate-950">
+                    Today
+                  </span>
+                )}
               </div>
+
               {day.bookings.length > 0 && (
                 <div className="mt-3 space-y-1">
-                  <p className="text-xs font-bold text-cyan-300">{day.bookings.length} booking{day.bookings.length === 1 ? '' : 's'}</p>
+                  <p className="text-xs font-bold text-cyan-300">
+                    {day.bookings.length} booking{day.bookings.length === 1 ? '' : 's'}
+                  </p>
                   <p className="text-xs text-slate-400">{money(day.revenue)}</p>
                 </div>
               )}
@@ -540,43 +632,89 @@ function BookingDrawer({
   return (
     <div className="fixed inset-0 z-50 flex justify-end bg-black/70">
       <button type="button" aria-label="Close booking drawer" className="absolute inset-0 cursor-default" onClick={onClose} />
+
       <aside className="relative z-10 h-full w-full max-w-xl overflow-y-auto border-l border-white/10 bg-slate-950 p-6 shadow-2xl">
         <div className="mb-8 flex items-start justify-between gap-4">
           <div>
             <p className="mb-2 text-sm font-bold uppercase tracking-[0.25em] text-cyan-300">Booking details</p>
             <h2 className="text-3xl font-black">{customerName(booking)}</h2>
-            <p className="mt-2 text-slate-400">{serviceName(booking)} with {staffName(booking)}</p>
+            <p className="mt-2 text-slate-400">
+              {serviceName(booking)} with {staffName(booking)}
+            </p>
           </div>
-          <button type="button" onClick={onClose} className="rounded-2xl border border-white/10 px-4 py-2 font-black hover:bg-white/10">×</button>
+
+          <button type="button" onClick={onClose} className="rounded-2xl border border-white/10 px-4 py-2 font-black hover:bg-white/10">
+            ×
+          </button>
         </div>
 
         <div className="space-y-4">
           <div className="rounded-2xl border border-white/10 bg-white/[0.04] p-5">
             <p className="mb-2 text-sm font-bold uppercase tracking-[0.2em] text-slate-500">Appointment</p>
-            <p className="text-xl font-black">{formatDate(booking.booking_date)} at {booking.booking_time.slice(0, 5)}</p>
+            <p className="text-xl font-black">
+              {formatDate(booking.booking_date)} at {booking.booking_time.slice(0, 5)}
+            </p>
+
             <div className="mt-4 flex flex-wrap gap-3">
-              <span className={`rounded-full border px-3 py-1 text-sm font-bold capitalize ${statusClass(booking.status)}`}>{statusLabel(booking.status)}</span>
-              <span className="rounded-full bg-white/10 px-3 py-1 text-sm font-bold text-slate-300">{bookingDuration(booking)} mins</span>
-              <span className="rounded-full bg-white/10 px-3 py-1 text-sm font-bold text-slate-300">{money(bookingPrice(booking))}</span>
+              <span className={`rounded-full border px-3 py-1 text-sm font-bold capitalize ${statusClass(booking.status)}`}>
+                {statusLabel(booking.status)}
+              </span>
+              <span className="rounded-full bg-white/10 px-3 py-1 text-sm font-bold text-slate-300">
+                {bookingDuration(booking)} mins
+              </span>
+              <span className="rounded-full bg-white/10 px-3 py-1 text-sm font-bold text-slate-300">
+                {money(bookingPrice(booking))}
+              </span>
             </div>
           </div>
 
           <div className="rounded-2xl border border-white/10 bg-white/[0.04] p-5">
             <p className="mb-4 text-sm font-bold uppercase tracking-[0.2em] text-slate-500">Quick reschedule</p>
+
             <div className="grid gap-3 md:grid-cols-2">
-              <input type="date" value={newDate} onChange={(event) => setNewDate(event.target.value)} className="rounded-2xl border border-white/10 bg-slate-950 px-4 py-3 text-white outline-none" />
-              <input type="time" value={newTime} onChange={(event) => setNewTime(event.target.value)} className="rounded-2xl border border-white/10 bg-slate-950 px-4 py-3 text-white outline-none" />
+              <input
+                type="date"
+                value={newDate}
+                onChange={(event) => setNewDate(event.target.value)}
+                className="rounded-2xl border border-white/10 bg-slate-950 px-4 py-3 text-white outline-none"
+              />
+
+              <input
+                type="time"
+                value={newTime}
+                onChange={(event) => setNewTime(event.target.value)}
+                className="rounded-2xl border border-white/10 bg-slate-950 px-4 py-3 text-white outline-none"
+              />
             </div>
-            <button type="button" onClick={() => onReschedule(booking.id, newDate, newTime)} className="mt-4 w-full rounded-2xl bg-cyan-400 px-5 py-4 font-black text-slate-950 hover:bg-cyan-300">Save new time</button>
+
+            <button
+              type="button"
+              onClick={() => onReschedule(booking.id, newDate, newTime)}
+              className="mt-4 w-full rounded-2xl bg-cyan-400 px-5 py-4 font-black text-slate-950 hover:bg-cyan-300"
+            >
+              Save new time
+            </button>
           </div>
 
           <div className="rounded-2xl border border-white/10 bg-white/[0.04] p-5">
             <p className="mb-4 text-sm font-bold uppercase tracking-[0.2em] text-slate-500">Status</p>
+
             <div className="grid gap-3 md:grid-cols-2">
-              <button type="button" onClick={() => onStatusChange(booking.id, 'completed')} className="rounded-2xl border border-blue-500/20 bg-blue-500/10 px-4 py-3 font-black text-blue-300">Completed</button>
-              <button type="button" onClick={() => onStatusChange(booking.id, 'no_show')} className="rounded-2xl border border-amber-500/20 bg-amber-500/10 px-4 py-3 font-black text-amber-300">No-show</button>
-              <button type="button" onClick={() => onStatusChange(booking.id, 'confirmed')} className="rounded-2xl border border-emerald-500/20 bg-emerald-500/10 px-4 py-3 font-black text-emerald-300">Confirmed</button>
-              <button type="button" onClick={() => onStatusChange(booking.id, 'cancelled')} className="rounded-2xl border border-red-500/20 bg-red-500/10 px-4 py-3 font-black text-red-300">Cancel booking</button>
+              <button type="button" onClick={() => onStatusChange(booking.id, 'completed')} className="rounded-2xl border border-blue-500/20 bg-blue-500/10 px-4 py-3 font-black text-blue-300">
+                Completed
+              </button>
+
+              <button type="button" onClick={() => onStatusChange(booking.id, 'no_show')} className="rounded-2xl border border-amber-500/20 bg-amber-500/10 px-4 py-3 font-black text-amber-300">
+                No-show
+              </button>
+
+              <button type="button" onClick={() => onStatusChange(booking.id, 'confirmed')} className="rounded-2xl border border-emerald-500/20 bg-emerald-500/10 px-4 py-3 font-black text-emerald-300">
+                Confirmed
+              </button>
+
+              <button type="button" onClick={() => onStatusChange(booking.id, 'cancelled')} className="rounded-2xl border border-red-500/20 bg-red-500/10 px-4 py-3 font-black text-red-300">
+                Cancel booking
+              </button>
             </div>
           </div>
         </div>
@@ -587,18 +725,30 @@ function BookingDrawer({
 
 function BookingRow({ booking, onClick }: { booking: Booking; onClick: () => void }) {
   return (
-    <button type="button" onClick={onClick} className="grid w-full gap-4 rounded-2xl border border-white/10 bg-black/20 p-4 text-left hover:bg-white/10 md:grid-cols-[120px_1fr_auto]">
+    <button
+      type="button"
+      onClick={onClick}
+      className="grid w-full gap-4 rounded-2xl border border-white/10 bg-black/20 p-4 text-left hover:bg-white/10 md:grid-cols-[120px_1fr_auto]"
+    >
       <div>
         <p className="font-black text-cyan-300">{booking.booking_time.slice(0, 5)}</p>
-        <p className="text-sm text-slate-500">{formatDate(booking.booking_date, { weekday: 'short', day: 'numeric', month: 'short', year: undefined })}</p>
+        <p className="text-sm text-slate-500">
+          {formatDate(booking.booking_date, { weekday: 'short', day: 'numeric', month: 'short', year: undefined })}
+        </p>
       </div>
+
       <div>
         <p className="font-black">{customerName(booking)}</p>
-        <p className="text-sm text-slate-400">{serviceName(booking)} with {staffName(booking)}</p>
+        <p className="text-sm text-slate-400">
+          {serviceName(booking)} with {staffName(booking)}
+        </p>
       </div>
+
       <div className="text-left md:text-right">
         <p className="font-black">{money(bookingPrice(booking))}</p>
-        <span className={`mt-2 inline-flex rounded-full border px-3 py-1 text-xs font-bold capitalize ${statusClass(booking.status)}`}>{statusLabel(booking.status)}</span>
+        <span className={`mt-2 inline-flex rounded-full border px-3 py-1 text-xs font-bold capitalize ${statusClass(booking.status)}`}>
+          {statusLabel(booking.status)}
+        </span>
       </div>
     </button>
   )

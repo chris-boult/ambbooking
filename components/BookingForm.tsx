@@ -9,6 +9,8 @@ type Service = {
   description?: string | null
   price: number
   duration_minutes: number
+  buffer_before_minutes?: number | null
+  buffer_after_minutes?: number | null
   category?: string | null
   service_type?: string | null
   is_add_on?: boolean | null
@@ -96,6 +98,18 @@ function startOfToday() {
   const today = new Date()
   today.setHours(0, 0, 0, 0)
   return today
+}
+
+function serviceBufferBefore(service: Service) {
+  return Number(service.buffer_before_minutes || 0)
+}
+
+function serviceBufferAfter(service: Service) {
+  return Number(service.buffer_after_minutes || 0)
+}
+
+function serviceBlockedDuration(service: Service) {
+  return Number(service.duration_minutes || 0) + serviceBufferBefore(service) + serviceBufferAfter(service)
 }
 
 export default function BookingForm({
@@ -187,6 +201,10 @@ export default function BookingForm({
 
   const totalPrice = selectedServiceDetails.reduce((sum, service) => sum + Number(service.price || 0), 0)
   const totalDuration = selectedServiceDetails.reduce((sum, service) => sum + Number(service.duration_minutes || 0), 0)
+  const totalBufferBefore = selectedServiceDetails.reduce((sum, service) => sum + serviceBufferBefore(service), 0)
+  const totalBufferAfter = selectedServiceDetails.reduce((sum, service) => sum + serviceBufferAfter(service), 0)
+  const totalBlockedDuration = selectedServiceDetails.reduce((sum, service) => sum + serviceBlockedDuration(service), 0)
+
   const voucherDiscount = appliedVoucher?.discountAmount || 0
   const amountDueAfterVoucher = Math.max(totalPrice - voucherDiscount, 0)
 
@@ -215,7 +233,6 @@ export default function BookingForm({
     return teamMembers.filter((member) => member.full_name.toLowerCase().includes(q))
   }, [teamMembers, staffSearch])
 
-
   const monthBaseDays = useMemo(() => {
     const year = calendarMonth.getFullYear()
     const month = calendarMonth.getMonth()
@@ -225,9 +242,7 @@ export default function BookingForm({
     const today = startOfToday()
     const days: Array<null | { date: Date; value: string; day: number; isPast: boolean; isToday: boolean }> = []
 
-    for (let i = 0; i < startOffset; i++) {
-      days.push(null)
-    }
+    for (let i = 0; i < startOffset; i++) days.push(null)
 
     for (let day = 1; day <= lastDay.getDate(); day++) {
       const date = new Date(year, month, day)
@@ -255,13 +270,13 @@ export default function BookingForm({
   }, [])
 
   function getAvailableSlotsForDate(dateValue: string) {
-    if (totalDuration <= 0) return []
+    if (totalBlockedDuration <= 0) return []
 
     const dateBookedTimes = bookedTimesByDate[dateValue] || []
 
     return timeSlots.filter((slot) => {
       const candidateStart = timeToMinutes(slot)
-      const candidateEnd = candidateStart + totalDuration
+      const candidateEnd = candidateStart + totalBlockedDuration
       const businessClose = 17 * 60
 
       if (candidateEnd > businessClose) return false
@@ -274,11 +289,10 @@ export default function BookingForm({
     })
   }
 
-
   const availableTimeSlots = useMemo(() => {
     if (!selectedDate) return []
     return getAvailableSlotsForDate(selectedDate)
-  }, [selectedDate, bookedTimesByDate, totalDuration, timeSlots])
+  }, [selectedDate, bookedTimesByDate, totalBlockedDuration, timeSlots])
 
   const morningSlots = availableTimeSlots.filter((slot) => timeToMinutes(slot) < 12 * 60)
   const afternoonSlots = availableTimeSlots.filter(
@@ -294,11 +308,8 @@ export default function BookingForm({
 
       let availability: 'none' | 'limited' | 'good' = 'none'
 
-      if (slotCount >= 5) {
-        availability = 'good'
-      } else if (slotCount > 0) {
-        availability = 'limited'
-      }
+      if (slotCount >= 5) availability = 'good'
+      else if (slotCount > 0) availability = 'limited'
 
       return {
         ...day,
@@ -306,7 +317,7 @@ export default function BookingForm({
         availability,
       }
     })
-  }, [monthBaseDays, bookedTimesByDate, totalDuration, timeSlots])
+  }, [monthBaseDays, bookedTimesByDate, totalBlockedDuration, timeSlots])
 
   const nextAvailable = useMemo(() => {
     const today = startOfToday()
@@ -326,7 +337,7 @@ export default function BookingForm({
     }
 
     return null
-  }, [bookedTimesByDate, totalDuration, timeSlots])
+  }, [bookedTimesByDate, totalBlockedDuration, timeSlots])
 
   const formattedDate = formatDisplayDate(selectedDate)
   const selectedStaffName =
@@ -405,9 +416,7 @@ export default function BookingForm({
   function toggleAddOn(serviceId: string) {
     setSelectedTime('')
     setSelectedAddOnIds((current) =>
-      current.includes(serviceId)
-        ? current.filter((id) => id !== serviceId)
-        : [...current, serviceId]
+      current.includes(serviceId) ? current.filter((id) => id !== serviceId) : [...current, serviceId]
     )
   }
 
@@ -564,7 +573,7 @@ export default function BookingForm({
         booking_time: selectedTime,
         status: 'confirmed',
         total_price: totalPrice,
-        total_duration_minutes: totalDuration,
+        total_duration_minutes: totalBlockedDuration,
       })
       .select('id')
       .single()
@@ -583,9 +592,7 @@ export default function BookingForm({
       duration_minutes: service.duration_minutes,
     }))
 
-    const { error: bookingServicesError } = await supabase
-      .from('booking_services')
-      .insert(bookingServicesRows)
+    const { error: bookingServicesError } = await supabase.from('booking_services').insert(bookingServicesRows)
 
     if (bookingServicesError) {
       setMessage(bookingServicesError.message)
@@ -642,13 +649,18 @@ export default function BookingForm({
   if (success) {
     return (
       <div className={`rounded-[28px] border p-8 backdrop-blur-2xl ${cardClassName}`}>
-        <div className="mb-6 inline-flex h-14 w-14 items-center justify-center rounded-2xl text-2xl text-white" style={primaryButtonStyle}>✓</div>
+        <div className="mb-6 inline-flex h-14 w-14 items-center justify-center rounded-2xl text-2xl text-white" style={primaryButtonStyle}>
+          ✓
+        </div>
         <h2 className="mb-4 text-3xl font-black">Booking confirmed</h2>
         <p className={`${textClassName} mb-4`}>Your appointment has been booked successfully.</p>
         <BookingSummary
           services={selectedServiceDetails}
           totalPrice={totalPrice}
           totalDuration={totalDuration}
+          totalBlockedDuration={totalBlockedDuration}
+          totalBufferBefore={totalBufferBefore}
+          totalBufferAfter={totalBufferAfter}
           date={formattedDate}
           time={selectedTime}
           staff={selectedStaffName}
@@ -664,9 +676,7 @@ export default function BookingForm({
     <div className={`rounded-[28px] border p-5 backdrop-blur-2xl md:p-6 ${cardClassName}`}>
       <div className="mb-5 flex flex-col gap-4 border-b border-white/10 pb-5 md:flex-row md:items-start md:justify-between">
         <div>
-          <p className={`mb-2 text-xs font-black uppercase tracking-[0.22em] ${mutedClassName}`}>
-            Step {progress} of 5
-          </p>
+          <p className={`mb-2 text-xs font-black uppercase tracking-[0.22em] ${mutedClassName}`}>Step {progress} of 5</p>
           <h2 className="text-2xl font-black md:text-3xl">
             {step === 'service' && 'Choose a service'}
             {step === 'staff' && 'Choose your specialist'}
@@ -680,6 +690,7 @@ export default function BookingForm({
           services={selectedServiceDetails}
           totalPrice={totalPrice}
           totalDuration={totalDuration}
+          totalBlockedDuration={totalBlockedDuration}
           textClassName={textClassName}
         />
       </div>
@@ -732,7 +743,11 @@ export default function BookingForm({
             {selectedMainService && (
               <SelectedPanel
                 title={selectedMainService.name}
-                subtitle={`${selectedMainService.duration_minutes} mins • ${money(selectedMainService.price)}`}
+                subtitle={`${selectedMainService.duration_minutes} mins • ${money(selectedMainService.price)}${
+                  serviceBlockedDuration(selectedMainService) > selectedMainService.duration_minutes
+                    ? ` • blocks ${serviceBlockedDuration(selectedMainService)} mins`
+                    : ''
+                }`}
                 description={selectedMainService.description || ''}
                 innerCardClassName={innerCardClassName}
                 textClassName={textClassName}
@@ -763,7 +778,12 @@ export default function BookingForm({
                           <div className="flex items-start justify-between gap-3">
                             <div>
                               <p className="font-black">{service.name}</p>
-                              <p className={`mt-1 text-sm ${textClassName}`}>{service.duration_minutes} mins</p>
+                              <p className={`mt-1 text-sm ${textClassName}`}>
+                                {service.duration_minutes} mins
+                                {serviceBlockedDuration(service) > service.duration_minutes
+                                  ? ` • blocks ${serviceBlockedDuration(service)} mins`
+                                  : ''}
+                              </p>
                             </div>
                             <p className="font-black">{money(service.price)}</p>
                           </div>
@@ -800,8 +820,16 @@ export default function BookingForm({
                           }`}
                           style={selected ? primaryButtonStyle : undefined}
                         >
-                          <p className="font-black">{selected ? '✓ ' : '+ '}{service.name}</p>
-                          <p className="mt-1 text-sm opacity-75">+{service.duration_minutes} mins • +{money(service.price)}</p>
+                          <p className="font-black">
+                            {selected ? '✓ ' : '+ '}
+                            {service.name}
+                          </p>
+                          <p className="mt-1 text-sm opacity-75">
+                            +{service.duration_minutes} mins • +{money(service.price)}
+                            {serviceBlockedDuration(service) > service.duration_minutes
+                              ? ` • blocks ${serviceBlockedDuration(service)} mins`
+                              : ''}
+                          </p>
                         </button>
                       )
                     })}
@@ -878,15 +906,9 @@ export default function BookingForm({
           <section className="space-y-5">
             <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
               <div>
-                <p className={`${textClassName}`}>
-                  Choose a day, then pick an available time.
-                </p>
+                <p className={`${textClassName}`}>Choose a day, then pick an available time.</p>
 
-                {selectedDateSummary && (
-                  <p className="mt-2 text-lg font-black">
-                    {selectedDateSummary}
-                  </p>
-                )}
+                {selectedDateSummary && <p className="mt-2 text-lg font-black">{selectedDateSummary}</p>}
               </div>
 
               {nextAvailable && (
@@ -912,18 +934,21 @@ export default function BookingForm({
 
                 <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
                   <div>
-                    <p className="font-black">
-                      {selectedServiceDetails.map((service) => service.name).join(' + ')}
-                    </p>
+                    <p className="font-black">{selectedServiceDetails.map((service) => service.name).join(' + ')}</p>
 
                     <p className={`${textClassName} mt-1`}>
-                      {totalDuration} mins
+                      Appointment: {totalDuration} mins
+                      {totalBlockedDuration > totalDuration && ` • Calendar blocks ${totalBlockedDuration} mins`}
                     </p>
+
+                    {totalBlockedDuration > totalDuration && (
+                      <p className={`${mutedClassName} mt-1 text-sm`}>
+                        Includes {totalBufferBefore} mins before and {totalBufferAfter} mins after.
+                      </p>
+                    )}
                   </div>
 
-                  <p className="text-xl font-black">
-                    {money(totalPrice)}
-                  </p>
+                  <p className="text-xl font-black">{money(totalPrice)}</p>
                 </div>
               </div>
             )}
@@ -932,11 +957,7 @@ export default function BookingForm({
               <div className="mb-4 flex items-center justify-between gap-3">
                 <button
                   type="button"
-                  onClick={() =>
-                    setCalendarMonth(
-                      new Date(calendarMonth.getFullYear(), calendarMonth.getMonth() - 1, 1)
-                    )
-                  }
+                  onClick={() => setCalendarMonth(new Date(calendarMonth.getFullYear(), calendarMonth.getMonth() - 1, 1))}
                   className="rounded-xl border border-white/10 px-3 py-2 font-black"
                 >
                   ←
@@ -968,11 +989,7 @@ export default function BookingForm({
 
                 <button
                   type="button"
-                  onClick={() =>
-                    setCalendarMonth(
-                      new Date(calendarMonth.getFullYear(), calendarMonth.getMonth() + 1, 1)
-                    )
-                  }
+                  onClick={() => setCalendarMonth(new Date(calendarMonth.getFullYear(), calendarMonth.getMonth() + 1, 1))}
                   className="rounded-xl border border-white/10 px-3 py-2 font-black"
                 >
                   →
@@ -987,9 +1004,7 @@ export default function BookingForm({
 
               <div className="grid grid-cols-7 gap-2">
                 {monthDays.map((day, index) => {
-                  if (!day) {
-                    return <div key={index} />
-                  }
+                  if (!day) return <div key={index} />
 
                   const selected = selectedDate === day.value
                   const disabled = day.isPast || day.slotCount === 0
@@ -1018,9 +1033,7 @@ export default function BookingForm({
                             : `${day.slotCount} slot${day.slotCount === 1 ? '' : 's'} available`
                       }
                       className={`relative aspect-square rounded-xl border p-1 text-sm font-black transition disabled:cursor-not-allowed disabled:opacity-35 ${
-                        selected
-                          ? 'border-transparent text-white ring-2 ring-white/60'
-                          : `${innerCardClassName} hover:opacity-80`
+                        selected ? 'border-transparent text-white ring-2 ring-white/60' : `${innerCardClassName} hover:opacity-80`
                       }`}
                       style={selected ? primaryButtonStyle : undefined}
                     >
@@ -1034,9 +1047,7 @@ export default function BookingForm({
                         </span>
                       )}
 
-                      {day.isToday && (
-                        <span className="absolute left-1 top-1 h-1.5 w-1.5 rounded-full bg-current opacity-80" />
-                      )}
+                      {day.isToday && <span className="absolute left-1 top-1 h-1.5 w-1.5 rounded-full bg-current opacity-80" />}
                     </button>
                   )
                 })}
@@ -1131,6 +1142,9 @@ export default function BookingForm({
               services={selectedServiceDetails}
               totalPrice={totalPrice}
               totalDuration={totalDuration}
+              totalBlockedDuration={totalBlockedDuration}
+              totalBufferBefore={totalBufferBefore}
+              totalBufferAfter={totalBufferAfter}
               date={formattedDate}
               time={selectedTime}
               staff={selectedStaffName}
@@ -1184,7 +1198,6 @@ export default function BookingForm({
   )
 }
 
-
 function TimeSlotGroup({
   title,
   slots,
@@ -1219,9 +1232,7 @@ function TimeSlotGroup({
                 type="button"
                 onClick={() => setSelectedTime(slot)}
                 className={`rounded-full border px-5 py-3 font-black transition ${
-                  selected
-                    ? 'border-transparent text-white'
-                    : `${innerCardClassName} hover:opacity-80`
+                  selected ? 'border-transparent text-white' : `${innerCardClassName} hover:opacity-80`
                 }`}
                 style={selected ? primaryButtonStyle : undefined}
               >
@@ -1241,11 +1252,13 @@ function CompactSummary({
   services,
   totalPrice,
   totalDuration,
+  totalBlockedDuration,
   textClassName,
 }: {
   services: Service[]
   totalPrice: number
   totalDuration: number
+  totalBlockedDuration: number
   textClassName: string
 }) {
   if (services.length === 0) {
@@ -1255,7 +1268,10 @@ function CompactSummary({
   return (
     <div className="rounded-2xl border border-white/10 bg-black/20 px-4 py-3 text-sm">
       <p className="font-black">{services.map((service) => service.name).join(' + ')}</p>
-      <p className={`${textClassName} mt-1`}>{totalDuration} mins • {money(totalPrice)}</p>
+      <p className={`${textClassName} mt-1`}>
+        {totalDuration} mins • {money(totalPrice)}
+        {totalBlockedDuration > totalDuration ? ` • blocks ${totalBlockedDuration} mins` : ''}
+      </p>
     </div>
   )
 }
@@ -1286,6 +1302,9 @@ function BookingSummary({
   services,
   totalPrice,
   totalDuration,
+  totalBlockedDuration,
+  totalBufferBefore,
+  totalBufferAfter,
   date,
   time,
   staff,
@@ -1298,6 +1317,9 @@ function BookingSummary({
   services: Service[]
   totalPrice: number
   totalDuration: number
+  totalBlockedDuration: number
+  totalBufferBefore: number
+  totalBufferAfter: number
   date: string
   time: string
   staff: string
@@ -1314,16 +1336,35 @@ function BookingSummary({
       <div className="space-y-2">
         {services.map((service) => (
           <div key={service.id} className={`flex justify-between gap-4 ${textClassName}`}>
-            <span>{service.name}</span>
+            <span>
+              {service.name}
+              {serviceBlockedDuration(service) > service.duration_minutes && (
+                <span className={`ml-2 text-xs ${mutedClassName}`}>
+                  blocks {serviceBlockedDuration(service)} mins
+                </span>
+              )}
+            </span>
             <span>{money(service.price)}</span>
           </div>
         ))}
       </div>
 
       <div className={`mt-5 space-y-2 border-t border-white/10 pt-5 ${textClassName}`}>
-        {date && time && <p>{date} at {time}</p>}
+        {date && time && (
+          <p>
+            {date} at {time}
+          </p>
+        )}
         {staff && <p>{staff}</p>}
-        <p>Total duration: {totalDuration} mins</p>
+        <p>Total appointment duration: {totalDuration} mins</p>
+        {totalBlockedDuration > totalDuration && (
+          <p>
+            Calendar blocked time: {totalBlockedDuration} mins
+            {totalBufferBefore > 0 || totalBufferAfter > 0
+              ? ` (${totalBufferBefore} before, ${totalBufferAfter} after)`
+              : ''}
+          </p>
+        )}
         <p>Total price: {money(totalPrice)}</p>
         {voucherDiscount > 0 && <p>Gift voucher: -{money(voucherDiscount)}</p>}
         {amountDueAfterVoucher !== undefined && voucherDiscount > 0 && (
