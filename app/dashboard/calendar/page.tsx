@@ -4,13 +4,22 @@ import { useEffect, useMemo, useState } from 'react'
 import { supabase } from '@/lib/supabase'
 import { CalendarStats } from '@/components/calendar/CalendarStats'
 import { TimelineDayView } from '@/components/calendar/TimelineDayView'
-import type { Booking, TeamMember, ViewMode } from '@/lib/calendar/calendarTypes'
+import type {
+  Booking,
+  CalendarBlockType,
+  CreateCalendarBlockInput,
+  StaffAvailabilityRule,
+  TeamMember,
+  TeamTimeOff,
+  ViewMode,
+} from '@/lib/calendar/calendarTypes'
 import { canMoveBooking } from '@/lib/calendar/calendarScheduling'
 import {
   bookingDuration,
   bookingPrice,
   buildStaffColumns,
   customerName,
+  dayOfWeekMatches,
   formatDate,
   money,
   parseDate,
@@ -24,10 +33,90 @@ import {
 } from '@/lib/calendar/calendarHelpers'
 import { calculateDayUtilisation } from '@/lib/calendar/utilisation'
 
+type WaitingListEntry = {
+  id: string
+  business_id: string
+  customer_id: string | null
+  service_id: string | null
+  team_member_id: string | null
+  preferred_date: string | null
+  preferred_time_range: string | null
+  status: string | null
+  notified_at: string | null
+  notification_batch: number | null
+  expires_at: string | null
+  claimed_at: string | null
+  claimed_booking_id: string | null
+  notes: string | null
+  created_at: string | null
+  customers?: {
+    first_name: string
+    last_name: string | null
+    email?: string | null
+    phone?: string | null
+  } | {
+    first_name: string
+    last_name: string | null
+    email?: string | null
+    phone?: string | null
+  }[] | null
+  services?: {
+    name: string
+  } | {
+    name: string
+  }[] | null
+  team_members?: {
+    full_name: string
+  } | {
+    full_name: string
+  }[] | null
+}
+
+function joinOneLocal<T>(value: T | T[] | null | undefined): T | null {
+  if (!value) return null
+  if (Array.isArray(value)) return value[0] || null
+  return value
+}
+
+function waitlistCustomerName(entry: WaitingListEntry) {
+  const customer = joinOneLocal(entry.customers)
+  if (!customer) return 'Unknown customer'
+  return `${customer.first_name || ''} ${customer.last_name || ''}`.trim() || 'Unknown customer'
+}
+
+function waitlistServiceName(entry: WaitingListEntry) {
+  const service = joinOneLocal(entry.services)
+  return service?.name || 'Unknown service'
+}
+
+function waitlistStaffName(entry: WaitingListEntry) {
+  const staff = joinOneLocal(entry.team_members)
+  return staff?.full_name || 'Any staff'
+}
+
+
+function addMinutes(time: string, minutesToAdd: number) {
+  const [hours, minutes] = time.slice(0, 5).split(':').map(Number)
+  const total = (hours || 0) * 60 + (minutes || 0) + minutesToAdd
+  const nextHours = Math.floor(total / 60)
+  const nextMinutes = total % 60
+  return `${String(nextHours).padStart(2, '0')}:${String(nextMinutes).padStart(2, '0')}`
+}
+
+function dateToDayOfWeek(value: string) {
+  const [year, month, day] = value.split('-').map(Number)
+  const date = new Date(year, month - 1, day, 12, 0, 0)
+  const jsDay = date.getDay()
+  return jsDay === 0 ? 7 : jsDay
+}
+
 export default function CalendarPage() {
   const [businessId, setBusinessId] = useState('')
   const [bookings, setBookings] = useState<Booking[]>([])
   const [teamMembers, setTeamMembers] = useState<TeamMember[]>([])
+  const [availabilityRules, setAvailabilityRules] = useState<StaffAvailabilityRule[]>([])
+  const [teamTimeOff, setTeamTimeOff] = useState<TeamTimeOff[]>([])
+  const [waitingList, setWaitingList] = useState<WaitingListEntry[]>([])
   const [selectedDate, setSelectedDate] = useState(toDateValue(new Date()))
   const [calendarMonth, setCalendarMonth] = useState(() => {
     const now = new Date()
@@ -37,8 +126,10 @@ export default function CalendarPage() {
   const [timelineZoom, setTimelineZoom] = useState<TimelineZoom>('normal')
   const [selectedStaffId, setSelectedStaffId] = useState('all')
   const [selectedBooking, setSelectedBooking] = useState<Booking | null>(null)
+  const [blockDraft, setBlockDraft] = useState<CreateCalendarBlockInput | null>(null)
   const [message, setMessage] = useState('')
   const [loading, setLoading] = useState(true)
+  const [savingBlock, setSavingBlock] = useState(false)
 
   useEffect(() => {
     loadCalendar()
@@ -70,7 +161,7 @@ export default function CalendarPage() {
 
     setBusinessId(business.id)
 
-    const [bookingsResult, teamResult] = await Promise.all([
+    const [bookingsResult, teamResult, availabilityResult, timeOffResult, waitingListResult] = await Promise.all([
       supabase
         .from('bookings')
         .select(`
@@ -96,17 +187,188 @@ export default function CalendarPage() {
         .select('id, full_name, role')
         .eq('business_id', business.id)
         .order('full_name'),
+      supabase
+        .from('availability')
+        .select('*')
+        .eq('business_id', business.id),
+      supabase
+        .from('team_time_off')
+        .select('*')
+        .eq('business_id', business.id),
+      supabase
+        .from('waiting_list')
+        .select(`
+          *,
+          customers(first_name,last_name,email,phone),
+          services(name),
+          team_members(full_name)
+        `)
+        .eq('business_id', business.id)
+        .in('status', ['open', 'notified'])
+        .order('preferred_date', { ascending: true })
+        .order('created_at', { ascending: true }),
     ])
 
-    if (bookingsResult.error || teamResult.error) {
-      setMessage(bookingsResult.error?.message || teamResult.error?.message || 'Could not load calendar.')
+    if (bookingsResult.error || teamResult.error || availabilityResult.error || timeOffResult.error || waitingListResult.error) {
+      setMessage(
+        bookingsResult.error?.message ||
+          teamResult.error?.message ||
+          availabilityResult.error?.message ||
+          timeOffResult.error?.message ||
+          waitingListResult.error?.message ||
+          'Could not load calendar.'
+      )
       setLoading(false)
       return
     }
 
     setBookings((bookingsResult.data as unknown as Booking[]) || [])
     setTeamMembers((teamResult.data as TeamMember[]) || [])
+    setAvailabilityRules((availabilityResult.data as StaffAvailabilityRule[]) || [])
+    setTeamTimeOff((timeOffResult.data as TeamTimeOff[]) || [])
+    setWaitingList((waitingListResult.data as unknown as WaitingListEntry[]) || [])
     setLoading(false)
+  }
+
+  function openBlockCreator(staffId: string, startTime: string, endTime: string, type: CalendarBlockType) {
+    const staff = teamMembers.find((member) => member.id === staffId)
+
+    setBlockDraft({
+      staffId,
+      selectedDate,
+      startTime,
+      endTime,
+      type,
+      label: type === 'break' ? 'Lunch break' : staff ? `${staff.full_name} blocked` : 'Blocked time',
+    })
+  }
+
+  async function saveCalendarBlock() {
+    if (!blockDraft || !businessId) return
+
+    setSavingBlock(true)
+    setMessage('')
+
+    if (blockDraft.type === 'break') {
+      const dayOfWeek = dateToDayOfWeek(blockDraft.selectedDate)
+      const existingRule = availabilityRules.find(
+        (rule) =>
+          rule.team_member_id === blockDraft.staffId &&
+          dayOfWeekMatches(blockDraft.selectedDate, rule.day_of_week)
+      )
+
+      if (existingRule?.id) {
+        const { error } = await supabase
+          .from('availability')
+          .update({
+            break_start: blockDraft.startTime,
+            break_end: blockDraft.endTime,
+          })
+          .eq('id', existingRule.id)
+
+        if (error) {
+          setSavingBlock(false)
+          setMessage(error.message)
+          return
+        }
+      } else {
+        const { error } = await supabase.from('availability').insert({
+          business_id: businessId,
+          team_member_id: blockDraft.staffId,
+          day_of_week: dayOfWeek,
+          start_time: '09:00',
+          end_time: '17:00',
+          is_available: true,
+          break_start: blockDraft.startTime,
+          break_end: blockDraft.endTime,
+        })
+
+        if (error) {
+          setSavingBlock(false)
+          setMessage(error.message)
+          return
+        }
+      }
+
+      setMessage('Break added.')
+    } else {
+      const { error } = await supabase.from('team_time_off').insert({
+        business_id: businessId,
+        team_member_id: blockDraft.staffId,
+        start_date: blockDraft.selectedDate,
+        end_date: blockDraft.selectedDate,
+        start_time: blockDraft.startTime,
+        end_time: blockDraft.endTime,
+        reason: blockDraft.label || 'Blocked time',
+        is_all_day: false,
+      })
+
+      if (error) {
+        setSavingBlock(false)
+        setMessage(error.message)
+        return
+      }
+
+      setMessage('Blocked time added.')
+    }
+
+    setBlockDraft(null)
+    setSavingBlock(false)
+    await loadCalendar()
+  }
+
+
+  async function markWaitlistNotified(entryId: string) {
+    setMessage('')
+
+    const currentEntry = waitingList.find((entry) => entry.id === entryId)
+    const nextBatch = Number(currentEntry?.notification_batch || 0) + 1
+
+    const { error } = await supabase
+      .from('waiting_list')
+      .update({
+        status: 'notified',
+        notified_at: new Date().toISOString(),
+        notification_batch: nextBatch,
+      })
+      .eq('id', entryId)
+
+    if (error) {
+      setMessage(error.message)
+      return
+    }
+
+    setWaitingList((current) =>
+      current.map((entry) =>
+        entry.id === entryId
+          ? {
+              ...entry,
+              status: 'notified',
+              notified_at: new Date().toISOString(),
+              notification_batch: nextBatch,
+            }
+          : entry
+      )
+    )
+
+    setMessage('Waitlist customer marked as notified.')
+  }
+
+  async function cancelWaitlistEntry(entryId: string) {
+    setMessage('')
+
+    const { error } = await supabase
+      .from('waiting_list')
+      .update({ status: 'cancelled' })
+      .eq('id', entryId)
+
+    if (error) {
+      setMessage(error.message)
+      return
+    }
+
+    setWaitingList((current) => current.filter((entry) => entry.id !== entryId))
+    setMessage('Waitlist entry cancelled.')
   }
 
   async function updateBookingStatus(bookingId: string, status: string) {
@@ -143,6 +405,8 @@ export default function CalendarPage() {
       bookingTime: time,
       teamMemberId: selectedBooking?.team_member_id || null,
       bookings,
+      availabilityRules,
+      timeOff: teamTimeOff,
     })
 
     if (!validation.valid) {
@@ -182,6 +446,8 @@ export default function CalendarPage() {
       bookingTime,
       teamMemberId,
       bookings,
+      availabilityRules,
+      timeOff: teamTimeOff,
     })
 
     if (!validation.valid) {
@@ -253,7 +519,11 @@ export default function CalendarPage() {
 
   const revenueForSelectedDay = selectedDateBookings.reduce((total, booking) => total + bookingPrice(booking), 0)
   const selectedDateDuration = selectedDateBookings.reduce((total, booking) => total + bookingDuration(booking), 0)
-  const staffColumns = useMemo(() => buildStaffColumns(teamMembers, selectedDateBookings), [teamMembers, selectedDateBookings])
+
+  const staffColumns = useMemo(
+    () => buildStaffColumns(teamMembers, selectedDateBookings, availabilityRules, teamTimeOff, selectedDate),
+    [teamMembers, selectedDateBookings, availabilityRules, teamTimeOff, selectedDate]
+  )
 
   const weekDays = useMemo(() => {
     const start = startOfWeek(parseDate(selectedDate))
@@ -274,6 +544,10 @@ export default function CalendarPage() {
       }
     })
   }, [selectedDate, filteredBookings])
+
+  const selectedDateWaitingList = useMemo(() => {
+    return waitingList.filter((entry) => !entry.preferred_date || entry.preferred_date === selectedDate)
+  }, [waitingList, selectedDate])
 
   const monthDays = useMemo(() => {
     const year = calendarMonth.getFullYear()
@@ -307,10 +581,10 @@ export default function CalendarPage() {
     <div className="space-y-8 text-white">
       <div className="flex flex-col gap-5 lg:flex-row lg:items-end lg:justify-between">
         <div>
-          <p className="mb-2 text-sm font-bold uppercase tracking-[0.25em] text-cyan-300">Staff calendar V3.4</p>
+          <p className="mb-2 text-sm font-bold uppercase tracking-[0.25em] text-cyan-300">Staff calendar V4.1</p>
           <h1 className="text-4xl font-black">Your schedule</h1>
           <p className="mt-3 max-w-2xl text-slate-400">
-            Smart staff timeline with drag-and-drop, collision stacking, current-time indicator, timeline zoom and conflict prevention.
+            Hover over the timeline to add breaks or block time without leaving the calendar.
           </p>
         </div>
 
@@ -388,6 +662,14 @@ export default function CalendarPage() {
             </div>
           </section>
 
+
+          <WaitlistPanel
+            entries={selectedDateWaitingList}
+            selectedDate={selectedDate}
+            onNotify={markWaitlistNotified}
+            onCancel={cancelWaitlistEntry}
+          />
+
           {viewMode === 'day' && (
             <TimelineDayView
               selectedDate={selectedDate}
@@ -399,6 +681,7 @@ export default function CalendarPage() {
               setTimelineZoom={setTimelineZoom}
               setSelectedBooking={setSelectedBooking}
               onMoveBooking={moveBooking}
+              onCreateBlock={openBlockCreator}
             />
           )}
 
@@ -447,7 +730,198 @@ export default function CalendarPage() {
           onReschedule={rescheduleBooking}
         />
       )}
+
+      {blockDraft && (
+        <BlockCreatorModal
+          draft={blockDraft}
+          staffName={teamMembers.find((member) => member.id === blockDraft.staffId)?.full_name || 'Staff member'}
+          saving={savingBlock}
+          setDraft={setBlockDraft}
+          onClose={() => setBlockDraft(null)}
+          onSave={saveCalendarBlock}
+        />
+      )}
     </div>
+  )
+}
+
+function BlockCreatorModal({
+  draft,
+  staffName,
+  saving,
+  setDraft,
+  onClose,
+  onSave,
+}: {
+  draft: CreateCalendarBlockInput
+  staffName: string
+  saving: boolean
+  setDraft: (draft: CreateCalendarBlockInput) => void
+  onClose: () => void
+  onSave: () => void
+}) {
+  return (
+    <div className="fixed inset-0 z-[80] flex items-center justify-center bg-black/70 p-4">
+      <div className="w-full max-w-lg rounded-3xl border border-white/10 bg-slate-950 p-6 shadow-2xl">
+        <div className="mb-6 flex items-start justify-between gap-4">
+          <div>
+            <p className="mb-2 text-sm font-black uppercase tracking-[0.25em] text-cyan-300">
+              {draft.type === 'break' ? 'Add break' : 'Block time'}
+            </p>
+            <h2 className="text-2xl font-black">{staffName}</h2>
+            <p className="mt-2 text-slate-400">{draft.selectedDate}</p>
+          </div>
+
+          <button type="button" onClick={onClose} className="rounded-2xl border border-white/10 px-4 py-2 font-black hover:bg-white/10">
+            ×
+          </button>
+        </div>
+
+        <div className="space-y-4">
+          <label className="block">
+            <span className="mb-2 block text-sm font-bold text-slate-400">Label</span>
+            <input
+              value={draft.label}
+              onChange={(event) => setDraft({ ...draft, label: event.target.value })}
+              className="w-full rounded-2xl border border-white/10 bg-black/20 px-4 py-4 text-white outline-none"
+            />
+          </label>
+
+          <div className="grid gap-4 md:grid-cols-2">
+            <label className="block">
+              <span className="mb-2 block text-sm font-bold text-slate-400">Start time</span>
+              <input
+                type="time"
+                value={draft.startTime}
+                onChange={(event) => setDraft({ ...draft, startTime: event.target.value })}
+                className="w-full rounded-2xl border border-white/10 bg-black/20 px-4 py-4 text-white outline-none"
+              />
+            </label>
+
+            <label className="block">
+              <span className="mb-2 block text-sm font-bold text-slate-400">End time</span>
+              <input
+                type="time"
+                value={draft.endTime}
+                onChange={(event) => setDraft({ ...draft, endTime: event.target.value })}
+                className="w-full rounded-2xl border border-white/10 bg-black/20 px-4 py-4 text-white outline-none"
+              />
+            </label>
+          </div>
+
+          <div className="grid gap-3 md:grid-cols-2">
+            <button
+              type="button"
+              onClick={() => setDraft({ ...draft, type: 'break', label: draft.type === 'break' ? draft.label : 'Lunch break' })}
+              className={`rounded-2xl border px-4 py-4 font-black ${
+                draft.type === 'break'
+                  ? 'border-amber-300/40 bg-amber-400/20 text-amber-100'
+                  : 'border-white/10 text-slate-300 hover:bg-white/10'
+              }`}
+            >
+              Break
+            </button>
+
+            <button
+              type="button"
+              onClick={() => setDraft({ ...draft, type: 'time_off', label: draft.type === 'time_off' ? draft.label : 'Blocked time' })}
+              className={`rounded-2xl border px-4 py-4 font-black ${
+                draft.type === 'time_off'
+                  ? 'border-red-300/40 bg-red-500/20 text-red-100'
+                  : 'border-white/10 text-slate-300 hover:bg-white/10'
+              }`}
+            >
+              Block time
+            </button>
+          </div>
+
+          <button
+            type="button"
+            disabled={saving}
+            onClick={onSave}
+            className="w-full rounded-2xl bg-cyan-400 px-5 py-4 font-black text-slate-950 hover:bg-cyan-300 disabled:opacity-50"
+          >
+            {saving ? 'Saving...' : 'Save block'}
+          </button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+
+function WaitlistPanel({
+  entries,
+  selectedDate,
+  onNotify,
+  onCancel,
+}: {
+  entries: WaitingListEntry[]
+  selectedDate: string
+  onNotify: (entryId: string) => void
+  onCancel: (entryId: string) => void
+}) {
+  return (
+    <section className="rounded-3xl border border-white/10 bg-white/[0.04] p-5 md:p-6">
+      <div className="mb-5 flex flex-col gap-3 md:flex-row md:items-end md:justify-between">
+        <div>
+          <p className="mb-2 text-sm font-bold uppercase tracking-[0.25em] text-cyan-300">Waitlist</p>
+          <h2 className="text-2xl font-black">
+            {entries.length} waiting for {formatDate(selectedDate, { weekday: 'short', day: 'numeric', month: 'short', year: undefined })}
+          </h2>
+          <p className="mt-1 text-slate-400">Mark customers as notified when a suitable slot opens up.</p>
+        </div>
+      </div>
+
+      {entries.length > 0 ? (
+        <div className="grid gap-3 xl:grid-cols-2">
+          {entries.slice(0, 6).map((entry) => (
+            <div key={entry.id} className="rounded-2xl border border-white/10 bg-black/20 p-4">
+              <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
+                <div>
+                  <p className="font-black">{waitlistCustomerName(entry)}</p>
+                  <p className="mt-1 text-sm text-slate-400">
+                    {waitlistServiceName(entry)} · {entry.preferred_time_range || 'Any time'} · {waitlistStaffName(entry)}
+                  </p>
+                  {entry.notes && <p className="mt-2 text-sm text-slate-500">{entry.notes}</p>}
+                  <p className="mt-2 text-xs font-bold uppercase tracking-[0.18em] text-slate-500">
+                    {entry.status || 'open'}
+                    {entry.notification_batch ? ` · notified ${entry.notification_batch}x` : ''}
+                  </p>
+                </div>
+
+                <div className="flex shrink-0 gap-2">
+                  <button
+                    type="button"
+                    onClick={() => onNotify(entry.id)}
+                    className="rounded-xl bg-cyan-400 px-4 py-2 text-sm font-black text-slate-950 hover:bg-cyan-300"
+                  >
+                    Notify
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => onCancel(entry.id)}
+                    className="rounded-xl border border-white/10 px-4 py-2 text-sm font-black text-white hover:bg-white/10"
+                  >
+                    Cancel
+                  </button>
+                </div>
+              </div>
+            </div>
+          ))}
+
+          {entries.length > 6 && (
+            <div className="rounded-2xl border border-white/10 bg-black/20 p-4 text-sm text-slate-400">
+              +{entries.length - 6} more waitlist entr{entries.length - 6 === 1 ? 'y' : 'ies'}
+            </div>
+          )}
+        </div>
+      ) : (
+        <div className="rounded-2xl border border-dashed border-white/10 bg-black/20 p-6 text-center text-slate-500">
+          No customers waiting for this date.
+        </div>
+      )}
+    </section>
   )
 }
 

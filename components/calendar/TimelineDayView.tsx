@@ -10,7 +10,7 @@ import {
   useSensor,
   useSensors,
 } from '@dnd-kit/core'
-import type { Booking, StaffColumn } from '@/lib/calendar/calendarTypes'
+import type { Booking, CalendarBlockType, StaffColumn } from '@/lib/calendar/calendarTypes'
 import {
   currentTimePosition,
   isCurrentTimeVisible,
@@ -34,6 +34,7 @@ export function TimelineDayView({
   setTimelineZoom,
   setSelectedBooking,
   onMoveBooking,
+  onCreateBlock,
 }: {
   selectedDate: string
   setSelectedDate: (value: string) => void
@@ -44,6 +45,7 @@ export function TimelineDayView({
   setTimelineZoom: (value: TimelineZoom) => void
   setSelectedBooking: (booking: Booking) => void
   onMoveBooking: (bookingId: string, bookingDate: string, bookingTime: string, teamMemberId: string | null) => Promise<void> | void
+  onCreateBlock?: (staffId: string, startTime: string, endTime: string, type: CalendarBlockType) => void
 }) {
   const [activeBooking, setActiveBooking] = useState<Booking | null>(null)
 
@@ -93,13 +95,13 @@ export function TimelineDayView({
         <div className="mb-6 flex flex-col gap-4 xl:flex-row xl:items-end xl:justify-between">
           <div>
             <p className="mb-2 text-sm font-bold uppercase tracking-[0.25em] text-cyan-300">
-              V3.4 smart scheduling timeline
+              V4.1 visual blocking
             </p>
 
             <h2 className="text-2xl font-black">{formattedSelectedDate}</h2>
 
             <p className="mt-1 text-slate-400">
-              Drag bookings between staff and times. Conflicting moves are blocked before they save.
+              Hover over a staff column time slot to add a break or block time directly from the calendar.
             </p>
           </div>
 
@@ -126,6 +128,13 @@ export function TimelineDayView({
               className="rounded-2xl border border-white/10 bg-slate-950 px-4 py-3 text-white outline-none"
             />
           </div>
+        </div>
+
+        <div className="mb-5 flex flex-wrap gap-3 text-xs font-bold text-slate-400">
+          <span className="rounded-full border border-slate-500/20 bg-slate-700/30 px-3 py-1">Grey = off duty</span>
+          <span className="rounded-full border border-amber-400/20 bg-amber-500/10 px-3 py-1 text-amber-200">Amber = break</span>
+          <span className="rounded-full border border-red-400/20 bg-red-500/10 px-3 py-1 text-red-200">Red = time off</span>
+          <span className="rounded-full border border-cyan-400/20 bg-cyan-400/10 px-3 py-1 text-cyan-200">Hover = add block</span>
         </div>
 
         {staffColumns.length > 0 && (
@@ -199,6 +208,7 @@ export function TimelineDayView({
                     column={column}
                     settings={settings}
                     onSelectBooking={setSelectedBooking}
+                    onCreateBlock={onCreateBlock}
                   />
                 ))
               ) : (

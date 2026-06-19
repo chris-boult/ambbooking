@@ -157,7 +157,10 @@ export default function BookingForm({
 
   const [message, setMessage] = useState('')
   const [success, setSuccess] = useState(false)
+  const [waitlistSuccess, setWaitlistSuccess] = useState(false)
   const [loading, setLoading] = useState(false)
+  const [joiningWaitlist, setJoiningWaitlist] = useState(false)
+  const [waitlistNotes, setWaitlistNotes] = useState('')
 
   const primaryButtonStyle = {
     background: `linear-gradient(135deg, ${primaryColour}, ${secondaryColour})`,
@@ -442,10 +445,16 @@ export default function BookingForm({
     }
 
     if (step === 'datetime') {
-      if (!selectedDate || !selectedTime) {
-        setMessage('Please choose a date and time.')
+      if (!selectedDate) {
+        setMessage('Please choose a date.')
         return
       }
+
+      if (!selectedTime && availableTimeSlots.length > 0) {
+        setMessage('Please choose a time, or pick a date with no availability to join the waitlist.')
+        return
+      }
+
       setStep('details')
       return
     }
@@ -509,6 +518,73 @@ export default function BookingForm({
     }
 
     setVoucherValidating(false)
+  }
+
+
+  async function createWaitlistEntry() {
+    setMessage('')
+
+    if (selectedServiceDetails.length === 0 || !selectedDate || !firstName || !email) {
+      setMessage('Please choose a service and date, then enter your first name and email address.')
+      return
+    }
+
+    setJoiningWaitlist(true)
+
+    const { data: existingCustomer } = await supabase
+      .from('customers')
+      .select('*')
+      .eq('business_id', businessId)
+      .ilike('email', email.trim())
+      .maybeSingle()
+
+    let customerId = existingCustomer?.id
+
+    if (!customerId) {
+      const { data: newCustomer, error: customerError } = await supabase
+        .from('customers')
+        .insert({
+          business_id: businessId,
+          first_name: firstName,
+          last_name: lastName,
+          email,
+          phone,
+        })
+        .select()
+        .single()
+
+      if (customerError) {
+        setMessage(customerError.message)
+        setJoiningWaitlist(false)
+        return
+      }
+
+      customerId = newCustomer.id
+    }
+
+    const firstService = selectedServiceDetails[0]
+    const preferredStaffId = selectedTeamMember === 'any' ? null : selectedTeamMember
+
+    const { error } = await supabase.from('waiting_list').insert({
+      business_id: businessId,
+      customer_id: customerId,
+      service_id: firstService?.id || null,
+      team_member_id: preferredStaffId,
+      preferred_date: selectedDate,
+      preferred_time_range: selectedTime || 'Any time',
+      status: 'open',
+      notification_batch: 0,
+      notes: waitlistNotes.trim() || null,
+    })
+
+    if (error) {
+      setMessage(error.message)
+      setJoiningWaitlist(false)
+      return
+    }
+
+    setJoiningWaitlist(false)
+    setWaitlistSuccess(true)
   }
 
   async function createBooking() {
@@ -644,6 +720,35 @@ export default function BookingForm({
 
     setLoading(false)
     setSuccess(true)
+  }
+
+
+  if (waitlistSuccess) {
+    return (
+      <div className={`rounded-[28px] border p-8 backdrop-blur-2xl ${cardClassName}`}>
+        <div className="mb-6 inline-flex h-14 w-14 items-center justify-center rounded-2xl text-2xl text-white" style={primaryButtonStyle}>
+          ✓
+        </div>
+        <h2 className="mb-4 text-3xl font-black">You’re on the waitlist</h2>
+        <p className={`${textClassName} mb-4`}>
+          We’ll let the business know you’re waiting for a slot. If something becomes available, they can contact you directly.
+        </p>
+        <BookingSummary
+          services={selectedServiceDetails}
+          totalPrice={totalPrice}
+          totalDuration={totalDuration}
+          totalBlockedDuration={totalBlockedDuration}
+          totalBufferBefore={totalBufferBefore}
+          totalBufferAfter={totalBufferAfter}
+          date={formattedDate}
+          time={selectedTime || 'Any time'}
+          staff={selectedStaffName}
+          innerCardClassName={innerCardClassName}
+          textClassName={textClassName}
+          mutedClassName={mutedClassName}
+        />
+      </div>
+    )
   }
 
   if (success) {
@@ -1065,6 +1170,31 @@ export default function BookingForm({
                   </p>
                 </div>
 
+                {availableTimeSlots.length === 0 && (
+                  <div className={`rounded-2xl border p-5 ${innerCardClassName}`}>
+                    <p className="text-lg font-black">No slot that works?</p>
+                    <p className={`${textClassName} mt-2`}>
+                      Join the waitlist for this date and the business can contact you if a space opens up.
+                    </p>
+
+                    <textarea
+                      className={`mt-4 min-h-24 w-full rounded-2xl border p-4 outline-none ${innerCardClassName}`}
+                      placeholder="Optional notes, preferred time, or anything useful"
+                      value={waitlistNotes}
+                      onChange={(event) => setWaitlistNotes(event.target.value)}
+                    />
+
+                    <button
+                      type="button"
+                      onClick={() => setStep('details')}
+                      className="mt-4 w-full rounded-2xl px-5 py-4 font-black text-white"
+                      style={primaryButtonStyle}
+                    >
+                      Continue to join waitlist
+                    </button>
+                  </div>
+                )}
+
                 <TimeSlotGroup
                   title="Morning"
                   slots={morningSlots}
@@ -1168,6 +1298,28 @@ export default function BookingForm({
                   ? `Confirm booking — ${money(amountDueAfterVoucher)} due`
                   : 'Confirm booking'}
             </button>
+
+            {!selectedTime && (
+              <button
+                type="button"
+                onClick={createWaitlistEntry}
+                disabled={joiningWaitlist}
+                className={`w-full rounded-2xl border p-5 font-black disabled:opacity-60 ${innerCardClassName}`}
+              >
+                {joiningWaitlist ? 'Joining waitlist...' : 'Join waitlist'}
+              </button>
+            )}
+
+            {selectedTime && (
+              <button
+                type="button"
+                onClick={createWaitlistEntry}
+                disabled={joiningWaitlist}
+                className={`w-full rounded-2xl border p-4 text-sm font-black disabled:opacity-60 ${innerCardClassName}`}
+              >
+                {joiningWaitlist ? 'Joining waitlist...' : 'Join waitlist instead'}
+              </button>
+            )}
           </section>
         )}
       </div>
