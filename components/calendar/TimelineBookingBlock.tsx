@@ -25,8 +25,8 @@ export function TimelineBookingBlock({
   onClick: () => void
 }) {
   const top = bookingTop(booking)
-  const height = bookingHeight(booking)
-  const compact = height < 70
+  const height = Math.max(bookingHeight(booking), 46)
+  const compact = height < 74
 
   const {
     attributes,
@@ -37,26 +37,26 @@ export function TimelineBookingBlock({
   } = useDraggable({
     id: `booking:${booking.id}`,
     data: {
-      booking,
-      column,
+      bookingId: booking.id,
+      teamMemberId: booking.team_member_id,
     },
   })
 
-  const style = {
-    top,
-    height,
-    transform: CSS.Translate.toString(transform),
-  }
-
   return (
-    <button
+    <div
       ref={setNodeRef}
-      type="button"
       onClick={onClick}
-      className={`absolute left-2 right-2 overflow-hidden rounded-2xl border ${column.colour.border} bg-gradient-to-br ${column.colour.gradient} p-3 text-left shadow-xl shadow-black/20 transition hover:scale-[1.01] hover:bg-white/10 ${
-        isDragging ? 'z-50 cursor-grabbing opacity-70 ring-2 ring-cyan-300/50' : 'z-20 cursor-grab'
+      className={`absolute left-3 right-3 z-30 overflow-hidden rounded-xl border ${column.colour.border} bg-slate-900 p-3 text-left shadow-xl shadow-black/30 transition ${
+        isDragging
+          ? 'cursor-grabbing opacity-80 ring-2 ring-cyan-300/70'
+          : 'cursor-grab hover:-translate-y-0.5 hover:bg-slate-800'
       }`}
-      style={style}
+      style={{
+        top,
+        height,
+        transform: CSS.Translate.toString(transform),
+        touchAction: 'none',
+      }}
       {...listeners}
       {...attributes}
     >
@@ -80,19 +80,19 @@ export function TimelineBookingBlock({
         )}
       </div>
 
-      <h4 className="mt-2 truncate font-black leading-tight">
+      <h4 className="mt-1 truncate font-black leading-tight">
         {customerName(booking)}
       </h4>
 
-      <p className="mt-1 truncate text-sm text-slate-300">
+      <p className="truncate text-sm text-slate-300">
         {serviceName(booking)}
       </p>
 
       {!compact && (
-        <p className="mt-2 text-xs font-bold text-slate-400">
+        <p className="mt-1 text-xs font-bold text-slate-400">
           {money(bookingPrice(booking))}
         </p>
       )}
-    </button>
+    </div>
   )
 }

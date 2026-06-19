@@ -31,7 +31,7 @@ export function TimelineDayView({
   const sensors = useSensors(
     useSensor(PointerSensor, {
       activationConstraint: {
-        distance: 8,
+        distance: 6,
       },
     })
   )
@@ -40,10 +40,10 @@ export function TimelineDayView({
     const activeId = String(event.active.id)
     const overId = event.over ? String(event.over.id) : ''
 
-    if (!activeId.startsWith('booking:') || !overId.startsWith('slot:')) return
+    if (!activeId.startsWith('booking:') || !overId.startsWith('slot|')) return
 
-    const bookingId = activeId.replace('booking:', '')
-    const [, staffId, time] = overId.split(':')
+const bookingId = activeId.replace('booking:', '')
+const [, staffId, time] = overId.split('|')
 
     if (!bookingId || !staffId || !time) return
 
@@ -67,7 +67,7 @@ export function TimelineDayView({
             <h2 className="text-2xl font-black">{formattedSelectedDate}</h2>
 
             <p className="mt-1 text-slate-400">
-              Drag bookings between times and staff columns. {selectedDateBookings.length} booking
+              Drag booking cards between times and staff columns. {selectedDateBookings.length} booking
               {selectedDateBookings.length === 1 ? '' : 's'} scheduled across {staffColumns.length} column
               {staffColumns.length === 1 ? '' : 's'}.
             </p>
