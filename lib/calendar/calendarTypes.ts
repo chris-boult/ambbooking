@@ -39,6 +39,7 @@ export type TeamMemberJoin =
 
 export type Booking = {
   id: string
+  business_id: string
   booking_date: string
   booking_time: string
   status: string

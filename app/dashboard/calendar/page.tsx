@@ -33,6 +33,21 @@ import {
 } from '@/lib/calendar/calendarHelpers'
 import { calculateDayUtilisation } from '@/lib/calendar/utilisation'
 
+type CustomerOption = {
+  id: string
+  first_name: string
+  last_name: string | null
+  email: string | null
+  phone?: string | null
+}
+
+type ServiceOption = {
+  id: string
+  name: string
+  price?: number | null
+  duration_minutes?: number | null
+}
+
 type WaitingListEntry = {
   id: string
   business_id: string
@@ -117,6 +132,8 @@ export default function CalendarPage() {
   const [availabilityRules, setAvailabilityRules] = useState<StaffAvailabilityRule[]>([])
   const [teamTimeOff, setTeamTimeOff] = useState<TeamTimeOff[]>([])
   const [waitingList, setWaitingList] = useState<WaitingListEntry[]>([])
+  const [customers, setCustomers] = useState<CustomerOption[]>([])
+  const [services, setServices] = useState<ServiceOption[]>([])
   const [selectedDate, setSelectedDate] = useState(toDateValue(new Date()))
   const [calendarMonth, setCalendarMonth] = useState(() => {
     const now = new Date()
@@ -130,10 +147,22 @@ export default function CalendarPage() {
   const [message, setMessage] = useState('')
   const [loading, setLoading] = useState(true)
   const [savingBlock, setSavingBlock] = useState(false)
+  const [showWaitlistModal, setShowWaitlistModal] = useState(false)
+  const [savingWaitlist, setSavingWaitlist] = useState(false)
+  const [waitlistCustomerId, setWaitlistCustomerId] = useState('')
+  const [waitlistServiceId, setWaitlistServiceId] = useState('')
+  const [waitlistStaffId, setWaitlistStaffId] = useState('any')
+  const [waitlistPreferredDate, setWaitlistPreferredDate] = useState(selectedDate)
+  const [waitlistPreferredTime, setWaitlistPreferredTime] = useState('Any time')
+  const [waitlistNotes, setWaitlistNotes] = useState('')
 
   useEffect(() => {
     loadCalendar()
   }, [])
+
+  useEffect(() => {
+    setWaitlistPreferredDate(selectedDate)
+  }, [selectedDate])
 
   async function loadCalendar() {
     setLoading(true)
@@ -161,7 +190,7 @@ export default function CalendarPage() {
 
     setBusinessId(business.id)
 
-    const [bookingsResult, teamResult, availabilityResult, timeOffResult, waitingListResult] = await Promise.all([
+    const [bookingsResult, teamResult, availabilityResult, timeOffResult, waitingListResult, customersResult, servicesResult] = await Promise.all([
       supabase
         .from('bookings')
         .select(`
@@ -207,15 +236,27 @@ export default function CalendarPage() {
         .in('status', ['open', 'notified'])
         .order('preferred_date', { ascending: true })
         .order('created_at', { ascending: true }),
+      supabase
+        .from('customers')
+        .select('id, first_name, last_name, email, phone')
+        .eq('business_id', business.id)
+        .order('first_name'),
+      supabase
+        .from('services')
+        .select('id, name, price, duration_minutes')
+        .eq('business_id', business.id)
+        .order('name'),
     ])
 
-    if (bookingsResult.error || teamResult.error || availabilityResult.error || timeOffResult.error || waitingListResult.error) {
+    if (bookingsResult.error || teamResult.error || availabilityResult.error || timeOffResult.error || waitingListResult.error || customersResult.error || servicesResult.error) {
       setMessage(
         bookingsResult.error?.message ||
           teamResult.error?.message ||
           availabilityResult.error?.message ||
           timeOffResult.error?.message ||
           waitingListResult.error?.message ||
+          customersResult.error?.message ||
+          servicesResult.error?.message ||
           'Could not load calendar.'
       )
       setLoading(false)
@@ -227,6 +268,8 @@ export default function CalendarPage() {
     setAvailabilityRules((availabilityResult.data as StaffAvailabilityRule[]) || [])
     setTeamTimeOff((timeOffResult.data as TeamTimeOff[]) || [])
     setWaitingList((waitingListResult.data as unknown as WaitingListEntry[]) || [])
+    setCustomers((customersResult.data as CustomerOption[]) || [])
+    setServices((servicesResult.data as ServiceOption[]) || [])
     setLoading(false)
   }
 
@@ -317,6 +360,70 @@ export default function CalendarPage() {
     await loadCalendar()
   }
 
+
+
+  async function createManualWaitlistEntry() {
+    setMessage('')
+
+    if (!businessId) {
+      setMessage('Business not loaded yet.')
+      return
+    }
+
+    if (!waitlistCustomerId) {
+      setMessage('Choose a customer.')
+      return
+    }
+
+    if (!waitlistServiceId) {
+      setMessage('Choose a service.')
+      return
+    }
+
+    if (!waitlistPreferredDate) {
+      setMessage('Choose a preferred date.')
+      return
+    }
+
+    setSavingWaitlist(true)
+
+    const { data, error } = await supabase
+      .from('waiting_list')
+      .insert({
+        business_id: businessId,
+        customer_id: waitlistCustomerId,
+        service_id: waitlistServiceId,
+        team_member_id: waitlistStaffId === 'any' ? null : waitlistStaffId,
+        preferred_date: waitlistPreferredDate,
+        preferred_time_range: waitlistPreferredTime || 'Any time',
+        status: 'open',
+        notification_batch: 0,
+        notes: waitlistNotes.trim() || null,
+      })
+      .select(`
+        *,
+        customers(first_name,last_name,email,phone),
+        services(name),
+        team_members(full_name)
+      `)
+      .single()
+
+    if (error) {
+      setMessage(error.message)
+      setSavingWaitlist(false)
+      return
+    }
+
+    setWaitingList((current) => [...current, data as unknown as WaitingListEntry])
+    setShowWaitlistModal(false)
+    setSavingWaitlist(false)
+    setWaitlistCustomerId('')
+    setWaitlistServiceId('')
+    setWaitlistStaffId('any')
+    setWaitlistPreferredTime('Any time')
+    setWaitlistNotes('')
+    setMessage('Waitlist entry added.')
+  }
 
   async function markWaitlistNotified(entryId: string) {
     setMessage('')
@@ -666,6 +773,7 @@ export default function CalendarPage() {
           <WaitlistPanel
             entries={selectedDateWaitingList}
             selectedDate={selectedDate}
+            onAdd={() => setShowWaitlistModal(true)}
             onNotify={markWaitlistNotified}
             onCancel={cancelWaitlistEntry}
           />
@@ -741,6 +849,190 @@ export default function CalendarPage() {
           onSave={saveCalendarBlock}
         />
       )}
+
+      {showWaitlistModal && (
+        <AddWaitlistModal
+          customers={customers}
+          services={services}
+          teamMembers={teamMembers}
+          customerId={waitlistCustomerId}
+          serviceId={waitlistServiceId}
+          staffId={waitlistStaffId}
+          preferredDate={waitlistPreferredDate}
+          preferredTime={waitlistPreferredTime}
+          notes={waitlistNotes}
+          saving={savingWaitlist}
+          setCustomerId={setWaitlistCustomerId}
+          setServiceId={setWaitlistServiceId}
+          setStaffId={setWaitlistStaffId}
+          setPreferredDate={setWaitlistPreferredDate}
+          setPreferredTime={setWaitlistPreferredTime}
+          setNotes={setWaitlistNotes}
+          onClose={() => setShowWaitlistModal(false)}
+          onSave={createManualWaitlistEntry}
+        />
+      )}
+    </div>
+  )
+}
+
+
+function AddWaitlistModal({
+  customers,
+  services,
+  teamMembers,
+  customerId,
+  serviceId,
+  staffId,
+  preferredDate,
+  preferredTime,
+  notes,
+  saving,
+  setCustomerId,
+  setServiceId,
+  setStaffId,
+  setPreferredDate,
+  setPreferredTime,
+  setNotes,
+  onClose,
+  onSave,
+}: {
+  customers: CustomerOption[]
+  services: ServiceOption[]
+  teamMembers: TeamMember[]
+  customerId: string
+  serviceId: string
+  staffId: string
+  preferredDate: string
+  preferredTime: string
+  notes: string
+  saving: boolean
+  setCustomerId: (value: string) => void
+  setServiceId: (value: string) => void
+  setStaffId: (value: string) => void
+  setPreferredDate: (value: string) => void
+  setPreferredTime: (value: string) => void
+  setNotes: (value: string) => void
+  onClose: () => void
+  onSave: () => void
+}) {
+  return (
+    <div className="fixed inset-0 z-[90] flex items-center justify-center bg-black/70 p-4">
+      <div className="w-full max-w-2xl rounded-3xl border border-white/10 bg-slate-950 p-6 shadow-2xl">
+        <div className="mb-6 flex items-start justify-between gap-4">
+          <div>
+            <p className="mb-2 text-sm font-black uppercase tracking-[0.25em] text-cyan-300">
+              Add waitlist customer
+            </p>
+            <h2 className="text-2xl font-black">Manual waitlist entry</h2>
+            <p className="mt-2 text-slate-400">
+              Add an existing customer to the waitlist for a service, date and preferred time.
+            </p>
+          </div>
+
+          <button type="button" onClick={onClose} className="rounded-2xl border border-white/10 px-4 py-2 font-black hover:bg-white/10">
+            ×
+          </button>
+        </div>
+
+        <div className="space-y-4">
+          <label className="block">
+            <span className="mb-2 block text-sm font-bold text-slate-400">Customer</span>
+            <select
+              value={customerId}
+              onChange={(event) => setCustomerId(event.target.value)}
+              className="w-full rounded-2xl border border-white/10 bg-black/20 px-4 py-4 text-white outline-none"
+            >
+              <option value="">Choose customer</option>
+              {customers.map((customer) => (
+                <option key={customer.id} value={customer.id}>
+                  {customer.first_name} {customer.last_name || ''} {customer.email ? `· ${customer.email}` : ''}
+                </option>
+              ))}
+            </select>
+          </label>
+
+          <div className="grid gap-4 md:grid-cols-2">
+            <label className="block">
+              <span className="mb-2 block text-sm font-bold text-slate-400">Service</span>
+              <select
+                value={serviceId}
+                onChange={(event) => setServiceId(event.target.value)}
+                className="w-full rounded-2xl border border-white/10 bg-black/20 px-4 py-4 text-white outline-none"
+              >
+                <option value="">Choose service</option>
+                {services.map((service) => (
+                  <option key={service.id} value={service.id}>
+                    {service.name}
+                  </option>
+                ))}
+              </select>
+            </label>
+
+            <label className="block">
+              <span className="mb-2 block text-sm font-bold text-slate-400">Staff preference</span>
+              <select
+                value={staffId}
+                onChange={(event) => setStaffId(event.target.value)}
+                className="w-full rounded-2xl border border-white/10 bg-black/20 px-4 py-4 text-white outline-none"
+              >
+                <option value="any">Any staff</option>
+                {teamMembers.map((member) => (
+                  <option key={member.id} value={member.id}>
+                    {member.full_name}
+                  </option>
+                ))}
+              </select>
+            </label>
+          </div>
+
+          <div className="grid gap-4 md:grid-cols-2">
+            <label className="block">
+              <span className="mb-2 block text-sm font-bold text-slate-400">Preferred date</span>
+              <input
+                type="date"
+                value={preferredDate}
+                onChange={(event) => setPreferredDate(event.target.value)}
+                className="w-full rounded-2xl border border-white/10 bg-black/20 px-4 py-4 text-white outline-none"
+              />
+            </label>
+
+            <label className="block">
+              <span className="mb-2 block text-sm font-bold text-slate-400">Preferred time</span>
+              <select
+                value={preferredTime}
+                onChange={(event) => setPreferredTime(event.target.value)}
+                className="w-full rounded-2xl border border-white/10 bg-black/20 px-4 py-4 text-white outline-none"
+              >
+                <option value="Any time">Any time</option>
+                <option value="Morning">Morning</option>
+                <option value="Afternoon">Afternoon</option>
+                <option value="Evening">Evening</option>
+                <option value="ASAP">ASAP</option>
+              </select>
+            </label>
+          </div>
+
+          <label className="block">
+            <span className="mb-2 block text-sm font-bold text-slate-400">Notes</span>
+            <textarea
+              value={notes}
+              onChange={(event) => setNotes(event.target.value)}
+              placeholder="Optional notes"
+              className="min-h-28 w-full rounded-2xl border border-white/10 bg-black/20 px-4 py-4 text-white outline-none"
+            />
+          </label>
+
+          <button
+            type="button"
+            disabled={saving}
+            onClick={onSave}
+            className="w-full rounded-2xl bg-cyan-400 px-5 py-4 font-black text-slate-950 hover:bg-cyan-300 disabled:opacity-50"
+          >
+            {saving ? 'Adding...' : 'Add to waitlist'}
+          </button>
+        </div>
+      </div>
     </div>
   )
 }
@@ -853,11 +1145,13 @@ function BlockCreatorModal({
 function WaitlistPanel({
   entries,
   selectedDate,
+  onAdd,
   onNotify,
   onCancel,
 }: {
   entries: WaitingListEntry[]
   selectedDate: string
+  onAdd: () => void
   onNotify: (entryId: string) => void
   onCancel: (entryId: string) => void
 }) {
@@ -871,6 +1165,14 @@ function WaitlistPanel({
           </h2>
           <p className="mt-1 text-slate-400">Mark customers as notified when a suitable slot opens up.</p>
         </div>
+
+        <button
+          type="button"
+          onClick={onAdd}
+          className="rounded-2xl bg-cyan-400 px-5 py-3 font-black text-slate-950 hover:bg-cyan-300"
+        >
+          + Add waitlist customer
+        </button>
       </div>
 
       {entries.length > 0 ? (
