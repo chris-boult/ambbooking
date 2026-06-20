@@ -53,7 +53,7 @@ export async function POST(req: Request) {
 
     if (business.is_internal) {
       return NextResponse.json({
-        url: `${process.env.NEXT_PUBLIC_APP_URL}/dashboard`,
+        url: `${process.env.NEXT_PUBLIC_APP_URL}/business`,
       })
     }
 
@@ -77,7 +77,7 @@ export async function POST(req: Request) {
         business_id: business.id,
         plan,
       },
-      success_url: `${process.env.NEXT_PUBLIC_APP_URL}/dashboard?subscription=success`,
+      success_url: `${process.env.NEXT_PUBLIC_APP_URL}/business?subscription=success`,
       cancel_url: `${process.env.NEXT_PUBLIC_APP_URL}/onboarding/plan?subscription=cancelled`,
     })
 

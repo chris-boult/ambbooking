@@ -22,7 +22,7 @@ export default function PartnerLoginPage() {
       return
     }
 
-    window.location.href = '/partner/dashboard'
+    window.location.href = '/partner/business'
   }
 
   return (

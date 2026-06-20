@@ -39,17 +39,18 @@ export default function DashboardLayout({
 
   const navItems = useMemo(() => {
     const allItems = [
-      { name: 'Overview', href: '/dashboard', roles: ['owner', 'manager', 'staff'] },
-      { name: 'Calendar', href: '/dashboard/calendar', roles: ['owner', 'manager', 'staff'] },
-      { name: 'Bookings', href: '/dashboard/bookings', roles: ['owner', 'manager', 'staff'] },
-      { name: 'Customers', href: '/dashboard/customers', roles: ['owner', 'manager', 'staff'] },
-      { name: 'Services', href: '/dashboard/services', roles: ['owner', 'manager'] },
-      { name: 'Team', href: '/dashboard/team', roles: ['owner', 'manager'] },
-      { name: 'Staff', href: '/dashboard/staff', roles: ['owner', 'manager'] },
-      { name: 'Packages', href: '/dashboard/packages', roles: ['owner', 'manager'] },
-      { name: 'Reports', href: '/dashboard/reports', roles: ['owner', 'manager'] },
-      { name: 'Gift Vouchers', href: '/dashboard/gift-vouchers', roles: ['owner', 'manager'] },
-      { name: 'Settings', href: '/dashboard/settings', roles: ['owner'] },
+      { name: 'Overview', href: '/business', roles: ['owner', 'manager', 'staff'] },
+      { name: 'Calendar', href: '/business/dashboard/calendar', roles: ['owner', 'manager', 'staff'] },
+      { name: 'Bookings', href: '/business/dashboard/bookings', roles: ['owner', 'manager', 'staff'] },
+      { name: 'Customers', href: '/business/dashboard/customers', roles: ['owner', 'manager', 'staff'] },
+      { name: 'Services', href: '/business/dashboard/services', roles: ['owner', 'manager'] },
+      { name: 'Team', href: '/business/dashboard/team', roles: ['owner', 'manager'] },
+      { name: 'Staff', href: '/business/dashboard/staff', roles: ['owner', 'manager'] },
+      { name: 'Packages', href: '/business/dashboard/packages', roles: ['owner', 'manager'] },
+      { name: 'Reports', href: '/business/dashboard/reports', roles: ['owner', 'manager'] },
+   { name: 'Memberships', href: '/business/dashboard/memberships', roles: ['owner', 'manager'] },
+      { name: 'Gift Vouchers', href: '/business/dashboard/gift-vouchers', roles: ['owner', 'manager'] },
+      { name: 'Settings', href: '/business/dashboard/settings', roles: ['owner'] },
     ]
 
     return allItems.filter((item) => role && item.roles.includes(role))
@@ -61,7 +62,7 @@ export default function DashboardLayout({
 
       <div className="relative z-10 flex min-h-screen">
         <aside className="hidden lg:flex w-64 shrink-0 flex-col border-r border-white/10 bg-black/50 backdrop-blur-2xl px-6 py-7">
-          <Link href="/dashboard" className="mb-10 block">
+          <Link href="/business" className="mb-10 block">
             <div className="rounded-2xl border border-white/10 bg-black p-4">
               <img
                 src="/logo.png"
@@ -131,7 +132,7 @@ export default function DashboardLayout({
 
               {role === 'owner' && (
                 <Link
-                  href="/dashboard/settings"
+                  href="/business/dashboard/settings"
                   className="rounded-full border border-white/10 bg-white/[0.04] px-4 py-2 text-sm font-bold text-slate-300 hover:text-white"
                 >
                   Settings

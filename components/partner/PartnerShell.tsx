@@ -5,7 +5,7 @@ import { usePathname } from 'next/navigation'
 import { signOutPartner } from '@/lib/partnerPortal'
 
 const navItems = [
-  { name: 'Dashboard', href: '/partner/dashboard' },
+  { name: 'Dashboard', href: '/partner/business' },
   { name: 'Referrals', href: '/partner/referrals' },
   { name: 'Commissions', href: '/partner/commissions' },
   { name: 'Payouts', href: '/partner/payouts' },
@@ -20,7 +20,7 @@ export default function PartnerShell({ children }: { children: React.ReactNode }
     <main className="min-h-screen bg-slate-950 text-slate-100">
       <div className="grid min-h-screen lg:grid-cols-[280px_1fr]">
         <aside className="border-r border-white/10 bg-slate-950/95 p-5">
-          <Link href="/partner/dashboard" className="mb-8 block rounded-2xl border border-white/10 bg-black p-4 text-lg font-bold">
+          <Link href="/partner/business" className="mb-8 block rounded-2xl border border-white/10 bg-black p-4 text-lg font-bold">
             AMB Booking
             <span className="mt-1 block text-xs font-medium uppercase tracking-[0.25em] text-cyan-300">Partner Portal</span>
           </Link>

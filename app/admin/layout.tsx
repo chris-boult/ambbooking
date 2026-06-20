@@ -109,7 +109,7 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
             This area is restricted to active platform administrators.
           </p>
           <Link
-            href="/dashboard"
+            href="/business"
             className="mt-6 inline-block rounded-2xl bg-white px-5 py-3 font-black text-slate-950"
           >
             Return to dashboard
@@ -177,7 +177,7 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
               </div>
 
               <Link
-                href="/dashboard"
+                href="/business"
                 className="shrink-0 rounded-full border border-white/10 bg-white/[0.04] px-4 py-2 text-sm font-bold text-slate-300 hover:text-white"
               >
                 Business dashboard
