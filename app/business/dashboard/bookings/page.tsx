@@ -230,11 +230,86 @@ export default function BookingsPage() {
     setLoading(false)
   }
 
+  async function awardLoyaltyVisitForCompletedBooking(booking: Booking) {
+    if (!booking.customer_id) return
+
+    const { data: loyaltyWallet, error: loyaltyError } = await supabase
+      .from('customer_loyalty')
+      .select('id, visits_required, visits_completed, reward_label, status')
+      .eq('business_id', booking.business_id)
+      .eq('customer_id', booking.customer_id)
+      .in('status', ['active', 'earned'])
+      .order('created_at', { ascending: false })
+      .limit(1)
+      .maybeSingle()
+
+    if (loyaltyError) {
+      console.error('Loyalty lookup failed:', loyaltyError)
+      return
+    }
+
+    if (!loyaltyWallet) return
+
+    const visitsRequired = Number(loyaltyWallet.visits_required || 0)
+    const currentVisits = Number(loyaltyWallet.visits_completed || 0)
+    const nextVisits = currentVisits + 1
+
+    const wasAlreadyEarned = loyaltyWallet.status === 'earned'
+    const isNowEarned = visitsRequired > 0 && nextVisits >= visitsRequired
+
+    const nextStatus = isNowEarned ? 'earned' : 'active'
+
+    const { error: updateError } = await supabase
+      .from('customer_loyalty')
+      .update({
+        visits_completed: nextVisits,
+        status: nextStatus,
+      })
+      .eq('id', loyaltyWallet.id)
+
+    if (updateError) {
+      console.error('Loyalty update failed:', updateError)
+      return
+    }
+
+    if (isNowEarned && !wasAlreadyEarned) {
+      try {
+        await fetch('/api/messaging/send-loyalty-reward-sms', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            businessId: booking.business_id,
+            customerId: booking.customer_id,
+            bookingId: booking.id,
+            loyaltyId: loyaltyWallet.id,
+            rewardLabel: loyaltyWallet.reward_label || 'your loyalty reward',
+          }),
+        })
+      } catch (error) {
+        console.error('Loyalty reward SMS failed:', error)
+      }
+    }
+  }
+
   async function updateBookingStatus(id: string, status: string) {
+    const booking = bookings.find((item) => item.id === id)
+    if (!booking) return
+
     const confirmed = window.confirm(`Mark this booking as ${status}?`)
     if (!confirmed) return
 
-    await supabase.from('bookings').update({ status }).eq('id', id)
+    const { error } = await supabase.from('bookings').update({ status }).eq('id', id)
+
+    if (error) {
+      setMessage(error.message)
+      return
+    }
+
+    if (status === 'completed' && booking.status !== 'completed') {
+      await awardLoyaltyVisitForCompletedBooking(booking)
+    }
 
     await loadBookings()
   }
@@ -251,31 +326,34 @@ export default function BookingsPage() {
 
     await supabase.from('bookings').update({ status: 'cancelled' }).eq('id', id)
 
-// Trigger waiting list notifications
-try {
-  await fetch('/api/process-waiting-list', {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-    },
-    body: JSON.stringify({
-      business_id: booking.business_id,
-      service_id: booking.service_id,
-      team_member_id: booking.team_member_id,
-      booking_date: booking.booking_date,
-      booking_time: booking.booking_time,
-    }),
-  })
-} catch (error) {
-  console.error('Waiting list processing failed', error)
-}
+    // Trigger waiting list notifications
+    try {
+      await fetch('/api/process-waiting-list', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          business_id: booking.business_id,
+          service_id: booking.service_id,
+          team_member_id: booking.team_member_id,
+          booking_date: booking.booking_date,
+          booking_time: booking.booking_time,
+        }),
+      })
+    } catch (error) {
+      console.error('Waiting list processing failed', error)
+    }
 
-await fetch('/api/send-booking-update-email', {
+    await fetch('/api/send-booking-update-email', {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
       },
       body: JSON.stringify({
+        businessId: booking.business_id,
+        customerId: booking.customer_id,
+        bookingId: booking.id,
         customerName: `${booking.customers?.[0]?.first_name || ''} ${
           booking.customers?.[0]?.last_name || ''
         }`,
@@ -287,6 +365,8 @@ await fetch('/api/send-booking-update-email', {
           year: 'numeric',
         }),
         bookingTime: booking.booking_time?.slice(0, 5),
+        serviceName: booking.services?.[0]?.name || 'Your appointment',
+        teamMemberName: booking.team_members?.[0]?.full_name || 'Your specialist',
         action: 'cancelled',
       }),
     })
@@ -344,6 +424,9 @@ await fetch('/api/send-booking-update-email', {
         'Content-Type': 'application/json',
       },
       body: JSON.stringify({
+        businessId: rescheduleBooking.business_id,
+        customerId: rescheduleBooking.customer_id,
+        bookingId: rescheduleBooking.id,
         customerName: `${rescheduleBooking.customers?.[0]?.first_name || ''} ${
           rescheduleBooking.customers?.[0]?.last_name || ''
         }`,
@@ -355,6 +438,8 @@ await fetch('/api/send-booking-update-email', {
           year: 'numeric',
         }),
         bookingTime: newTime,
+        serviceName: rescheduleBooking.services?.[0]?.name || 'Your appointment',
+        teamMemberName: rescheduleBooking.team_members?.[0]?.full_name || 'Your specialist',
         action: 'rescheduled',
       }),
     })
@@ -442,6 +527,12 @@ await fetch('/api/send-booking-update-email', {
   return (
     <div className="p-8 text-white">
       <h1 className="text-4xl font-bold mb-8">Bookings</h1>
+
+      {message && (
+        <div className="mb-6 rounded-2xl border border-cyan-300/20 bg-cyan-300/10 p-4 text-cyan-100">
+          {message}
+        </div>
+      )}
 
       <BookingSection
         title="Upcoming Bookings"

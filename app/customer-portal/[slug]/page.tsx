@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import { useParams } from 'next/navigation'
 import { supabase } from '@/lib/supabase'
+import QRCode from 'react-qr-code'
 
 type Business = {
   id: string
@@ -141,6 +142,76 @@ type CustomerMembership = {
   current_period_start: string | null
   current_period_end: string | null
   stripe_subscription_id: string | null
+  stripe_customer_id?: string | null
+  membership_plan_id?: string | null
+  created_at: string | null
+}
+
+type MembershipBenefit = {
+  id: string
+  business_id: string
+  membership_plan_id: string
+  benefit: string
+  display_order: number | null
+  created_at?: string | null
+}
+
+type MembershipUsage = {
+  id: string
+  business_id: string
+  customer_membership_id: string
+  customer_id: string | null
+  booking_id: string | null
+  sessions_used: number | null
+  notes: string | null
+  created_at: string | null
+  usage_date: string | null
+  usage_type: string | null
+  benefit_name: string | null
+  quantity: number | null
+  created_by: string | null
+}
+
+type CustomerReferral = {
+  id: string
+  business_id: string
+  customer_id: string
+  referral_code: string
+  friend_email: string | null
+  status: string | null
+  reward_amount: number | null
+  created_at: string | null
+}
+
+type CustomerReview = {
+  id: string
+  business_id: string
+  customer_id: string
+  booking_id: string | null
+  rating: number | null
+  review_text: string | null
+  status: string | null
+  created_at: string | null
+}
+
+type CustomerDocument = {
+  id: string
+  business_id: string
+  customer_id: string | null
+  title: string
+  file_url: string
+  category: string | null
+  created_at: string | null
+}
+
+type CustomerLoyalty = {
+  id: string
+  business_id: string
+  customer_id: string
+  visits_required: number | null
+  visits_completed: number | null
+  reward_label: string | null
+  status: string | null
   created_at: string | null
 }
 
@@ -214,6 +285,31 @@ function voucherBalance(voucher: GiftVoucher) {
   return Number(voucher.remaining_amount ?? voucher.amount ?? 0)
 }
 
+function membershipSessionsRemaining(membership: CustomerMembership) {
+  return Math.max(0, Number(membership.included_sessions || 0) - Number(membership.sessions_used || 0))
+}
+
+function membershipUtilisation(membership: CustomerMembership) {
+  const included = Number(membership.included_sessions || 0)
+  const used = Number(membership.sessions_used || 0)
+  if (included <= 0) return 0
+  return Math.min(100, Math.round((used / included) * 100))
+}
+
+function customerInitials(customer: Customer | null) {
+  if (!customer) return 'M'
+  const first = customer.first_name?.slice(0, 1) || ''
+  const last = customer.last_name?.slice(0, 1) || ''
+  return `${first}${last}`.trim() || 'M'
+}
+
+function generateReferralCode(customer: Customer, business: Business) {
+  const name = `${customer.first_name || 'MEMBER'}${customer.last_name || ''}`.replace(/[^a-z0-9]/gi, '').toUpperCase()
+  const businessPrefix = (business.slug || business.business_name || 'AMB').replace(/[^a-z0-9]/gi, '').toUpperCase().slice(0, 4)
+  const customerPrefix = name.slice(0, 6) || 'MEMBER'
+  return `${businessPrefix}-${customerPrefix}`
+}
+
 function statusPill(status?: string | null) {
   if (status === 'confirmed' || status === 'active' || status === 'claimed' || status === 'paid') {
     return 'border-emerald-500/20 bg-emerald-500/10 text-emerald-300'
@@ -252,10 +348,33 @@ export default function CustomerPortalPage() {
   const [vouchers, setVouchers] = useState<GiftVoucher[]>([])
   const [waitlist, setWaitlist] = useState<WaitingListEntry[]>([])
   const [memberships, setMemberships] = useState<CustomerMembership[]>([])
+  const [membershipBenefits, setMembershipBenefits] = useState<MembershipBenefit[]>([])
+  const [membershipUsage, setMembershipUsage] = useState<MembershipUsage[]>([])
+  const [referrals, setReferrals] = useState<CustomerReferral[]>([])
+  const [reviews, setReviews] = useState<CustomerReview[]>([])
+  const [documents, setDocuments] = useState<CustomerDocument[]>([])
+  const [loyalty, setLoyalty] = useState<CustomerLoyalty | null>(null)
   const [services, setServices] = useState<ServiceOption[]>([])
   const [teamMembers, setTeamMembers] = useState<TeamMemberOption[]>([])
 
-  const [activeTab, setActiveTab] = useState<'home' | 'bookings' | 'packages' | 'memberships' | 'vouchers' | 'waitlist' | 'payments' | 'profile'>('home')
+  const [activeTab, setActiveTab] = useState<
+    | 'home'
+    | 'bookings'
+    | 'packages'
+    | 'memberships'
+    | 'vouchers'
+    | 'waitlist'
+    | 'payments'
+    | 'referrals'
+    | 'reviews'
+    | 'documents'
+    | 'loyalty'
+    | 'wallet'
+    | 'notifications'
+    | 'discover'
+    | 'timeline'
+    | 'profile'
+  >('home')
   const [message, setMessage] = useState('')
   const [loadingBusiness, setLoadingBusiness] = useState(true)
   const [loadingPortal, setLoadingPortal] = useState(false)
@@ -282,6 +401,12 @@ export default function CustomerPortalPage() {
   const [emailReminders, setEmailReminders] = useState(true)
   const [smsReminders, setSmsReminders] = useState(false)
   const [marketingOptIn, setMarketingOptIn] = useState(false)
+
+  const [portalLoadingAction, setPortalLoadingAction] = useState('')
+  const [friendEmail, setFriendEmail] = useState('')
+  const [reviewBookingId, setReviewBookingId] = useState('')
+  const [reviewRating, setReviewRating] = useState(5)
+  const [reviewText, setReviewText] = useState('')
 
   useEffect(() => {
     loadBusiness()
@@ -402,7 +527,21 @@ export default function CustomerPortalPage() {
 
     const customerEmail = loadedCustomer.email || email.trim()
 
-    const [bookingResult, packageResult, voucherResult, waitlistResult, membershipResult, servicesResult, teamResult] = await Promise.all([
+    const [
+      bookingResult,
+      packageResult,
+      voucherResult,
+      waitlistResult,
+      membershipResult,
+      membershipBenefitResult,
+      membershipUsageResult,
+      referralResult,
+      reviewResult,
+      documentResult,
+      loyaltyResult,
+      servicesResult,
+      teamResult,
+    ] = await Promise.all([
       supabase
         .from('bookings')
         .select(`
@@ -452,6 +591,45 @@ export default function CustomerPortalPage() {
         .eq('customer_id', loadedCustomer.id)
         .order('created_at', { ascending: false }),
       supabase
+        .from('membership_plan_benefits')
+        .select('*')
+        .eq('business_id', business.id)
+        .order('display_order', { ascending: true }),
+      supabase
+        .from('membership_usage')
+        .select('*')
+        .eq('business_id', business.id)
+        .eq('customer_id', loadedCustomer.id)
+        .order('usage_date', { ascending: false })
+        .order('created_at', { ascending: false }),
+      supabase
+        .from('customer_referrals')
+        .select('*')
+        .eq('business_id', business.id)
+        .eq('customer_id', loadedCustomer.id)
+        .order('created_at', { ascending: false }),
+      supabase
+        .from('customer_reviews')
+        .select('*')
+        .eq('business_id', business.id)
+        .eq('customer_id', loadedCustomer.id)
+        .order('created_at', { ascending: false }),
+      supabase
+        .from('customer_documents')
+        .select('*')
+        .eq('business_id', business.id)
+        .or(`customer_id.eq.${loadedCustomer.id},customer_id.is.null`)
+        .order('created_at', { ascending: false }),
+      supabase
+        .from('customer_loyalty')
+        .select('*')
+        .eq('business_id', business.id)
+        .eq('customer_id', loadedCustomer.id)
+        .eq('status', 'active')
+        .order('created_at', { ascending: false })
+        .limit(1)
+        .maybeSingle(),
+      supabase
         .from('services')
         .select('id,name,price,duration_minutes')
         .eq('business_id', business.id)
@@ -469,6 +647,12 @@ export default function CustomerPortalPage() {
       voucherResult.error ||
       waitlistResult.error ||
       membershipResult.error ||
+      membershipBenefitResult.error ||
+      membershipUsageResult.error ||
+      referralResult.error ||
+      reviewResult.error ||
+      documentResult.error ||
+      loyaltyResult.error ||
       servicesResult.error ||
       teamResult.error
     ) {
@@ -478,6 +662,12 @@ export default function CustomerPortalPage() {
           voucherResult.error?.message ||
           waitlistResult.error?.message ||
           membershipResult.error?.message ||
+          membershipBenefitResult.error?.message ||
+          membershipUsageResult.error?.message ||
+          referralResult.error?.message ||
+          reviewResult.error?.message ||
+          documentResult.error?.message ||
+          loyaltyResult.error?.message ||
           servicesResult.error?.message ||
           teamResult.error?.message ||
           'Could not load customer portal.'
@@ -491,6 +681,12 @@ export default function CustomerPortalPage() {
     setVouchers((voucherResult.data as unknown as GiftVoucher[]) || [])
     setWaitlist((waitlistResult.data as unknown as WaitingListEntry[]) || [])
     setMemberships((membershipResult.data as CustomerMembership[]) || [])
+    setMembershipBenefits((membershipBenefitResult.data as MembershipBenefit[]) || [])
+    setMembershipUsage((membershipUsageResult.data as MembershipUsage[]) || [])
+    setReferrals((referralResult.data as CustomerReferral[]) || [])
+    setReviews((reviewResult.data as CustomerReview[]) || [])
+    setDocuments((documentResult.data as CustomerDocument[]) || [])
+    setLoyalty((loyaltyResult.data as CustomerLoyalty) || null)
     setServices((servicesResult.data as ServiceOption[]) || [])
     setTeamMembers((teamResult.data as TeamMemberOption[]) || [])
     setLoadingPortal(false)
@@ -717,6 +913,159 @@ export default function CustomerPortalPage() {
     setMessage('Profile updated.')
   }
 
+  async function openMembershipBilling(membership: CustomerMembership) {
+    if (!membership.stripe_customer_id) {
+      setMessage('This membership does not have online billing attached.')
+      return
+    }
+
+    setPortalLoadingAction(`billing-${membership.id}`)
+    setMessage('')
+
+    const response = await fetch('/api/memberships/create-portal-session', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        stripeCustomerId: membership.stripe_customer_id,
+        returnUrl: `${window.location.origin}/book/${slug}/portal`,
+      }),
+    })
+
+    const result = await response.json().catch(() => null)
+
+    if (!response.ok || !result?.url) {
+      setPortalLoadingAction('')
+      setMessage(result?.error || 'Could not open billing portal.')
+      return
+    }
+
+    window.location.href = result.url
+  }
+
+  function bookAgain(booking: Booking) {
+    const query = new URLSearchParams()
+    if (booking.service_id) query.set('service', booking.service_id)
+    if (booking.team_member_id) query.set('team', booking.team_member_id)
+    window.location.href = `/book/${slug}${query.toString() ? `?${query.toString()}` : ''}`
+  }
+
+  function bookAppointment() {
+    window.location.href = `/book/${slug}`
+  }
+
+  function rebookLastService() {
+    const lastBooking = bookings[0]
+    if (lastBooking) {
+      bookAgain(lastBooking)
+      return
+    }
+
+    bookAppointment()
+  }
+
+  function manageActiveMembership() {
+    if (activeMembership?.stripe_customer_id) {
+      openMembershipBilling(activeMembership)
+      return
+    }
+
+    setActiveTab('memberships')
+  }
+
+  async function createReferral() {
+    if (!business || !customer) return
+
+    setMessage('')
+
+    const referralCode = referrals[0]?.referral_code || generateReferralCode(customer, business)
+
+    const { data, error } = await supabase
+      .from('customer_referrals')
+      .insert({
+        business_id: business.id,
+        customer_id: customer.id,
+        referral_code: referralCode,
+        friend_email: friendEmail.trim().toLowerCase() || null,
+        reward_amount: 10,
+        status: 'pending',
+      })
+      .select('*')
+      .single()
+
+    if (error) {
+      setMessage(error.message)
+      return
+    }
+
+    setReferrals((current) => [data as CustomerReferral, ...current])
+    setFriendEmail('')
+    setMessage('Referral created.')
+  }
+
+  async function submitReview() {
+    if (!business || !customer) return
+
+    if (!reviewBookingId) {
+      setMessage('Choose a completed booking to review.')
+      return
+    }
+
+    setMessage('')
+
+    const { data, error } = await supabase
+      .from('customer_reviews')
+      .insert({
+        business_id: business.id,
+        customer_id: customer.id,
+        booking_id: reviewBookingId,
+        rating: reviewRating,
+        review_text: reviewText.trim() || null,
+        status: 'submitted',
+      })
+      .select('*')
+      .single()
+
+    if (error) {
+      setMessage(error.message)
+      return
+    }
+
+    setReviews((current) => [data as CustomerReview, ...current])
+    setReviewBookingId('')
+    setReviewRating(5)
+    setReviewText('')
+    setMessage('Review submitted. Thank you.')
+  }
+
+  async function createLoyaltyWallet() {
+    if (!business || !customer) return
+
+    setMessage('')
+
+    const completedVisits = bookings.filter((booking) => booking.status === 'completed').length
+
+    const { data, error } = await supabase
+      .from('customer_loyalty')
+      .insert({
+        business_id: business.id,
+        customer_id: customer.id,
+        visits_required: 10,
+        visits_completed: completedVisits,
+        reward_label: 'Free appointment',
+        status: 'active',
+      })
+      .select('*')
+      .single()
+
+    if (error) {
+      setMessage(error.message)
+      return
+    }
+
+    setLoyalty(data as CustomerLoyalty)
+    setMessage('Loyalty wallet activated.')
+  }
+
   const upcomingBookings = useMemo(() => {
     const today = new Date().toISOString().slice(0, 10)
     return bookings
@@ -738,10 +1087,60 @@ export default function CustomerPortalPage() {
   const totalVoucherBalance = vouchers.reduce((sum, voucher) => sum + voucherBalance(voucher), 0)
   const paidTotal = bookings.reduce((sum, booking) => sum + Number(booking.amount_paid || 0), 0)
   const outstandingTotal = bookings.reduce((sum, booking) => sum + Number(booking.amount_due || 0), 0)
+  const completedBookings = bookings.filter((booking) => booking.status === 'completed')
+  const reviewableBookings = completedBookings.filter((booking) => !reviews.some((review) => review.booking_id === booking.id))
+  const referralCode = customer && business ? referrals[0]?.referral_code || generateReferralCode(customer, business) : ''
+  const loyaltyVisitsRequired = Number(loyalty?.visits_required || 10)
+  const loyaltyVisitsCompleted = Number(loyalty?.visits_completed ?? completedBookings.length)
+  const loyaltyProgress = loyaltyVisitsRequired > 0 ? Math.min(100, Math.round((loyaltyVisitsCompleted / loyaltyVisitsRequired) * 100)) : 0
+
+  const timelineItems = [
+    ...bookings.map((booking) => ({
+      id: `booking-${booking.id}`,
+      date: booking.booking_date,
+      title: serviceName(booking),
+      description: `${booking.status || 'confirmed'} booking at ${String(booking.booking_time).slice(0, 5)}`,
+      type: 'Booking',
+    })),
+    ...packages.map((item) => ({
+      id: `package-${item.id}`,
+      date: item.purchase_date || item.expiry_date || '',
+      title: packageName(item),
+      description: `${sessionsRemaining(item)} sessions remaining`,
+      type: 'Package',
+    })),
+    ...memberships.map((item) => ({
+      id: `membership-${item.id}`,
+      date: item.created_at || item.current_period_start || '',
+      title: item.membership_name,
+      description: `${item.status || 'active'} membership`,
+      type: 'Membership',
+    })),
+    ...vouchers.map((item) => ({
+      id: `voucher-${item.id}`,
+      date: item.created_at || item.expiry_date || '',
+      title: voucherCode(item),
+      description: `${money(voucherBalance(item))} voucher balance`,
+      type: 'Voucher',
+    })),
+    ...membershipUsage.map((item) => ({
+      id: `usage-${item.id}`,
+      date: item.usage_date || item.created_at || '',
+      title: item.usage_type === 'benefit' ? item.benefit_name || 'Benefit used' : 'Membership session used',
+      description: `${item.sessions_used || 0} sessions · ${item.notes || 'Usage recorded'}`,
+      type: 'Usage',
+    })),
+  ].filter((item) => item.date).sort((a, b) => b.date.localeCompare(a.date))
+
+  const recentActivity = timelineItems.slice(0, 5)
+  const memberSince = activeMembership?.created_at || activeMembership?.current_period_start || null
+  const nextBookingText = nextBooking
+    ? `${serviceName(nextBooking)} on ${formatDate(nextBooking.booking_date)} at ${String(nextBooking.booking_time).slice(0, 5)}`
+    : 'No upcoming booking yet.'
 
   return (
-    <main className="min-h-screen bg-[#020617] px-4 py-8 text-white">
-      <div className="mx-auto max-w-6xl">
+    <main className="min-h-screen bg-[#020617] px-4 pb-28 pt-8 text-white xl:pb-8">
+      <div className="mx-auto max-w-7xl">
         <section className="mb-8 rounded-[32px] border border-white/10 bg-white/[0.04] p-5 shadow-2xl md:p-6">
           <div className="flex flex-col gap-5 md:flex-row md:items-center md:justify-between">
             <div className="flex items-center gap-4">
@@ -754,7 +1153,7 @@ export default function CustomerPortalPage() {
               )}
 
               <div>
-                <p className="text-sm font-black uppercase tracking-[0.25em] text-cyan-300">Customer portal V5</p>
+                <p className="text-sm font-black uppercase tracking-[0.25em] text-cyan-300">Customer portal V6</p>
                 <h1 className="mt-1 text-2xl font-black md:text-3xl">
                   {business?.business_name ? `${business.business_name} Account Centre` : 'Your account centre'}
                 </h1>
@@ -837,14 +1236,75 @@ export default function CustomerPortalPage() {
         )}
 
         {customer && (
-          <div className="space-y-6">
-            <section className="grid gap-4 sm:grid-cols-2 xl:grid-cols-5">
-              <Kpi title="Upcoming" value={String(upcomingBookings.length)} />
-              <Kpi title="Packages" value={String(packages.length)} />
-              <Kpi title="Memberships" value={String(memberships.length)} />
-              <Kpi title="Vouchers" value={money(totalVoucherBalance)} />
-              <Kpi title="Waitlist" value={String(waitlist.filter((entry) => entry.status !== 'cancelled' && entry.status !== 'claimed').length)} />
-            </section>
+          <div className="grid gap-6 xl:grid-cols-[280px_minmax(0,1fr)]">
+            <aside className="xl:sticky xl:top-8 xl:self-start">
+              <section className="rounded-[28px] border border-white/10 bg-white/[0.04] p-4 shadow-2xl">
+                <div className="mb-4 rounded-2xl border border-white/10 bg-black/20 p-4">
+                  <p className="text-xs font-black uppercase tracking-[0.22em] text-cyan-300">Customer menu</p>
+                  <p className="mt-2 font-black">{customerName(customer)}</p>
+                  <p className="mt-1 text-xs text-slate-500">{customer.email}</p>
+                </div>
+
+                <nav className="space-y-2">
+                  <NavGroup
+                    title="Customer"
+                    items={[
+                      ['home', 'Overview'],
+                      ['bookings', 'Bookings'],
+                      ['memberships', 'Memberships'],
+                      ['packages', 'Packages'],
+                      ['vouchers', 'Gift vouchers'],
+                      ['waitlist', 'Waitlist'],
+                    ]}
+                    activeTab={activeTab}
+                    setActiveTab={setActiveTab}
+                  />
+
+                  <NavGroup
+                    title="Account"
+                    items={[
+                      ['wallet', 'Wallet'],
+                      ['payments', 'Payments'],
+                      ['referrals', 'Referrals'],
+                      ['reviews', 'Reviews'],
+                      ['documents', 'Documents'],
+                      ['loyalty', 'Loyalty'],
+                      ['timeline', 'Timeline'],
+                      ['notifications', 'Notifications'],
+                      ['discover', 'Discover'],
+                    ]}
+                    activeTab={activeTab}
+                    setActiveTab={setActiveTab}
+                  />
+
+                  <NavGroup
+                    title="Settings"
+                    items={[
+                      ['profile', 'Profile'],
+                    ]}
+                    activeTab={activeTab}
+                    setActiveTab={setActiveTab}
+                  />
+                </nav>
+
+                <button
+                  type="button"
+                  onClick={resetAccess}
+                  className="mt-4 w-full rounded-2xl border border-white/10 px-4 py-3 text-sm font-black text-slate-300 hover:bg-white/10"
+                >
+                  Use different email
+                </button>
+              </section>
+            </aside>
+
+            <div className="min-w-0 space-y-6">
+              <section className="grid gap-4 sm:grid-cols-2 xl:grid-cols-5">
+                <Kpi title="Next booking" value={nextBooking ? serviceName(nextBooking) : 'None'} />
+                <Kpi title="Membership" value={activeMembership ? activeMembership.status || 'active' : 'None'} />
+                <Kpi title="Sessions" value={String(activeMembership ? membershipSessionsRemaining(activeMembership) : activePackage ? sessionsRemaining(activePackage) : 0)} />
+                <Kpi title="Vouchers" value={money(totalVoucherBalance)} />
+                <Kpi title="Loyalty" value={`${loyaltyProgress}%`} />
+              </section>
 
             <section className="rounded-3xl border border-cyan-300/20 bg-cyan-300/10 p-5">
               <div className="grid gap-4 lg:grid-cols-5">
@@ -870,63 +1330,72 @@ export default function CustomerPortalPage() {
               </div>
             </section>
 
-            <section className="rounded-3xl border border-white/10 bg-white/[0.04] p-4">
-              <div className="flex flex-wrap gap-2">
-                {[
-                  ['home', 'Home'],
-                  ['bookings', 'Bookings'],
-                  ['packages', 'Packages'],
-                  ['memberships', 'Memberships'],
-                  ['vouchers', 'Gift vouchers'],
-                  ['waitlist', 'Waitlist'],
-                  ['payments', 'Payments'],
-                  ['profile', 'Profile'],
-                ].map(([key, label]) => (
-                  <button
-                    key={key}
-                    type="button"
-                    onClick={() => setActiveTab(key as typeof activeTab)}
-                    className={`rounded-2xl px-4 py-3 text-sm font-black ${
-                      activeTab === key ? 'bg-white text-slate-950' : 'border border-white/10 text-slate-300 hover:bg-white/10'
-                    }`}
-                  >
-                    {label}
-                  </button>
-                ))}
-              </div>
-            </section>
-
             {activeTab === 'home' && (
-              <section className="grid gap-6 lg:grid-cols-2">
-                <Panel title="Next booking">
-                  {nextBooking ? (
-                    <BookingCard
-                      booking={nextBooking}
-                      onCancel={() => {
-                        setCancelBookingId(nextBooking.id)
-                        setActiveTab('bookings')
-                      }}
-                      onReschedule={() => {
-                        setRescheduleBookingId(nextBooking.id)
-                        setRescheduleDate(nextBooking.booking_date)
-                        setRescheduleTime(String(nextBooking.booking_time).slice(0, 5))
-                        setActiveTab('bookings')
-                      }}
-                    />
-                  ) : (
-                    <EmptyState message="No upcoming booking." />
-                  )}
-                </Panel>
+              <div className="space-y-6">
+                <section className="rounded-[32px] border border-cyan-300/20 bg-cyan-300/10 p-6 md:p-8">
+                  <div className="flex flex-col gap-6 lg:flex-row lg:items-end lg:justify-between">
+                    <div>
+                      <p className="text-sm font-black uppercase tracking-[0.25em] text-cyan-200">Overview</p>
+                      <h2 className="mt-2 text-4xl font-black md:text-5xl">
+                        Welcome back, {customer.first_name}.
+                      </h2>
+                      <p className="mt-4 max-w-3xl text-lg leading-8 text-slate-300">
+                        {nextBookingText}
+                      </p>
+                    </div>
 
-                <Panel title="Account overview">
-                  <div className="grid gap-3">
-                    <ProfileRow label="Active package" value={activePackage ? packageName(activePackage) : 'None'} />
-                    <ProfileRow label="Active membership" value={activeMembership ? activeMembership.membership_name : 'None'} />
-                    <ProfileRow label="Voucher balance" value={money(totalVoucherBalance)} />
-                    <ProfileRow label="Outstanding balance" value={money(outstandingTotal)} />
+                    <div className="flex flex-col gap-3 sm:flex-row">
+                      <button type="button" onClick={bookAppointment} className={primaryButtonClass()}>
+                        Book appointment
+                      </button>
+                      <button type="button" onClick={manageActiveMembership} className={secondaryButtonClass()}>
+                        Manage membership
+                      </button>
+                    </div>
+                  </div>
+                </section>
+
+                <section className="grid gap-4 md:grid-cols-4">
+                  <HighlightCard title="Next appointment" value={nextBooking ? serviceName(nextBooking) : 'None booked'} helper={nextBooking ? `${formatDate(nextBooking.booking_date)} · ${String(nextBooking.booking_time).slice(0, 5)}` : 'Book when you are ready'} />
+                  <HighlightCard title="Membership" value={activeMembership ? activeMembership.membership_name : 'None active'} helper={activeMembership ? `${membershipSessionsRemaining(activeMembership)} sessions remaining` : 'No current plan'} />
+                  <HighlightCard title="Available sessions" value={activeMembership ? `${membershipSessionsRemaining(activeMembership)} / ${activeMembership.included_sessions || 0}` : activePackage ? `${sessionsRemaining(activePackage)} package sessions` : '0'} helper="Ready to use" />
+                  <HighlightCard title="Outstanding" value={money(outstandingTotal)} helper="Current balance" />
+                </section>
+
+                <section className="grid gap-6 xl:grid-cols-[1fr_0.9fr]">
+                  <Panel title="Membership card">
+                    {activeMembership ? (
+                      <MembershipCard
+                        membership={activeMembership}
+                        customer={customer}
+                        memberSince={memberSince}
+                        onManage={() => manageActiveMembership()}
+                        loading={portalLoadingAction === `billing-${activeMembership.id}`}
+                      />
+                    ) : (
+                      <EmptyState message="No active membership yet." />
+                    )}
+                  </Panel>
+
+                  <Panel title="Quick actions">
+                    <div className="grid gap-3">
+                      <ActionButton title="Book appointment" description="Choose a new service, date and time." onClick={bookAppointment} />
+                      <ActionButton title="Rebook last service" description="Start from your most recent appointment." onClick={rebookLastService} />
+                      <ActionButton title="Manage membership" description="Review billing, sessions and benefits." onClick={manageActiveMembership} />
+                      <ActionButton title="Refer a friend" description="Share your referral code." onClick={() => setActiveTab('referrals')} />
+                    </div>
+                  </Panel>
+                </section>
+
+                <Panel title="Recent activity">
+                  <div className="space-y-3">
+                    {recentActivity.map((item) => (
+                      <TimelineRow key={item.id} item={item} />
+                    ))}
+                    {recentActivity.length === 0 && <EmptyState message="No recent activity yet." />}
                   </div>
                 </Panel>
-              </section>
+              </div>
             )}
 
             {activeTab === 'bookings' && (
@@ -1010,7 +1479,7 @@ export default function CustomerPortalPage() {
                 <Panel title="Past bookings">
                   <div className="space-y-3">
                     {pastBookings.slice(0, 10).map((booking) => (
-                      <BookingCard key={booking.id} booking={booking} onRebook={() => rebookService(booking)} />
+                      <BookingCard key={booking.id} booking={booking} onRebook={() => bookAgain(booking)} />
                     ))}
                     {pastBookings.length === 0 && <EmptyState message="No past bookings." />}
                   </div>
@@ -1040,26 +1509,62 @@ export default function CustomerPortalPage() {
               </Panel>
             )}
 
-            {activeTab === 'memberships' && (
-              <Panel title="Memberships">
-                <div className="space-y-3">
-                  {memberships.map((membership) => (
-                    <div key={membership.id} className="rounded-2xl border border-white/10 bg-black/20 p-5">
-                      <p className="text-lg font-black">{membership.membership_name}</p>
-                      <p className="mt-1 text-slate-400">
-                        {money(membership.monthly_amount)} · {membership.billing_interval || 'monthly'}
-                      </p>
-                      <p className="mt-1 text-sm text-slate-500">
-                        {Number(membership.included_sessions || 0) - Number(membership.sessions_used || 0)} of {membership.included_sessions || 0} sessions remaining this period
-                      </p>
-                      <p className="mt-3 text-xs font-black uppercase tracking-[0.2em] text-slate-500">
-                        {membership.status || 'active'} · renews {formatDate(membership.current_period_end)}
-                      </p>
+{activeTab === 'memberships' && (
+              <section className="space-y-6">
+                <Panel title="Membership">
+                  {memberships.length > 0 ? (
+                    <div className="space-y-6">
+                      {memberships.map((membership) => {
+                        const benefits = membershipBenefits.filter((benefit) => benefit.membership_plan_id === membership.membership_plan_id)
+                        const usageHistory = membershipUsage.filter((item) => item.customer_membership_id === membership.id)
+                        return (
+                          <div key={membership.id} className="rounded-2xl border border-white/10 bg-black/20 p-5">
+                            <div className="grid gap-6 xl:grid-cols-[0.9fr_1.1fr]">
+                              <MembershipCard
+                                membership={membership}
+                                customer={customer}
+                                memberSince={membership.created_at || membership.current_period_start}
+                                onManage={membership.stripe_customer_id ? () => openMembershipBilling(membership) : undefined}
+                                loading={portalLoadingAction === `billing-${membership.id}`}
+                              />
+
+                              <div className="space-y-4">
+                                <div className="rounded-2xl border border-white/10 bg-slate-950 p-5">
+                                  <p className="mb-3 text-xs font-black uppercase tracking-[0.2em] text-slate-500">Benefits</p>
+                                  <div className="space-y-2">
+                                    {benefits.map((benefit) => (
+                                      <div key={benefit.id} className="flex items-start gap-3 text-sm text-slate-300">
+                                        <span className="text-cyan-300">✓</span>
+                                        <span>{benefit.benefit}</span>
+                                      </div>
+                                    ))}
+                                    {benefits.length === 0 && <p className="text-sm text-slate-500">No benefits listed yet.</p>}
+                                  </div>
+                                </div>
+
+                                <div className="rounded-2xl border border-white/10 bg-slate-950 p-5">
+                                  <p className="mb-3 text-xs font-black uppercase tracking-[0.2em] text-slate-500">Usage history</p>
+                                  <div className="space-y-2">
+                                    {usageHistory.slice(0, 8).map((item) => (
+                                      <div key={item.id} className="flex items-center justify-between gap-4 text-sm">
+                                        <span className="text-slate-300">{item.usage_type === 'benefit' ? item.benefit_name || 'Benefit used' : 'Session used'}</span>
+                                        <span className="text-slate-500">{formatDate(item.usage_date)}</span>
+                                      </div>
+                                    ))}
+                                    {usageHistory.length === 0 && <p className="text-sm text-slate-500">No usage recorded yet.</p>}
+                                  </div>
+                                </div>
+                              </div>
+                            </div>
+                          </div>
+                        )
+                      })}
                     </div>
-                  ))}
-                  {memberships.length === 0 && <EmptyState message="No active memberships yet." />}
-                </div>
-              </Panel>
+                  ) : (
+                    <EmptyState message="No active memberships yet." />
+                  )}
+                </Panel>
+              </section>
             )}
 
             {activeTab === 'vouchers' && (
@@ -1074,8 +1579,8 @@ export default function CustomerPortalPage() {
                       <p className="text-sm text-slate-500">Original value: {money(voucher.amount)}</p>
                       {voucher.recipient_name && <p className="mt-1 text-sm text-slate-500">For {voucher.recipient_name}</p>}
                       {voucher.purchaser_name && <p className="mt-1 text-sm text-slate-500">Purchased by {voucher.purchaser_name}</p>}
-                      <div className="mt-4 rounded-2xl border border-dashed border-white/10 bg-white/[0.03] p-4 text-center font-mono text-sm text-slate-400">
-                        QR code placeholder · {voucherCode(voucher)}
+                      <div className="mt-4 flex justify-center rounded-2xl border border-white/10 bg-white p-4">
+                        <QRCode value={voucherCode(voucher)} size={132} />
                       </div>
                       <p className="mt-3 text-xs font-black uppercase tracking-[0.2em] text-slate-500">
                         {voucher.status || 'active'} · expires {formatDate(voucher.expiry_date)}
@@ -1153,6 +1658,80 @@ export default function CustomerPortalPage() {
               </section>
             )}
 
+
+            {activeTab === 'wallet' && (
+              <section className="space-y-6">
+                <Panel title="Customer wallet">
+                  <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+                    <WalletCard
+                      title="Membership sessions"
+                      value={activeMembership ? `${membershipSessionsRemaining(activeMembership)} remaining` : 'None'}
+                      helper={activeMembership ? `${activeMembership.sessions_used || 0} used from ${activeMembership.included_sessions || 0}` : 'No active membership'}
+                    />
+
+                    <WalletCard
+                      title="Package sessions"
+                      value={activePackage ? `${sessionsRemaining(activePackage)} remaining` : 'None'}
+                      helper={activePackage ? packageName(activePackage) : 'No active package'}
+                    />
+
+                    <WalletCard
+                      title="Voucher balance"
+                      value={money(totalVoucherBalance)}
+                      helper={`${vouchers.length} voucher${vouchers.length === 1 ? '' : 's'} on account`}
+                    />
+
+                    <WalletCard
+                      title="Loyalty progress"
+                      value={`${loyaltyVisitsCompleted} / ${loyaltyVisitsRequired}`}
+                      helper={loyalty?.reward_label || 'No reward active'}
+                    />
+                  </div>
+                </Panel>
+
+                <Panel title="Loyalty stamp card">
+                  {loyalty ? (
+                    <LoyaltyStampCard
+                      rewardLabel={loyalty.reward_label || 'Reward'}
+                      completed={loyaltyVisitsCompleted}
+                      required={loyaltyVisitsRequired}
+                      progress={loyaltyProgress}
+                      status={loyalty.status || 'active'}
+                    />
+                  ) : (
+                    <EmptyState message="No loyalty wallet yet." />
+                  )}
+                </Panel>
+
+                <Panel title="Wallet passes">
+                  <div className="grid gap-4 md:grid-cols-2">
+                    {activeMembership && customer && (
+                      <DigitalPass
+                        title={activeMembership.membership_name}
+                        subtitle={customerName(customer)}
+                        code={activeMembership.id}
+                        helper={`Renews ${formatDate(activeMembership.current_period_end)}`}
+                      />
+                    )}
+
+                    {vouchers.slice(0, 4).map((voucher) => (
+                      <DigitalPass
+                        key={voucher.id}
+                        title={voucherCode(voucher)}
+                        subtitle={money(voucherBalance(voucher))}
+                        code={voucherCode(voucher)}
+                        helper={`Expires ${formatDate(voucher.expiry_date)}`}
+                      />
+                    ))}
+
+                    {!activeMembership && vouchers.length === 0 && (
+                      <EmptyState message="No wallet passes yet." />
+                    )}
+                  </div>
+                </Panel>
+              </section>
+            )}
+
             {activeTab === 'payments' && (
               <Panel title="Payment history">
                 <div className="mb-5 grid gap-4 md:grid-cols-2">
@@ -1178,6 +1757,211 @@ export default function CustomerPortalPage() {
                     </div>
                   ))}
                   {bookings.length === 0 && <EmptyState message="No payment history found." />}
+                </div>
+              </Panel>
+            )}
+
+            {activeTab === 'referrals' && (
+              <section className="grid gap-6 lg:grid-cols-[0.9fr_1.1fr]">
+                <Panel title="Refer a friend">
+                  <p className="mb-5 text-slate-400">
+                    Share your referral code with a friend. You can reward both sides later with credit, discounts or free sessions.
+                  </p>
+
+                  <div className="rounded-2xl border border-cyan-300/20 bg-cyan-300/10 p-5">
+                    <p className="text-xs font-black uppercase tracking-[0.2em] text-cyan-200">Your code</p>
+                    <p className="mt-3 font-mono text-3xl font-black">{referralCode}</p>
+                  </div>
+
+                  <div className="mt-5 space-y-3">
+                    <input
+                      type="email"
+                      value={friendEmail}
+                      onChange={(event) => setFriendEmail(event.target.value)}
+                      placeholder="Friend email address optional"
+                      className="w-full rounded-2xl border border-white/10 bg-slate-950 px-4 py-4 text-white outline-none"
+                    />
+                    <button type="button" onClick={createReferral} className={`w-full ${primaryButtonClass()}`}>
+                      Create referral
+                    </button>
+                  </div>
+                </Panel>
+
+                <Panel title="Referral history">
+                  <div className="space-y-3">
+                    {referrals.map((referral) => (
+                      <div key={referral.id} className="rounded-2xl border border-white/10 bg-black/20 p-5">
+                        <p className="font-mono text-lg font-black text-cyan-300">{referral.referral_code}</p>
+                        <p className="mt-2 text-slate-400">{referral.friend_email || 'No friend email added'}</p>
+                        <p className="mt-2 text-xs font-black uppercase tracking-[0.2em] text-slate-500">
+                          {referral.status || 'pending'} · reward {money(referral.reward_amount)}
+                        </p>
+                      </div>
+                    ))}
+                    {referrals.length === 0 && <EmptyState message="No referrals yet." />}
+                  </div>
+                </Panel>
+              </section>
+            )}
+
+            {activeTab === 'reviews' && (
+              <section className="grid gap-6 lg:grid-cols-[0.9fr_1.1fr]">
+                <Panel title="Leave a review">
+                  <div className="space-y-4">
+                    <select value={reviewBookingId} onChange={(event) => setReviewBookingId(event.target.value)} className="w-full rounded-2xl border border-white/10 bg-slate-950 px-4 py-4 text-white outline-none">
+                      <option value="">Choose completed booking</option>
+                      {reviewableBookings.map((booking) => (
+                        <option key={booking.id} value={booking.id}>
+                          {serviceName(booking)} · {formatDate(booking.booking_date)}
+                        </option>
+                      ))}
+                    </select>
+
+                    <select value={reviewRating} onChange={(event) => setReviewRating(Number(event.target.value))} className="w-full rounded-2xl border border-white/10 bg-slate-950 px-4 py-4 text-white outline-none">
+                      <option value={5}>★★★★★ Excellent</option>
+                      <option value={4}>★★★★ Good</option>
+                      <option value={3}>★★★ Okay</option>
+                      <option value={2}>★★ Poor</option>
+                      <option value={1}>★ Bad</option>
+                    </select>
+
+                    <textarea value={reviewText} onChange={(event) => setReviewText(event.target.value)} placeholder="Tell us how it went" className="min-h-28 w-full rounded-2xl border border-white/10 bg-slate-950 px-4 py-4 text-white outline-none" />
+
+                    <button type="button" onClick={submitReview} className={`w-full ${primaryButtonClass()}`}>
+                      Submit review
+                    </button>
+                  </div>
+                </Panel>
+
+                <Panel title="Your reviews">
+                  <div className="space-y-3">
+                    {reviews.map((review) => (
+                      <div key={review.id} className="rounded-2xl border border-white/10 bg-black/20 p-5">
+                        <p className="text-xl font-black">{'★'.repeat(Number(review.rating || 0))}</p>
+                        {review.review_text && <p className="mt-2 text-slate-300">{review.review_text}</p>}
+                        <p className="mt-3 text-xs font-black uppercase tracking-[0.2em] text-slate-500">
+                          {review.status || 'submitted'} · {formatDate(review.created_at?.slice(0, 10))}
+                        </p>
+                      </div>
+                    ))}
+                    {reviews.length === 0 && <EmptyState message="No reviews submitted yet." />}
+                  </div>
+                </Panel>
+              </section>
+            )}
+
+            {activeTab === 'documents' && (
+              <Panel title="Documents and downloads">
+                <div className="grid gap-3 md:grid-cols-2">
+                  {documents.map((document) => (
+                    <a key={document.id} href={document.file_url} target="_blank" rel="noreferrer" className="rounded-2xl border border-white/10 bg-black/20 p-5 hover:bg-white/10">
+                      <p className="text-lg font-black">{document.title}</p>
+                      <p className="mt-2 text-sm text-slate-500">{document.category || 'Document'} · {formatDate(document.created_at?.slice(0, 10))}</p>
+                    </a>
+                  ))}
+                  {documents.length === 0 && <EmptyState message="No documents have been shared yet." />}
+                </div>
+              </Panel>
+            )}
+
+            {activeTab === 'loyalty' && (
+              <Panel title="Loyalty wallet">
+                {loyalty ? (
+                  <LoyaltyStampCard
+                    rewardLabel={loyalty.reward_label || 'Free appointment'}
+                    completed={loyaltyVisitsCompleted}
+                    required={loyaltyVisitsRequired}
+                    progress={loyaltyProgress}
+                    status={loyalty.status || 'active'}
+                  />
+                ) : (
+                  <div className="rounded-2xl border border-white/10 bg-black/20 p-5">
+                    <p className="text-xl font-black">No loyalty wallet yet</p>
+                    <p className="mt-2 text-slate-400">Start tracking visits towards a reward.</p>
+                    <button type="button" onClick={createLoyaltyWallet} className={`mt-5 ${primaryButtonClass()}`}>
+                      Activate loyalty wallet
+                    </button>
+                  </div>
+                )}
+              </Panel>
+            )}
+
+            {activeTab === 'timeline' && (
+              <Panel title="Customer timeline">
+                <div className="space-y-3">
+                  {timelineItems.map((item) => (
+                    <div key={item.id} className="rounded-2xl border border-white/10 bg-black/20 p-5">
+                      <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
+                        <div>
+                          <p className="text-lg font-black">{item.title}</p>
+                          <p className="mt-1 text-slate-400">{item.description}</p>
+                        </div>
+                        <div className="md:text-right">
+                          <span className="inline-flex rounded-full border border-white/10 px-3 py-1 text-xs font-black uppercase text-slate-300">{item.type}</span>
+                          <p className="mt-2 text-sm text-slate-500">{formatDate(item.date.slice(0, 10))}</p>
+                        </div>
+                      </div>
+                    </div>
+                  ))}
+                  {timelineItems.length === 0 && <EmptyState message="No timeline activity yet." />}
+                </div>
+              </Panel>
+            )}
+
+
+            {activeTab === 'notifications' && (
+              <Panel title="Notifications">
+                <div className="space-y-3">
+                  {nextBooking && (
+                    <NotificationCard
+                      title="Upcoming appointment"
+                      description={`${serviceName(nextBooking)} on ${formatDate(nextBooking.booking_date)} at ${String(nextBooking.booking_time).slice(0, 5)}`}
+                    />
+                  )}
+
+                  {activeMembership && (
+                    <NotificationCard
+                      title="Membership renewal"
+                      description={`${activeMembership.membership_name} renews on ${formatDate(activeMembership.current_period_end)}`}
+                    />
+                  )}
+
+                  {loyalty && loyaltyProgress >= 100 && (
+                    <NotificationCard
+                      title="Loyalty reward unlocked"
+                      description={`You have earned ${loyalty.reward_label || 'your reward'}.`}
+                    />
+                  )}
+
+                  {activeWaitlist && (
+                    <NotificationCard
+                      title="Waitlist request active"
+                      description={`${serviceName(activeWaitlist)} on ${formatDate(activeWaitlist.preferred_date)} · ${activeWaitlist.preferred_time_range || 'Any time'}`}
+                    />
+                  )}
+
+                  {vouchers.filter((voucher) => voucherBalance(voucher) > 0).slice(0, 3).map((voucher) => (
+                    <NotificationCard
+                      key={voucher.id}
+                      title="Voucher available"
+                      description={`${voucherCode(voucher)} has ${money(voucherBalance(voucher))} remaining.`}
+                    />
+                  ))}
+
+                  {!nextBooking && !activeMembership && !loyalty && !activeWaitlist && vouchers.length === 0 && (
+                    <EmptyState message="No notifications yet." />
+                  )}
+                </div>
+              </Panel>
+            )}
+
+            {activeTab === 'discover' && (
+              <Panel title="Discover">
+                <div className="rounded-2xl border border-cyan-300/20 bg-cyan-300/10 p-6">
+                  <p className="text-2xl font-black">Coming soon</p>
+                  <p className="mt-2 text-slate-300">
+                    Offers, products, featured services and marketplace recommendations will appear here.
+                  </p>
                 </div>
               </Panel>
             )}
@@ -1214,10 +1998,182 @@ export default function CustomerPortalPage() {
                 </button>
               </Panel>
             )}
+            </div>
           </div>
         )}
       </div>
+
+        {customer && (
+          <nav className="fixed inset-x-0 bottom-0 z-50 border-t border-white/10 bg-slate-950/95 px-3 py-3 backdrop-blur-2xl xl:hidden">
+            <div className="grid grid-cols-5 gap-2">
+              <MobileNavButton label="Home" active={activeTab === 'home'} onClick={() => setActiveTab('home')} />
+              <MobileNavButton label="Bookings" active={activeTab === 'bookings'} onClick={() => setActiveTab('bookings')} />
+              <MobileNavButton label="Wallet" active={activeTab === 'wallet'} onClick={() => setActiveTab('wallet')} />
+              <MobileNavButton label="Member" active={activeTab === 'memberships'} onClick={() => setActiveTab('memberships')} />
+              <MobileNavButton label="Profile" active={activeTab === 'profile'} onClick={() => setActiveTab('profile')} />
+            </div>
+          </nav>
+        )}
     </main>
+  )
+}
+
+
+function NavGroup({
+  title,
+  items,
+  activeTab,
+  setActiveTab,
+}: {
+  title: string
+  items: string[][]
+  activeTab: string
+  setActiveTab: (value: any) => void
+}) {
+  return (
+    <div className="space-y-2">
+      <p className="px-3 pt-4 text-xs font-black uppercase tracking-[0.22em] text-slate-500">{title}</p>
+      {items.map(([key, label]) => (
+        <button
+          key={key}
+          type="button"
+          onClick={() => setActiveTab(key)}
+          className={`w-full rounded-2xl px-4 py-3 text-left text-sm font-black transition ${
+            activeTab === key
+              ? 'bg-white text-slate-950'
+              : 'border border-white/10 bg-slate-950/40 text-slate-300 hover:bg-white/10'
+          }`}
+        >
+          {label}
+        </button>
+      ))}
+    </div>
+  )
+}
+
+function HighlightCard({
+  title,
+  value,
+  helper,
+}: {
+  title: string
+  value: string
+  helper: string
+}) {
+  return (
+    <div className="rounded-3xl border border-white/10 bg-white/[0.04] p-5">
+      <p className="text-xs font-black uppercase tracking-[0.22em] text-slate-500">{title}</p>
+      <p className="mt-3 text-2xl font-black">{value}</p>
+      <p className="mt-2 text-sm text-slate-400">{helper}</p>
+    </div>
+  )
+}
+
+function MembershipCard({
+  membership,
+  customer,
+  memberSince,
+  onManage,
+  loading,
+}: {
+  membership: CustomerMembership
+  customer: Customer | null
+  memberSince?: string | null
+  onManage?: () => void
+  loading?: boolean
+}) {
+  return (
+    <div className="rounded-[28px] border border-cyan-300/20 bg-cyan-300/10 p-6">
+      <p className="text-xs font-black uppercase tracking-[0.25em] text-cyan-200">
+        {membership.membership_name}
+      </p>
+
+      <p className="mt-4 text-3xl font-black">{customerName(customer)}</p>
+
+      <div className="mt-6 grid gap-3 md:grid-cols-2">
+        <MiniSummary
+          label="Sessions remaining"
+          value={`${membershipSessionsRemaining(membership)} / ${membership.included_sessions || 0}`}
+        />
+        <MiniSummary label="Renews" value={formatDate(membership.current_period_end)} />
+        <MiniSummary label="Member since" value={formatDate(memberSince?.slice(0, 10))} />
+        <MiniSummary label="Status" value={membership.status || 'active'} />
+      </div>
+
+      <div className="mt-5 h-3 overflow-hidden rounded-full bg-white/10">
+        <div
+          className="h-full rounded-full bg-cyan-300"
+          style={{ width: `${membershipUtilisation(membership)}%` }}
+        />
+      </div>
+
+      <div className="mt-5 grid gap-4 md:grid-cols-[1fr_auto] md:items-center">
+        <div className="rounded-2xl border border-white/10 bg-black/20 p-4">
+          <p className="text-xs font-black uppercase tracking-[0.2em] text-cyan-200">Member number</p>
+          <p className="mt-2 font-mono text-sm font-black text-white">{membership.id.slice(0, 8).toUpperCase()}</p>
+        </div>
+
+        <div className="rounded-2xl bg-white p-3">
+          <QRCode value={membership.id} size={110} />
+        </div>
+      </div>
+
+      {onManage && (
+        <button type="button" onClick={onManage} disabled={loading} className={`mt-5 w-full ${primaryButtonClass()}`}>
+          {loading ? 'Opening...' : 'Manage billing'}
+        </button>
+      )}
+    </div>
+  )
+}
+
+function ActionButton({
+  title,
+  description,
+  onClick,
+}: {
+  title: string
+  description: string
+  onClick: () => void
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className="rounded-2xl border border-white/10 bg-black/20 p-5 text-left transition hover:bg-white/10"
+    >
+      <p className="font-black">{title}</p>
+      <p className="mt-1 text-sm text-slate-500">{description}</p>
+    </button>
+  )
+}
+
+function TimelineRow({
+  item,
+}: {
+  item: {
+    id: string
+    date: string
+    title: string
+    description: string
+    type: string
+  }
+}) {
+  return (
+    <div className="rounded-2xl border border-white/10 bg-black/20 p-5">
+      <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
+        <div>
+          <p className="font-black">{item.title}</p>
+          <p className="mt-1 text-sm text-slate-400">{item.description}</p>
+        </div>
+        <div className="md:text-right">
+          <span className="inline-flex rounded-full border border-white/10 px-3 py-1 text-xs font-black uppercase text-slate-300">
+            {item.type}
+          </span>
+          <p className="mt-2 text-sm text-slate-500">{formatDate(item.date.slice(0, 10))}</p>
+        </div>
+      </div>
+    </div>
   )
 }
 
@@ -1334,6 +2290,149 @@ function PreferenceToggle({
     </button>
   )
 }
+
+
+function WalletCard({
+  title,
+  value,
+  helper,
+}: {
+  title: string
+  value: string
+  helper: string
+}) {
+  return (
+    <div className="rounded-3xl border border-white/10 bg-black/20 p-5">
+      <p className="text-xs font-black uppercase tracking-[0.22em] text-cyan-200">{title}</p>
+      <p className="mt-3 text-3xl font-black">{value}</p>
+      <p className="mt-2 text-sm text-slate-400">{helper}</p>
+    </div>
+  )
+}
+
+function DigitalPass({
+  title,
+  subtitle,
+  code,
+  helper,
+}: {
+  title: string
+  subtitle: string
+  code: string
+  helper: string
+}) {
+  return (
+    <div className="rounded-[28px] border border-cyan-300/20 bg-cyan-300/10 p-5">
+      <div className="flex flex-col gap-5 md:flex-row md:items-center md:justify-between">
+        <div>
+          <p className="text-xs font-black uppercase tracking-[0.22em] text-cyan-200">Digital pass</p>
+          <p className="mt-2 text-2xl font-black">{title}</p>
+          <p className="mt-1 text-slate-300">{subtitle}</p>
+          <p className="mt-3 text-sm text-slate-500">{helper}</p>
+          <p className="mt-3 font-mono text-xs font-black uppercase text-cyan-200">{code.slice(0, 18)}</p>
+        </div>
+
+        <div className="self-start rounded-2xl bg-white p-3">
+          <QRCode value={code} size={120} />
+        </div>
+      </div>
+    </div>
+  )
+}
+
+function LoyaltyStampCard({
+  rewardLabel,
+  completed,
+  required,
+  progress,
+  status,
+}: {
+  rewardLabel: string
+  completed: number
+  required: number
+  progress: number
+  status: string
+}) {
+  const safeRequired = Math.max(1, required || 10)
+  const stamps = Array.from({ length: safeRequired }, (_, index) => index < completed)
+
+  return (
+    <div className="rounded-[28px] border border-cyan-300/20 bg-cyan-300/10 p-6">
+      <div className="flex flex-col gap-4 md:flex-row md:items-start md:justify-between">
+        <div>
+          <p className="text-xs font-black uppercase tracking-[0.25em] text-cyan-200">Loyalty reward</p>
+          <p className="mt-3 text-3xl font-black">{rewardLabel}</p>
+          <p className="mt-2 text-slate-300">{completed} of {safeRequired} visits completed</p>
+        </div>
+
+        <span className={`inline-flex rounded-full border px-3 py-1 text-xs font-black uppercase ${statusPill(status)}`}>
+          {progress >= 100 ? 'earned' : status}
+        </span>
+      </div>
+
+      <div className="mt-6 grid grid-cols-5 gap-3 sm:grid-cols-10">
+        {stamps.map((filled, index) => (
+          <div
+            key={index}
+            className={`flex aspect-square items-center justify-center rounded-2xl border text-xl font-black ${
+              filled
+                ? 'border-cyan-300/30 bg-cyan-300 text-slate-950'
+                : 'border-white/10 bg-black/20 text-slate-600'
+            }`}
+          >
+            {filled ? '★' : '○'}
+          </div>
+        ))}
+      </div>
+
+      <div className="mt-6 h-4 overflow-hidden rounded-full bg-white/10">
+        <div className="h-full rounded-full bg-cyan-300" style={{ width: `${progress}%` }} />
+      </div>
+
+      <p className="mt-3 text-sm text-slate-400">
+        {progress >= 100 ? 'Reward unlocked. Ask at your next visit to redeem it.' : `${Math.max(0, safeRequired - completed)} visits to unlock your reward.`}
+      </p>
+    </div>
+  )
+}
+
+function NotificationCard({
+  title,
+  description,
+}: {
+  title: string
+  description: string
+}) {
+  return (
+    <div className="rounded-2xl border border-white/10 bg-black/20 p-5">
+      <p className="font-black">{title}</p>
+      <p className="mt-1 text-sm text-slate-400">{description}</p>
+    </div>
+  )
+}
+
+function MobileNavButton({
+  label,
+  active,
+  onClick,
+}: {
+  label: string
+  active: boolean
+  onClick: () => void
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className={`rounded-2xl px-2 py-3 text-xs font-black ${
+        active ? 'bg-cyan-300 text-slate-950' : 'bg-white/[0.04] text-slate-300'
+      }`}
+    >
+      {label}
+    </button>
+  )
+}
+
 
 function EmptyState({ message }: { message: string }) {
   return (

@@ -27,6 +27,8 @@ type Customer = {
   first_name: string
   last_name: string | null
   email: string | null
+  phone: string | null
+  sms_reminders: boolean | null
 }
 
 type Service = {
@@ -37,6 +39,17 @@ type Service = {
 type TeamMember = {
   id: string
   full_name: string
+}
+
+type SmsSettings = {
+  id: string
+  business_id: string
+  provider: string | null
+  sender_name: string | null
+  account_sid: string | null
+  auth_token: string | null
+  from_number: string | null
+  is_enabled: boolean | null
 }
 
 const supabase = createClient(
@@ -86,6 +99,180 @@ function fromAddress() {
     : fromEmail
 }
 
+function buildReminderSmsMessage({
+  customer,
+  service,
+  teamMember,
+  booking,
+  reminderType,
+}: {
+  customer: Customer | undefined
+  service: Service | undefined
+  teamMember: TeamMember | undefined
+  booking: Booking
+  reminderType: '24h' | '2h'
+}) {
+  const customerName = customer?.first_name || 'there'
+  const serviceName = service?.name || 'appointment'
+  const teamMemberName = teamMember?.full_name || 'your specialist'
+  const date = formatDate(booking.booking_date)
+  const time = formatTime(booking.booking_time)
+
+  if (reminderType === '24h') {
+    return `Hi ${customerName}, reminder: your ${serviceName} with ${teamMemberName} is tomorrow, ${date} at ${time}.`
+  }
+
+  return `Hi ${customerName}, reminder: your ${serviceName} with ${teamMemberName} is coming up today at ${time}.`
+}
+
+async function sendTwilioSms({
+  accountSid,
+  authToken,
+  from,
+  to,
+  body,
+}: {
+  accountSid: string
+  authToken: string
+  from: string
+  to: string
+  body: string
+}) {
+  const response = await fetch(
+    `https://api.twilio.com/2010-04-01/Accounts/${accountSid}/Messages.json`,
+    {
+      method: 'POST',
+      headers: {
+        Authorization: `Basic ${Buffer.from(`${accountSid}:${authToken}`).toString('base64')}`,
+        'Content-Type': 'application/x-www-form-urlencoded',
+      },
+      body: new URLSearchParams({
+        From: from,
+        To: to,
+        Body: body,
+      }),
+    }
+  )
+
+  const result = await response.json().catch(() => null)
+
+  if (!response.ok) {
+    throw new Error(result?.message || 'Twilio SMS failed.')
+  }
+
+  return result
+}
+
+async function sendReminderSms({
+  booking,
+  customer,
+  service,
+  teamMember,
+  reminderType,
+}: {
+  booking: Booking
+  customer: Customer | undefined
+  service: Service | undefined
+  teamMember: TeamMember | undefined
+  reminderType: '24h' | '2h'
+}) {
+  if (!customer?.phone) {
+    return {
+      sent: false,
+      reason: 'Missing customer phone',
+    }
+  }
+
+  if (customer.sms_reminders === false) {
+    return {
+      sent: false,
+      reason: 'Customer has disabled SMS reminders',
+    }
+  }
+
+  const { data: settings, error: settingsError } = await supabase
+    .from('sms_settings')
+    .select('id,business_id,provider,sender_name,account_sid,auth_token,from_number,is_enabled')
+    .eq('business_id', booking.business_id)
+    .maybeSingle()
+
+  if (settingsError) {
+    return {
+      sent: false,
+      reason: settingsError.message,
+    }
+  }
+
+  const smsSettings = settings as SmsSettings | null
+
+  if (!smsSettings?.is_enabled) {
+    return {
+      sent: false,
+      reason: 'SMS disabled',
+    }
+  }
+
+  if (!smsSettings.account_sid || !smsSettings.auth_token || !smsSettings.from_number) {
+    return {
+      sent: false,
+      reason: 'Missing SMS provider settings',
+    }
+  }
+
+  const message = buildReminderSmsMessage({
+    customer,
+    service,
+    teamMember,
+    booking,
+    reminderType,
+  })
+
+  try {
+    const result = await sendTwilioSms({
+      accountSid: smsSettings.account_sid,
+      authToken: smsSettings.auth_token,
+      from: smsSettings.from_number,
+      to: customer.phone,
+      body: message,
+    })
+
+    await supabase.from('sms_logs').insert({
+      business_id: booking.business_id,
+      customer_id: booking.customer_id,
+      booking_id: booking.id,
+      phone: customer.phone,
+      message,
+      event_type: reminderType === '24h' ? 'booking_reminder_24h' : 'booking_reminder_2h',
+      status: 'sent',
+      provider_message_id: result?.sid || null,
+    })
+
+    return {
+      sent: true,
+      reason: null,
+      data: result,
+    }
+  } catch (error) {
+    const errorMessage = error instanceof Error ? error.message : 'SMS failed'
+
+    await supabase.from('sms_logs').insert({
+      business_id: booking.business_id,
+      customer_id: booking.customer_id,
+      booking_id: booking.id,
+      phone: customer.phone,
+      message,
+      event_type: reminderType === '24h' ? 'booking_reminder_24h' : 'booking_reminder_2h',
+      status: 'failed',
+      error_message: errorMessage,
+    })
+
+    return {
+      sent: false,
+      reason: errorMessage,
+    }
+  }
+}
+
 async function sendReminder({
   booking,
   customer,
@@ -99,78 +286,101 @@ async function sendReminder({
   teamMember: TeamMember | undefined
   reminderType: '24h' | '2h'
 }) {
-  if (!customer?.email || !customer.email.includes('@')) {
-    return {
-      sent: false,
-      reason: 'Missing customer email',
+  let emailResult = {
+    sent: false,
+    reason: 'Missing customer email',
+    data: null as unknown,
+  }
+
+  if (customer?.email && customer.email.includes('@')) {
+    const customerName = `${customer.first_name || ''} ${
+      customer.last_name || ''
+    }`.trim()
+
+    const serviceName = service?.name || 'Appointment'
+    const teamMemberName = teamMember?.full_name || 'Your specialist'
+
+    const branding = await getEmailBranding(booking.business_id)
+    const resolvedBranding = resolveEmailBranding(branding)
+
+    const title =
+      reminderType === '24h'
+        ? 'Your appointment is tomorrow'
+        : 'Your appointment is coming up soon'
+
+    const subject =
+      reminderType === '24h'
+        ? 'Reminder: your appointment is tomorrow'
+        : 'Reminder: your appointment is coming up soon'
+
+    const intro =
+      reminderType === '24h'
+        ? 'This is a friendly reminder about your appointment tomorrow.'
+        : 'This is a friendly reminder that your appointment is coming up soon.'
+
+    const { data, error } = await resend.emails.send({
+      from: `${resolvedBranding.brandName} <${fromAddress()}>`,
+      to: customer.email,
+      replyTo: resolvedBranding.replyTo,
+      subject,
+      html: buildBrandedEmail({
+        title,
+        customerName: customerName || 'there',
+        intro,
+        serviceName,
+        teamMemberName,
+        bookingDate: formatDate(booking.booking_date),
+        bookingTime: formatTime(booking.booking_time),
+        buttonText: 'View booking',
+        branding,
+      }),
+    })
+
+    if (error) {
+      console.error('Reminder email error:', error)
+
+      emailResult = {
+        sent: false,
+        reason: error.message || 'Resend failed',
+        data: null,
+      }
+    } else {
+      emailResult = {
+        sent: true,
+        reason: null as unknown as string,
+        data,
+      }
     }
   }
 
-  const customerName = `${customer.first_name || ''} ${
-    customer.last_name || ''
-  }`.trim()
-
-  const serviceName = service?.name || 'Appointment'
-  const teamMemberName = teamMember?.full_name || 'Your specialist'
-
-  const branding = await getEmailBranding(booking.business_id)
-  const resolvedBranding = resolveEmailBranding(branding)
-
-  const title =
-    reminderType === '24h'
-      ? 'Your appointment is tomorrow'
-      : 'Your appointment is coming up soon'
-
-  const subject =
-    reminderType === '24h'
-      ? 'Reminder: your appointment is tomorrow'
-      : 'Reminder: your appointment is coming up soon'
-
-  const intro =
-    reminderType === '24h'
-      ? 'This is a friendly reminder about your appointment tomorrow.'
-      : 'This is a friendly reminder that your appointment is coming up soon.'
-
-  const { data, error } = await resend.emails.send({
-    from: `${resolvedBranding.brandName} <${fromAddress()}>`,
-    to: customer.email,
-    replyTo: resolvedBranding.replyTo,
-    subject,
-    html: buildBrandedEmail({
-      title,
-      customerName: customerName || 'there',
-      intro,
-      serviceName,
-      teamMemberName,
-      bookingDate: formatDate(booking.booking_date),
-      bookingTime: formatTime(booking.booking_time),
-      buttonText: 'View booking',
-      branding,
-    }),
+  const smsResult = await sendReminderSms({
+    booking,
+    customer,
+    service,
+    teamMember,
+    reminderType,
   })
 
-  if (error) {
-    console.error('Reminder email error:', error)
-
-    return {
-      sent: false,
-      reason: error.message || 'Resend failed',
-    }
+  if (emailResult.sent || smsResult.sent) {
+    await supabase
+      .from('bookings')
+      .update(
+        reminderType === '24h'
+          ? { reminder_24h_sent: true }
+          : { reminder_2h_sent: true }
+      )
+      .eq('id', booking.id)
   }
 
-  await supabase
-    .from('bookings')
-    .update(
-      reminderType === '24h'
-        ? { reminder_24h_sent: true }
-        : { reminder_2h_sent: true }
-    )
-    .eq('id', booking.id)
-
   return {
-    sent: true,
-    reason: null,
-    data,
+    sent: emailResult.sent || smsResult.sent,
+    emailSent: emailResult.sent,
+    smsSent: smsResult.sent,
+    reason: emailResult.sent || smsResult.sent ? null : `${emailResult.reason}; ${smsResult.reason}`,
+    emailReason: emailResult.reason,
+    smsReason: smsResult.reason,
+    emailData: emailResult.data,
+    smsData: smsResult.data || null,
   }
 }
 
@@ -253,7 +463,7 @@ export async function GET() {
     if (customerIds.length > 0) {
       const { data, error } = await supabase
         .from('customers')
-        .select('id, first_name, last_name, email')
+        .select('id, first_name, last_name, email, phone, sms_reminders')
         .in('id', customerIds)
 
       if (error) {
@@ -346,6 +556,8 @@ export async function GET() {
       reminders24hFound: reminders24h.length,
       reminders2hFound: reminders2h.length,
       sent: results.filter((item) => item.sent).length,
+      emailSent: results.filter((item) => item.emailSent).length,
+      smsSent: results.filter((item) => item.smsSent).length,
       results,
     })
   } catch (error) {

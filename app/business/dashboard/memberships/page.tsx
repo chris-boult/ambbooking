@@ -63,6 +63,7 @@ type CustomerMembership = {
   current_period_start: string | null
   current_period_end: string | null
   stripe_subscription_id: string | null
+  stripe_customer_id?: string | null
   customers?:
     | {
         first_name: string
@@ -207,6 +208,7 @@ export default function MembershipsPage() {
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
   const [stripeLoadingId, setStripeLoadingId] = useState('')
+  const [portalLoadingId, setPortalLoadingId] = useState('')
   const [message, setMessage] = useState('')
   const [search, setSearch] = useState('')
 
@@ -488,6 +490,35 @@ export default function MembershipsPage() {
     }
 
     setMemberships((current) => current.map((item) => (item.id === id ? { ...item, status } : item)))
+  }
+
+  async function openStripePortal(membership: CustomerMembership) {
+    if (!membership.stripe_customer_id) {
+      setMessage('This is a manual membership, so there is no Stripe billing profile to manage.')
+      return
+    }
+
+    setMessage('')
+    setPortalLoadingId(membership.id)
+
+    const response = await fetch('/api/memberships/create-portal-session', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        stripeCustomerId: membership.stripe_customer_id,
+        returnUrl: `${window.location.origin}/business/dashboard/memberships`,
+      }),
+    })
+
+    const result = await response.json().catch(() => null)
+
+    if (!response.ok || !result?.url) {
+      setMessage(result?.error || 'Could not open Stripe billing portal.')
+      setPortalLoadingId('')
+      return
+    }
+
+    window.location.href = result.url
   }
 
   async function createBenefit() {
@@ -1147,8 +1178,8 @@ export default function MembershipsPage() {
                   const lastUsed = memberUsage[0]
 
                   return (
-                    <div key={membership.id} className="rounded-2xl border border-white/10 bg-black/20 p-5">
-                      <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
+                    <div key={membership.id} className="rounded-3xl border border-white/10 bg-black/20 p-5">
+                      <div className="flex flex-col gap-5 lg:flex-row lg:items-start lg:justify-between">
                         <div>
                           <p className="text-lg font-black">{membership.membership_name}</p>
                           <p className="mt-1 text-slate-400">
@@ -1159,7 +1190,7 @@ export default function MembershipsPage() {
                           </p>
                           <p className="mt-1 text-xs uppercase tracking-[0.2em] text-slate-500">
                             {formatDate(membership.current_period_start)} - {formatDate(membership.current_period_end)} · Last used:{' '}
-                            {lastUsed ? formatDate(lastUsed.usage_date) : 'Never'}
+                            {lastUsed?.usage_date ? formatDate(lastUsed.usage_date) : 'Never'}
                           </p>
                           {benefitsForMembership.length > 0 && (
                             <div className="mt-3 flex flex-wrap gap-2">
@@ -1172,37 +1203,52 @@ export default function MembershipsPage() {
                           )}
                         </div>
 
-                        <div className="flex flex-wrap gap-2">
+                        <div className="flex w-full flex-col gap-3 lg:w-auto lg:min-w-[190px]">
                           <StatusPill value={membership.status || 'active'} />
+
                           <button
                             type="button"
                             onClick={() => {
                               setConsumeMembershipId(membership.id)
                               setTab('usage')
                             }}
-                            className="rounded-xl border border-cyan-300/20 bg-cyan-300/10 px-3 py-2 text-xs font-black text-cyan-100 hover:bg-cyan-300/20"
+                            className="w-full rounded-2xl border border-cyan-300/20 bg-cyan-300/10 px-4 py-3 text-sm font-black text-cyan-100 transition hover:bg-cyan-300/20"
                           >
-                            Consume
+                            Consume usage
                           </button>
-                          <button
-                            type="button"
-                            onClick={() =>
-                              updateMembershipStatus(
-                                membership.id,
-                                membership.status === 'paused' ? 'active' : 'paused'
-                              )
-                            }
-                            className="rounded-xl border border-white/10 px-3 py-2 text-xs font-black hover:bg-white/10"
-                          >
-                            {membership.status === 'paused' ? 'Resume' : 'Pause'}
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() => updateMembershipStatus(membership.id, 'cancelled')}
-                            className="rounded-xl border border-red-500/20 bg-red-500/10 px-3 py-2 text-xs font-black text-red-300 hover:bg-red-500/20"
-                          >
-                            Cancel
-                          </button>
+
+                          {membership.stripe_customer_id && (
+                            <button
+                              type="button"
+                              onClick={() => openStripePortal(membership)}
+                              disabled={portalLoadingId === membership.id}
+                              className="w-full rounded-2xl bg-white px-4 py-3 text-sm font-black text-slate-950 transition hover:bg-cyan-100 disabled:opacity-50"
+                            >
+                              {portalLoadingId === membership.id ? 'Opening...' : 'Manage billing'}
+                            </button>
+                          )}
+
+                          <div className="grid grid-cols-2 gap-2">
+                            <button
+                              type="button"
+                              onClick={() =>
+                                updateMembershipStatus(
+                                  membership.id,
+                                  membership.status === 'paused' ? 'active' : 'paused'
+                                )
+                              }
+                              className="rounded-2xl border border-white/10 px-4 py-3 text-sm font-black transition hover:bg-white/10"
+                            >
+                              {membership.status === 'paused' ? 'Resume' : 'Pause'}
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => updateMembershipStatus(membership.id, 'cancelled')}
+                              className="rounded-2xl border border-red-500/20 bg-red-500/10 px-4 py-3 text-sm font-black text-red-300 transition hover:bg-red-500/20"
+                            >
+                              Cancel
+                            </button>
+                          </div>
                         </div>
                       </div>
                     </div>

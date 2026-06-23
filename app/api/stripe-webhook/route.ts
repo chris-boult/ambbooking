@@ -488,6 +488,28 @@ export async function POST(req: Request) {
 
         if (error) throw error
       }
+
+      const membershipStatus =
+        subscription.status === 'active'
+          ? 'active'
+          : subscription.status === 'past_due'
+            ? 'past_due'
+            : subscription.status === 'canceled'
+              ? 'cancelled'
+              : subscription.status
+
+      const { error: membershipError } = await supabase
+        .from('customer_memberships')
+        .update({
+          status: membershipStatus,
+          stripe_customer_id:
+            typeof subscription.customer === 'string'
+              ? subscription.customer
+              : null,
+        })
+        .eq('stripe_subscription_id', subscription.id)
+
+      if (membershipError) throw membershipError
     }
 
     if (event.type === 'customer.subscription.deleted') {
@@ -505,6 +527,15 @@ export async function POST(req: Request) {
 
         if (error) throw error
       }
+
+      const { error: membershipError } = await supabase
+        .from('customer_memberships')
+        .update({
+          status: 'cancelled',
+        })
+        .eq('stripe_subscription_id', subscription.id)
+
+      if (membershipError) throw membershipError
     }
 
     if (event.type === 'invoice.payment_succeeded') {
@@ -513,6 +544,39 @@ export async function POST(req: Request) {
       const amountPaid = getInvoiceAmountPaid(invoice)
 
       if (subscriptionId) {
+        const subscription = await stripe.subscriptions.retrieve(subscriptionId)
+
+        const currentPeriodStartRaw = (subscription as any).current_period_start
+        const currentPeriodEndRaw = (subscription as any).current_period_end
+
+        const membershipUpdateData: Record<string, any> = {
+          status: 'active',
+          sessions_used: 0,
+          stripe_customer_id:
+            typeof subscription.customer === 'string'
+              ? subscription.customer
+              : null,
+        }
+
+        if (currentPeriodStartRaw) {
+          membershipUpdateData.current_period_start = new Date(currentPeriodStartRaw * 1000)
+            .toISOString()
+            .split('T')[0]
+        }
+
+        if (currentPeriodEndRaw) {
+          membershipUpdateData.current_period_end = new Date(currentPeriodEndRaw * 1000)
+            .toISOString()
+            .split('T')[0]
+        }
+
+        const { error: membershipRenewalError } = await supabase
+          .from('customer_memberships')
+          .update(membershipUpdateData)
+          .eq('stripe_subscription_id', subscriptionId)
+
+        if (membershipRenewalError) throw membershipRenewalError
+
         const { data: business, error: businessLookupError } = await supabase
           .from('businesses')
           .select('id, monthly_amount')
@@ -561,6 +625,15 @@ export async function POST(req: Request) {
           .eq('stripe_subscription_id', subscriptionId)
 
         if (error) throw error
+
+        const { error: membershipError } = await supabase
+          .from('customer_memberships')
+          .update({
+            status: 'past_due',
+          })
+          .eq('stripe_subscription_id', subscriptionId)
+
+        if (membershipError) throw membershipError
       }
     }
 

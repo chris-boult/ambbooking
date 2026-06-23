@@ -81,14 +81,258 @@ function brandedEmailHtml({
   `
 }
 
+async function sendTwilioSms({
+  accountSid,
+  authToken,
+  from,
+  to,
+  body,
+}: {
+  accountSid: string
+  authToken: string
+  from: string
+  to: string
+  body: string
+}) {
+  const response = await fetch(
+    `https://api.twilio.com/2010-04-01/Accounts/${accountSid}/Messages.json`,
+    {
+      method: 'POST',
+      headers: {
+        Authorization: `Basic ${Buffer.from(`${accountSid}:${authToken}`).toString('base64')}`,
+        'Content-Type': 'application/x-www-form-urlencoded',
+      },
+      body: new URLSearchParams({
+        From: from,
+        To: to,
+        Body: body,
+      }),
+    }
+  )
+
+  const result = await response.json().catch(() => null)
+
+  if (!response.ok) {
+    throw new Error(result?.message || 'Twilio SMS failed.')
+  }
+
+  return result
+}
+
+function buildConfirmationSmsMessage({
+  customerName,
+  serviceName,
+  teamMemberName,
+  bookingDate,
+  bookingTime,
+  brandName,
+}: {
+  customerName: string
+  serviceName: string
+  teamMemberName: string
+  bookingDate: string
+  bookingTime: string
+  brandName: string
+}) {
+  const firstName = customerName.split(' ')[0] || 'there'
+
+  return `Hi ${firstName}, your booking with ${brandName} is confirmed: ${serviceName} with ${teamMemberName} on ${bookingDate} at ${bookingTime}.`
+}
+
+async function resolveCustomerForSms({
+  businessId,
+  customerId,
+  customerEmail,
+  customerPhone,
+}: {
+  businessId?: string
+  customerId?: string
+  customerEmail?: string
+  customerPhone?: string
+}) {
+  if (customerPhone) {
+    return {
+      id: customerId || null,
+      phone: customerPhone,
+      sms_reminders: true,
+    }
+  }
+
+  if (!businessId) return null
+
+  if (customerId) {
+    const { data } = await supabaseAdmin
+      .from('customers')
+      .select('id,phone,sms_reminders')
+      .eq('business_id', businessId)
+      .eq('id', customerId)
+      .maybeSingle()
+
+    if (data) return data
+  }
+
+  if (customerEmail && customerEmail.includes('@')) {
+    const { data } = await supabaseAdmin
+      .from('customers')
+      .select('id,phone,sms_reminders')
+      .eq('business_id', businessId)
+      .eq('email', customerEmail)
+      .order('created_at', { ascending: false })
+      .limit(1)
+      .maybeSingle()
+
+    if (data) return data
+  }
+
+  return null
+}
+
+async function sendBookingConfirmationSms({
+  businessId,
+  customerId,
+  bookingId,
+  customerName,
+  customerEmail,
+  customerPhone,
+  serviceName,
+  teamMemberName,
+  bookingDate,
+  bookingTime,
+  brandName,
+}: {
+  businessId?: string
+  customerId?: string
+  bookingId?: string
+  customerName: string
+  customerEmail?: string
+  customerPhone?: string
+  serviceName: string
+  teamMemberName: string
+  bookingDate: string
+  bookingTime: string
+  brandName: string
+}) {
+  if (!businessId) {
+    return {
+      sent: false,
+      reason: 'Missing business ID',
+    }
+  }
+
+  const { data: settings, error: settingsError } = await supabaseAdmin
+    .from('sms_settings')
+    .select('id,business_id,provider,sender_name,account_sid,auth_token,from_number,is_enabled')
+    .eq('business_id', businessId)
+    .maybeSingle()
+
+  if (settingsError) {
+    return {
+      sent: false,
+      reason: settingsError.message,
+    }
+  }
+
+  if (!settings?.is_enabled) {
+    return {
+      sent: false,
+      reason: 'SMS disabled',
+    }
+  }
+
+  if (!settings.account_sid || !settings.auth_token || !settings.from_number) {
+    return {
+      sent: false,
+      reason: 'Missing SMS provider settings',
+    }
+  }
+
+  const customer = await resolveCustomerForSms({
+    businessId,
+    customerId,
+    customerEmail,
+    customerPhone,
+  })
+
+  if (!customer?.phone) {
+    return {
+      sent: false,
+      reason: 'Missing customer phone',
+    }
+  }
+
+  if (customer.sms_reminders === false) {
+    return {
+      sent: false,
+      reason: 'Customer has disabled SMS reminders',
+    }
+  }
+
+  const smsMessage = buildConfirmationSmsMessage({
+    customerName,
+    serviceName,
+    teamMemberName,
+    bookingDate,
+    bookingTime,
+    brandName,
+  })
+
+  try {
+    const result = await sendTwilioSms({
+      accountSid: settings.account_sid,
+      authToken: settings.auth_token,
+      from: settings.from_number,
+      to: customer.phone,
+      body: smsMessage,
+    })
+
+    await supabaseAdmin.from('sms_logs').insert({
+      business_id: businessId,
+      customer_id: customer.id || customerId || null,
+      booking_id: bookingId || null,
+      phone: customer.phone,
+      message: smsMessage,
+      event_type: 'booking_confirmation',
+      status: 'sent',
+      provider_message_id: result?.sid || null,
+    })
+
+    return {
+      sent: true,
+      reason: null,
+      data: result,
+    }
+  } catch (error) {
+    const errorMessage = error instanceof Error ? error.message : 'SMS failed'
+
+    await supabaseAdmin.from('sms_logs').insert({
+      business_id: businessId,
+      customer_id: customer.id || customerId || null,
+      booking_id: bookingId || null,
+      phone: customer.phone,
+      message: smsMessage,
+      event_type: 'booking_confirmation',
+      status: 'failed',
+      error_message: errorMessage,
+    })
+
+    return {
+      sent: false,
+      reason: errorMessage,
+    }
+  }
+}
+
 export async function POST(request: Request) {
   try {
     const body = await request.json()
 
     const {
       businessId,
+      customerId,
+      bookingId,
       customerName,
       customerEmail,
+      customerPhone,
       bookingDate,
       bookingTime,
       serviceName,
@@ -231,12 +475,29 @@ export async function POST(request: Request) {
       if (businessError) console.error('Business email error:', businessError)
     }
 
+    const smsResult = await sendBookingConfirmationSms({
+      businessId,
+      customerId,
+      bookingId,
+      customerName: safeCustomerName,
+      customerEmail: safeCustomerEmail,
+      customerPhone,
+      serviceName,
+      teamMemberName: safeTeamMemberName,
+      bookingDate,
+      bookingTime,
+      brandName,
+    })
+
     return NextResponse.json({
       success: true,
       customerData,
       customerError,
       businessData,
       businessError,
+      smsSent: smsResult.sent,
+      smsReason: smsResult.reason,
+      smsData: smsResult.data || null,
     })
   } catch (error: any) {
     console.error('Booking confirmation email route error:', error)
