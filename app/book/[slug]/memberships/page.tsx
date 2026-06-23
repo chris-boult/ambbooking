@@ -53,6 +53,14 @@ function typeLabel(value?: string | null) {
   return 'Session Based'
 }
 
+function safeAccent(value?: string | null) {
+  if (!value) return '#22d3ee'
+  const colour = value.trim()
+  if (!colour.startsWith('#')) return '#22d3ee'
+  if (colour.toLowerCase() === '#000' || colour.toLowerCase() === '#000000') return '#22d3ee'
+  return colour
+}
+
 function benefits(plan: MembershipPlan) {
   const items: string[] = []
 
@@ -171,7 +179,7 @@ export default function PublicMembershipsPage() {
   }
 
   const featuredPlan = useMemo(() => plans.find((plan) => plan.featured) || plans[0] || null, [plans])
-  const accent = business?.primary_colour || '#22d3ee'
+  const accent = safeAccent(business?.primary_colour)
 
   if (loading) {
     return (
@@ -341,17 +349,24 @@ export default function PublicMembershipsPage() {
 
                 <button
                   type="button"
-                  disabled={joiningPlanId === plan.id}
+                  disabled={joiningPlanId === plan.id || !plan.stripe_price_id}
                   onClick={() => joinMembership(plan)}
-                  className="mt-8 w-full rounded-2xl px-5 py-4 font-black text-slate-950 shadow-lg disabled:opacity-50"
-                  style={{ background: accent }}
+                  className={`mt-8 w-full rounded-2xl px-5 py-4 font-black shadow-lg transition ${
+                    plan.stripe_price_id
+                      ? 'bg-cyan-400 text-slate-950 hover:bg-cyan-300'
+                      : 'cursor-not-allowed border border-amber-300/20 bg-amber-300/10 text-amber-200'
+                  } disabled:opacity-70`}
                 >
-                  {joiningPlanId === plan.id ? 'Starting checkout...' : 'Join membership'}
+                  {joiningPlanId === plan.id
+                    ? 'Starting checkout...'
+                    : plan.stripe_price_id
+                      ? 'Join membership'
+                      : 'Stripe setup required'}
                 </button>
 
                 {!plan.stripe_price_id && (
                   <p className="mt-3 text-center text-xs text-amber-300">
-                    This plan needs Stripe setup before customers can join.
+                    Create the Stripe price for this plan in the Membership Dashboard before customers can join.
                   </p>
                 )}
               </article>
