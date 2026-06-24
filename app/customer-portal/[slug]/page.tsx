@@ -942,6 +942,37 @@ export default function CustomerPortalPage() {
     window.location.href = result.url
   }
 
+
+  async function createMembershipWalletPass(
+    membership: CustomerMembership
+  ) {
+    if (!business || !customer) return
+
+    setMessage('Creating wallet pass...')
+
+    const response = await fetch('/api/memberships/wallet-pass', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        businessId: business.id,
+        customerId: customer.id,
+        membershipId: membership.id,
+      }),
+    })
+
+    const result = await response.json().catch(() => null)
+
+    if (!response.ok || !result?.passUrl) {
+      setMessage(result?.error || 'Could not create wallet pass.')
+      return
+    }
+
+    window.open(result.passUrl, '_blank')
+    setMessage('Digital membership pass opened.')
+  }
+
   function bookAgain(booking: Booking) {
     const query = new URLSearchParams()
     if (booking.service_id) query.set('service', booking.service_id)
@@ -1365,13 +1396,23 @@ export default function CustomerPortalPage() {
                 <section className="grid gap-6 xl:grid-cols-[1fr_0.9fr]">
                   <Panel title="Membership card">
                     {activeMembership ? (
-                      <MembershipCard
-                        membership={activeMembership}
-                        customer={customer}
-                        memberSince={memberSince}
-                        onManage={() => manageActiveMembership()}
-                        loading={portalLoadingAction === `billing-${activeMembership.id}`}
-                      />
+                      <div className="space-y-3">
+                        <MembershipCard
+                          membership={activeMembership}
+                          customer={customer}
+                          memberSince={memberSince}
+                          onManage={() => manageActiveMembership()}
+                          loading={portalLoadingAction === `billing-${activeMembership.id}`}
+                        />
+
+                        <button
+                          type="button"
+                          onClick={() => createMembershipWalletPass(activeMembership)}
+                          className="w-full rounded-2xl border border-cyan-300/20 bg-cyan-300/10 px-5 py-4 font-black text-cyan-100 hover:bg-cyan-300/20"
+                        >
+                          Open Digital Membership Pass
+                        </button>
+                      </div>
                     ) : (
                       <EmptyState message="No active membership yet." />
                     )}
@@ -1520,13 +1561,23 @@ export default function CustomerPortalPage() {
                         return (
                           <div key={membership.id} className="rounded-2xl border border-white/10 bg-black/20 p-5">
                             <div className="grid gap-6 xl:grid-cols-[0.9fr_1.1fr]">
-                              <MembershipCard
-                                membership={membership}
-                                customer={customer}
-                                memberSince={membership.created_at || membership.current_period_start}
-                                onManage={membership.stripe_customer_id ? () => openMembershipBilling(membership) : undefined}
-                                loading={portalLoadingAction === `billing-${membership.id}`}
-                              />
+                              <div className="space-y-3">
+                                <MembershipCard
+                                  membership={membership}
+                                  customer={customer}
+                                  memberSince={membership.created_at || membership.current_period_start}
+                                  onManage={membership.stripe_customer_id ? () => openMembershipBilling(membership) : undefined}
+                                  loading={portalLoadingAction === `billing-${membership.id}`}
+                                />
+
+                                <button
+                                  type="button"
+                                  onClick={() => createMembershipWalletPass(membership)}
+                                  className="w-full rounded-2xl border border-cyan-300/20 bg-cyan-300/10 px-5 py-4 font-black text-cyan-100 hover:bg-cyan-300/20"
+                                >
+                                  Open Digital Membership Pass
+                                </button>
+                              </div>
 
                               <div className="space-y-4">
                                 <div className="rounded-2xl border border-white/10 bg-slate-950 p-5">
@@ -1706,12 +1757,22 @@ export default function CustomerPortalPage() {
                 <Panel title="Wallet passes">
                   <div className="grid gap-4 md:grid-cols-2">
                     {activeMembership && customer && (
-                      <DigitalPass
-                        title={activeMembership.membership_name}
-                        subtitle={customerName(customer)}
-                        code={activeMembership.id}
-                        helper={`Renews ${formatDate(activeMembership.current_period_end)}`}
-                      />
+                      <div className="space-y-3">
+                        <DigitalPass
+                          title={activeMembership.membership_name}
+                          subtitle={customerName(customer)}
+                          code={activeMembership.id}
+                          helper={`Renews ${formatDate(activeMembership.current_period_end)}`}
+                        />
+
+                        <button
+                          type="button"
+                          onClick={() => createMembershipWalletPass(activeMembership)}
+                          className="w-full rounded-2xl border border-cyan-300/20 bg-cyan-300/10 px-5 py-4 font-black text-cyan-100 hover:bg-cyan-300/20"
+                        >
+                          Open Digital Membership Pass
+                        </button>
+                      </div>
                     )}
 
                     {vouchers.slice(0, 4).map((voucher) => (
