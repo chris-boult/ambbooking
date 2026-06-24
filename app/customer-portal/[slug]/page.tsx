@@ -356,7 +356,6 @@ type PortalSession = {
 
 function savePortalSession(customer: Customer, business: Business) {
   if (typeof window === 'undefined') return
-
   window.localStorage.setItem(
     PORTAL_SESSION_KEY,
     JSON.stringify({
@@ -456,7 +455,6 @@ export default function CustomerPortalPage() {
 
   useEffect(() => {
     if (!business || customer || sessionChecked) return
-
     restoreStoredSession()
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [business, customer, sessionChecked])
@@ -1350,7 +1348,7 @@ export default function CustomerPortalPage() {
     : 'No upcoming booking yet.'
 
   return (
-    <main className="min-h-screen bg-[#020617] px-4 pb-36 pt-5 text-white xl:pb-8 xl:pt-8">
+    <main className="min-h-screen bg-[#020617] px-4 pb-40 pt-5 text-white xl:pb-8 xl:pt-8">
       <div className="mx-auto max-w-7xl">
         <section className="mb-8 hidden rounded-[32px] border border-white/10 bg-white/[0.04] p-5 shadow-2xl md:p-6 xl:block">
           <div className="flex flex-col gap-5 md:flex-row md:items-center md:justify-between">
@@ -1364,7 +1362,7 @@ export default function CustomerPortalPage() {
               )}
 
               <div>
-                <p className="text-sm font-black uppercase tracking-[0.25em] text-cyan-300">Customer portal V10</p>
+                <p className="text-sm font-black uppercase tracking-[0.25em] text-cyan-300">Customer portal V11</p>
                 <h1 className="mt-1 text-2xl font-black md:text-3xl">
                   {business?.business_name ? `${business.business_name} Account Centre` : 'Your account centre'}
                 </h1>
@@ -1461,34 +1459,22 @@ export default function CustomerPortalPage() {
 
         {customer && (
           <div className="grid gap-6 xl:grid-cols-[280px_minmax(0,1fr)]">
-            <section className="xl:hidden">
-              <div className="rounded-[34px] border border-cyan-300/20 bg-gradient-to-br from-cyan-300/20 via-white/[0.06] to-slate-950 p-5 shadow-2xl">
-                <div className="flex items-center justify-between gap-4">
-                  <div className="min-w-0">
-                    <p className="text-xs font-black uppercase tracking-[0.24em] text-cyan-200">
-                      {business?.business_name || 'Your account'}
-                    </p>
-                    <h2 className="mt-3 text-4xl font-black leading-tight">
-                      Hi {customer.first_name}.
-                    </h2>
+            <section className="flex items-center justify-between gap-4 xl:hidden">
+              <div className="flex items-center gap-3">
+                {business?.logo_url ? (
+                  <img src={business.logo_url} alt={business.business_name || 'Business logo'} className="h-12 w-12 rounded-2xl object-cover" />
+                ) : (
+                  <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-cyan-300 text-lg font-black text-slate-950">
+                    {customerInitials(customer)}
                   </div>
+                )}
 
-                  {business?.logo_url ? (
-                    <img src={business.logo_url} alt={business.business_name || 'Business logo'} className="h-14 w-14 shrink-0 rounded-3xl object-cover" />
-                  ) : (
-                    <div className="flex h-14 w-14 shrink-0 items-center justify-center rounded-3xl bg-cyan-300 text-xl font-black text-slate-950">
-                      {customerInitials(customer)}
-                    </div>
-                  )}
+                <div>
+                  <p className="text-xs font-black uppercase tracking-[0.22em] text-cyan-300">
+                    {business?.business_name || 'Account'}
+                  </p>
+                  <p className="mt-1 text-sm font-bold text-slate-400">Welcome back</p>
                 </div>
-
-                <button
-                  type="button"
-                  onClick={bookAppointment}
-                  className="mt-6 w-full rounded-3xl bg-cyan-300 px-6 py-6 text-xl font-black uppercase tracking-[0.12em] text-slate-950 shadow-xl shadow-cyan-950/30"
-                >
-                  Book now
-                </button>
               </div>
             </section>
             <aside className="hidden xl:sticky xl:top-8 xl:block xl:self-start">
@@ -1586,67 +1572,54 @@ export default function CustomerPortalPage() {
 
             {activeTab === 'home' && (
               <div className="space-y-6">
-                <div className="space-y-4 xl:hidden">
-                  {nextBooking ? (
-                    <button
-                      type="button"
-                      onClick={() => setActiveTab('bookings')}
-                      className="w-full rounded-[32px] border border-white/10 bg-white/[0.04] p-5 text-left"
-                    >
-                      <p className="text-xs font-black uppercase tracking-[0.22em] text-cyan-300">Next appointment</p>
-                      <p className="mt-3 text-2xl font-black">{serviceName(nextBooking)}</p>
-                      <p className="mt-2 text-sm text-slate-400">
-                        {formatDate(nextBooking.booking_date)} · {String(nextBooking.booking_time).slice(0, 5)}
+                <section className="space-y-4 xl:hidden">
+                  <div className="rounded-[36px] border border-cyan-300/20 bg-gradient-to-br from-cyan-300/20 via-white/[0.06] to-slate-950 p-6 shadow-2xl">
+                    <p className="text-xs font-black uppercase tracking-[0.25em] text-cyan-200">
+                      {business?.business_name || 'Your account'}
+                    </p>
+
+                    <h1 className="mt-4 text-5xl font-black leading-none">
+                      Hi {customer.first_name}.
+                    </h1>
+
+                    <div className="mt-6 rounded-[28px] border border-white/10 bg-black/20 p-5">
+                      <p className="text-xs font-black uppercase tracking-[0.22em] text-slate-500">Next appointment</p>
+                      <p className="mt-3 text-3xl font-black">{nextBooking ? serviceName(nextBooking) : 'Nothing booked'}</p>
+                      <p className="mt-2 text-sm leading-6 text-slate-300">
+                        {nextBooking
+                          ? `${formatDate(nextBooking.booking_date)} · ${String(nextBooking.booking_time).slice(0, 5)}`
+                          : 'Book your next appointment in a few taps.'}
                       </p>
-                    </button>
-                  ) : (
-                    <div className="rounded-[32px] border border-white/10 bg-white/[0.04] p-5">
-                      <p className="text-xs font-black uppercase tracking-[0.22em] text-cyan-300">Next appointment</p>
-                      <p className="mt-3 text-2xl font-black">Nothing booked</p>
-                      <p className="mt-2 text-sm text-slate-400">Book your next appointment in a few taps.</p>
                     </div>
-                  )}
+
+                    <button type="button" onClick={bookAppointment} className="mt-6 w-full rounded-[28px] bg-cyan-300 px-6 py-6 text-xl font-black uppercase tracking-[0.12em] text-slate-950 shadow-xl shadow-cyan-950/30">
+                      Book appointment
+                    </button>
+                  </div>
 
                   <div className="grid grid-cols-2 gap-3">
-                    <MobileHomeTile title="Wallet" value="Passes" helper="Membership, loyalty and vouchers" onClick={() => setActiveTab('wallet')} />
-                    <MobileHomeTile title="Alerts" value={unreadNotificationCount > 0 ? `${unreadNotificationCount} unread` : 'None'} helper="Updates and reminders" onClick={() => setActiveTab('notifications')} />
-                    <MobileHomeTile title="Bookings" value={`${upcomingBookings.length} upcoming`} helper="View or change bookings" onClick={() => setActiveTab('bookings')} />
+                    <MobileHomeTile title="My bookings" value={`${upcomingBookings.length} upcoming`} helper="View or change bookings" onClick={() => setActiveTab('bookings')} />
+                    <MobileHomeTile title="Wallet passes" value="Open wallet" helper="Membership, loyalty and vouchers" onClick={() => setActiveTab('wallet')} />
                     <MobileHomeTile title="Rewards" value={`${loyaltyProgress}%`} helper="Loyalty progress" onClick={() => setActiveTab('loyalty')} />
+                    <MobileHomeTile title="Profile" value="Account" helper="Preferences and login" onClick={() => setActiveTab('profile')} />
                   </div>
 
                   <div className="rounded-[32px] border border-white/10 bg-white/[0.04] p-5">
-                    <div className="flex items-center justify-between gap-3">
-                      <div>
-                        <p className="text-xs font-black uppercase tracking-[0.22em] text-cyan-300">Quick wallet</p>
-                        <p className="mt-2 text-lg font-black">{money(totalVoucherBalance)} voucher balance</p>
-                      </div>
-                      <button
-                        type="button"
-                        onClick={() => setActiveTab('wallet')}
-                        className="rounded-2xl bg-cyan-300 px-4 py-3 text-sm font-black text-slate-950"
-                      >
-                        Open
-                      </button>
-                    </div>
+                    <p className="text-xs font-black uppercase tracking-[0.22em] text-cyan-300">Wallet snapshot</p>
+                    <p className="mt-3 text-xl font-black">{activeMembership ? activeMembership.membership_name : 'No active membership'}</p>
+                    <p className="mt-1 text-sm text-slate-400">Voucher balance: {money(totalVoucherBalance)}</p>
+                    <p className="mt-1 text-sm text-slate-400">Loyalty: {loyaltyProgress}%</p>
                   </div>
 
                   <div className="rounded-[32px] border border-white/10 bg-white/[0.04] p-5">
-                    <div className="flex items-center justify-between gap-3">
-                      <div>
-                        <p className="text-xs font-black uppercase tracking-[0.22em] text-cyan-300">Need help?</p>
-                        <p className="mt-2 text-lg font-black">Manage your profile</p>
-                      </div>
-                      <button
-                        type="button"
-                        onClick={() => setActiveTab('profile')}
-                        className="rounded-2xl border border-white/10 px-4 py-3 text-sm font-black text-white"
-                      >
-                        Profile
-                      </button>
-                    </div>
+                    <p className="text-xs font-black uppercase tracking-[0.22em] text-cyan-300">Latest alert</p>
+                    <p className="mt-3 text-xl font-black">{notifications[0]?.title || (nextBooking ? 'Appointment coming up' : 'No alerts')}</p>
+                    <p className="mt-1 text-sm leading-6 text-slate-400">{notifications[0]?.message || (nextBooking ? `${serviceName(nextBooking)} is booked for ${formatDate(nextBooking.booking_date)}.` : 'You are all caught up.')}</p>
                   </div>
-                </div>
-                <section className="hidden rounded-[32px] border border-cyan-300/20 bg-cyan-300/10 p-6 md:p-8 xl:block">
+                </section>
+
+                <div className="hidden space-y-6 xl:block">
+                <section className="rounded-[32px] border border-cyan-300/20 bg-cyan-300/10 p-6 md:p-8">
                   <div className="flex flex-col gap-6 lg:flex-row lg:items-end lg:justify-between">
                     <div>
                       <p className="text-sm font-black uppercase tracking-[0.25em] text-cyan-200">Overview</p>
@@ -1669,14 +1642,14 @@ export default function CustomerPortalPage() {
                   </div>
                 </section>
 
-                <section className="hidden gap-4 md:grid md:grid-cols-4">
+                <section className="grid gap-4 md:grid-cols-4">
                   <HighlightCard title="Next appointment" value={nextBooking ? serviceName(nextBooking) : 'None booked'} helper={nextBooking ? `${formatDate(nextBooking.booking_date)} · ${String(nextBooking.booking_time).slice(0, 5)}` : 'Book when you are ready'} />
                   <HighlightCard title="Membership" value={activeMembership ? activeMembership.membership_name : 'None active'} helper={activeMembership ? `${membershipSessionsRemaining(activeMembership)} sessions remaining` : 'No current plan'} />
                   <HighlightCard title="Available sessions" value={activeMembership ? `${membershipSessionsRemaining(activeMembership)} / ${activeMembership.included_sessions || 0}` : activePackage ? `${sessionsRemaining(activePackage)} package sessions` : '0'} helper="Ready to use" />
                   <HighlightCard title="Outstanding" value={money(outstandingTotal)} helper="Current balance" />
                 </section>
 
-                <section className="hidden gap-4 md:grid md:grid-cols-3">
+                <section className="grid gap-4 md:grid-cols-3">
                   <button type="button" onClick={() => setActiveTab('wallet')} className="rounded-[28px] border border-white/10 bg-white/[0.04] p-5 text-left transition hover:border-cyan-300/30 hover:bg-cyan-300/10">
                     <p className="text-xs font-black uppercase tracking-[0.22em] text-cyan-300">Wallet</p>
                     <p className="mt-3 text-2xl font-black">Passes</p>
@@ -1696,7 +1669,7 @@ export default function CustomerPortalPage() {
                   </button>
                 </section>
 
-                <section className="hidden gap-6 xl:grid xl:grid-cols-[1fr_0.9fr]">
+                <section className="grid gap-6 xl:grid-cols-[1fr_0.9fr]">
                   <Panel title="Membership card">
                     {activeMembership ? (
                       <div className="space-y-3">
@@ -1731,14 +1704,15 @@ export default function CustomerPortalPage() {
                   </Panel>
                 </section>
 
-                <div className="hidden xl:block"><Panel title="Recent activity">
+                <Panel title="Recent activity">
                   <div className="space-y-3">
                     {recentActivity.map((item) => (
                       <TimelineRow key={item.id} item={item} />
                     ))}
                     {recentActivity.length === 0 && <EmptyState message="No recent activity yet." />}
                   </div>
-                </Panel></div>
+                </Panel>
+                </div>
               </div>
             )}
 
@@ -2456,25 +2430,20 @@ export default function CustomerPortalPage() {
           </div>
         )}
 
-        {customer && activeTab !== 'home' && (
-          <div className="fixed inset-x-4 bottom-24 z-40 xl:hidden">
-            <button
-              type="button"
-              onClick={bookAppointment}
-              className="w-full rounded-3xl bg-cyan-300 px-6 py-4 text-base font-black uppercase tracking-[0.12em] text-slate-950 shadow-2xl shadow-cyan-950/40"
-            >
-              Book now
+        {customer && activeTab !== 'home' && activeTab !== 'profile' && (
+          <div className="fixed inset-x-4 bottom-28 z-40 xl:hidden">
+            <button type="button" onClick={bookAppointment} className="w-full rounded-[28px] bg-cyan-300 px-6 py-4 text-base font-black uppercase tracking-[0.12em] text-slate-950 shadow-2xl shadow-cyan-950/40">
+              Book appointment
             </button>
           </div>
         )}
 
         {customer && (
-          <nav className="fixed inset-x-3 bottom-3 z-50 rounded-[30px] border border-white/10 bg-slate-950/95 p-2 shadow-2xl backdrop-blur-2xl xl:hidden">
-            <div className="grid grid-cols-5 gap-1">
+          <nav className="fixed inset-x-4 bottom-4 z-50 rounded-[32px] border border-white/10 bg-slate-950/95 p-2 shadow-2xl backdrop-blur-2xl xl:hidden">
+            <div className="grid grid-cols-4 gap-1">
               <MobileNavButton icon="⌂" label="Home" active={activeTab === 'home'} onClick={() => setActiveTab('home')} />
               <MobileNavButton icon="◷" label="Bookings" active={activeTab === 'bookings'} onClick={() => setActiveTab('bookings')} />
-              <MobileNavButton icon="▣" label="Wallet" active={activeTab === 'wallet' || activeTab === 'loyalty'} onClick={() => setActiveTab('wallet')} />
-              <MobileNavButton icon="!" label={unreadNotificationCount > 0 ? `${unreadNotificationCount}` : 'Alerts'} active={activeTab === 'notifications'} onClick={() => setActiveTab('notifications')} />
+              <MobileNavButton icon="▣" label="Wallet" active={activeTab === 'wallet' || activeTab === 'loyalty' || activeTab === 'vouchers' || activeTab === 'memberships'} onClick={() => setActiveTab('wallet')} />
               <MobileNavButton icon="◉" label="Profile" active={activeTab === 'profile'} onClick={() => setActiveTab('profile')} />
             </div>
           </nav>
@@ -2878,7 +2847,6 @@ function NotificationCard({
 }
 
 
-
 function MobileHomeTile({
   title,
   value,
@@ -2891,35 +2859,10 @@ function MobileHomeTile({
   onClick: () => void
 }) {
   return (
-    <button
-      type="button"
-      onClick={onClick}
-      className="rounded-[28px] border border-white/10 bg-white/[0.04] p-5 text-left"
-    >
-      <p className="text-xs font-black uppercase tracking-[0.22em] text-cyan-300">{title}</p>
+    <button type="button" onClick={onClick} className="rounded-[28px] border border-white/10 bg-white/[0.04] p-5 text-left">
+      <p className="text-xs font-black uppercase tracking-[0.2em] text-cyan-300">{title}</p>
       <p className="mt-3 text-xl font-black">{value}</p>
       <p className="mt-2 text-xs leading-5 text-slate-500">{helper}</p>
-    </button>
-  )
-}
-
-function MobileActionTile({
-  title,
-  value,
-  onClick,
-}: {
-  title: string
-  value: string
-  onClick: () => void
-}) {
-  return (
-    <button
-      type="button"
-      onClick={onClick}
-      className="rounded-[28px] border border-white/10 bg-white/[0.04] p-5 text-left"
-    >
-      <p className="text-xs font-black uppercase tracking-[0.22em] text-slate-500">{title}</p>
-      <p className="mt-3 text-xl font-black">{value}</p>
     </button>
   )
 }
@@ -2936,13 +2879,7 @@ function MobileNavButton({
   onClick: () => void
 }) {
   return (
-    <button
-      type="button"
-      onClick={onClick}
-      className={`rounded-3xl px-2 py-3 text-center text-[11px] font-black transition ${
-        active ? 'bg-cyan-300 text-slate-950' : 'bg-white/[0.04] text-slate-300'
-      }`}
-    >
+    <button type="button" onClick={onClick} className={`rounded-[26px] px-2 py-3 text-center text-[11px] font-black transition ${active ? 'bg-cyan-300 text-slate-950' : 'bg-white/[0.04] text-slate-300'}`}>
       <span className="block text-lg leading-none">{icon}</span>
       <span className="mt-1 block">{label}</span>
     </button>
