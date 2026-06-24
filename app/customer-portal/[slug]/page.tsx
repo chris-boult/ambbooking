@@ -215,6 +215,17 @@ type CustomerLoyalty = {
   created_at: string | null
 }
 
+type CustomerNotification = {
+  id: string
+  business_id: string
+  customer_id: string
+  title: string
+  message: string
+  notification_type: string | null
+  read: boolean | null
+  created_at: string | null
+}
+
 function joinOne<T>(value: T | T[] | null | undefined): T | null {
   if (!value) return null
   if (Array.isArray(value)) return value[0] || null
@@ -354,6 +365,7 @@ export default function CustomerPortalPage() {
   const [reviews, setReviews] = useState<CustomerReview[]>([])
   const [documents, setDocuments] = useState<CustomerDocument[]>([])
   const [loyalty, setLoyalty] = useState<CustomerLoyalty | null>(null)
+  const [notifications, setNotifications] = useState<CustomerNotification[]>([])
   const [services, setServices] = useState<ServiceOption[]>([])
   const [teamMembers, setTeamMembers] = useState<TeamMemberOption[]>([])
 
@@ -425,24 +437,40 @@ export default function CustomerPortalPage() {
   }, [customer])
 
   async function loadBusiness() {
-    setLoadingBusiness(true)
-    setMessage('')
+  setLoadingBusiness(true)
+  setMessage('')
 
-    const { data, error } = await supabase
+  const timeout = new Promise((_, reject) =>
+    setTimeout(() => reject(new Error('Business lookup timed out. Check Supabase connection.')), 8000)
+  )
+
+  try {
+    const query = supabase
       .from('businesses')
       .select('id,business_name,slug,logo_url,primary_colour,secondary_colour')
       .eq('slug', slug)
       .maybeSingle()
 
-    if (error || !data) {
-      setMessage(error?.message || 'Customer portal not found.')
-      setLoadingBusiness(false)
+    const { data, error } = await Promise.race([query, timeout]) as any
+
+    if (error) {
+      setMessage(error.message)
+      return
+    }
+
+    if (!data) {
+      setMessage(`No business found for slug: ${slug}`)
       return
     }
 
     setBusiness(data as Business)
+  } catch (error: any) {
+    console.error('Load business failed:', error)
+    setMessage(error?.message || 'Could not load customer portal.')
+  } finally {
     setLoadingBusiness(false)
   }
+}
 
   async function requestAccessCode() {
     setMessage('')
@@ -541,6 +569,7 @@ export default function CustomerPortalPage() {
       loyaltyResult,
       servicesResult,
       teamResult,
+      notificationResult,
     ] = await Promise.all([
       supabase
         .from('bookings')
@@ -639,6 +668,12 @@ export default function CustomerPortalPage() {
         .select('id,full_name')
         .eq('business_id', business.id)
         .order('full_name'),
+      supabase
+        .from('customer_notifications')
+        .select('*')
+        .eq('business_id', business.id)
+        .eq('customer_id', loadedCustomer.id)
+        .order('created_at', { ascending: false }),
     ])
 
     if (
@@ -654,7 +689,8 @@ export default function CustomerPortalPage() {
       documentResult.error ||
       loyaltyResult.error ||
       servicesResult.error ||
-      teamResult.error
+      teamResult.error ||
+      notificationResult.error
     ) {
       setMessage(
         bookingResult.error?.message ||
@@ -670,6 +706,7 @@ export default function CustomerPortalPage() {
           loyaltyResult.error?.message ||
           servicesResult.error?.message ||
           teamResult.error?.message ||
+          notificationResult.error?.message ||
           'Could not load customer portal.'
       )
       setLoadingPortal(false)
@@ -689,6 +726,7 @@ export default function CustomerPortalPage() {
     setLoyalty((loyaltyResult.data as CustomerLoyalty) || null)
     setServices((servicesResult.data as ServiceOption[]) || [])
     setTeamMembers((teamResult.data as TeamMemberOption[]) || [])
+    setNotifications((notificationResult.data as CustomerNotification[]) || [])
     setLoadingPortal(false)
     setActiveTab('home')
     setMessage('')
@@ -973,6 +1011,66 @@ export default function CustomerPortalPage() {
     setMessage('Digital membership pass opened.')
   }
 
+
+  async function createLoyaltyWalletPass(
+    loyaltyWallet: CustomerLoyalty
+  ) {
+    if (!business || !customer) return
+
+    setMessage('Creating loyalty pass...')
+
+    const response = await fetch('/api/loyalty/wallet-pass', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        businessId: business.id,
+        customerId: customer.id,
+        loyaltyId: loyaltyWallet.id,
+      }),
+    })
+
+    const result = await response.json().catch(() => null)
+
+    if (!response.ok || !result?.passUrl) {
+      setMessage(result?.error || 'Could not create loyalty pass.')
+      return
+    }
+
+    window.open(result.passUrl, '_blank')
+    setMessage('Digital loyalty pass opened.')
+  }
+
+
+  async function createVoucherWalletPass(voucher: GiftVoucher) {
+    if (!business || !customer) return
+
+    setMessage('Creating voucher pass...')
+
+    const response = await fetch('/api/vouchers/wallet-pass', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        businessId: business.id,
+        customerId: customer.id,
+        voucherId: voucher.id,
+      }),
+    })
+
+    const result = await response.json().catch(() => null)
+
+    if (!response.ok || !result?.passUrl) {
+      setMessage(result?.error || 'Could not create voucher pass.')
+      return
+    }
+
+    window.open(result.passUrl, '_blank')
+    setMessage('Digital voucher pass opened.')
+  }
+
   function bookAgain(booking: Booking) {
     const query = new URLSearchParams()
     if (booking.service_id) query.set('service', booking.service_id)
@@ -1124,6 +1222,7 @@ export default function CustomerPortalPage() {
   const loyaltyVisitsRequired = Number(loyalty?.visits_required || 10)
   const loyaltyVisitsCompleted = Number(loyalty?.visits_completed ?? completedBookings.length)
   const loyaltyProgress = loyaltyVisitsRequired > 0 ? Math.min(100, Math.round((loyaltyVisitsCompleted / loyaltyVisitsRequired) * 100)) : 0
+  const unreadNotificationCount = notifications.filter((notification) => !notification.read).length
 
   const timelineItems = [
     ...bookings.map((booking) => ({
@@ -1184,7 +1283,7 @@ export default function CustomerPortalPage() {
               )}
 
               <div>
-                <p className="text-sm font-black uppercase tracking-[0.25em] text-cyan-300">Customer portal V6</p>
+                <p className="text-sm font-black uppercase tracking-[0.25em] text-cyan-300">Customer portal V8</p>
                 <h1 className="mt-1 text-2xl font-black md:text-3xl">
                   {business?.business_name ? `${business.business_name} Account Centre` : 'Your account centre'}
                 </h1>
@@ -1197,6 +1296,19 @@ export default function CustomerPortalPage() {
                   <p className="text-sm text-slate-400">Signed in as</p>
                   <p className="font-black">{customerName(customer)}</p>
                 </div>
+
+                <button
+                  type="button"
+                  onClick={() => setActiveTab('notifications')}
+                  className="relative rounded-2xl border border-white/10 bg-black/20 px-4 py-3 text-sm font-black text-slate-300 hover:bg-white/10"
+                >
+                  Notifications
+                  {unreadNotificationCount > 0 && (
+                    <span className="absolute -right-2 -top-2 flex h-6 min-w-6 items-center justify-center rounded-full bg-cyan-300 px-2 text-xs font-black text-slate-950">
+                      {unreadNotificationCount}
+                    </span>
+                  )}
+                </button>
 
                 <button type="button" onClick={resetAccess} className="rounded-xl border border-white/10 px-3 py-2 text-sm font-black text-slate-300 hover:bg-white/10">
                   Use different email
@@ -1268,7 +1380,49 @@ export default function CustomerPortalPage() {
 
         {customer && (
           <div className="grid gap-6 xl:grid-cols-[280px_minmax(0,1fr)]">
-            <aside className="xl:sticky xl:top-8 xl:self-start">
+            <section className="rounded-[32px] border border-cyan-300/20 bg-gradient-to-br from-cyan-300/20 via-white/[0.06] to-slate-950 p-5 shadow-2xl xl:hidden">
+              <div className="flex items-start justify-between gap-4">
+                <div>
+                  <p className="text-sm font-black uppercase tracking-[0.25em] text-cyan-200">
+                    {business?.business_name || 'Your account'}
+                  </p>
+                  <h2 className="mt-3 text-3xl font-black">
+                    Hi {customer.first_name}.
+                  </h2>
+                  <p className="mt-2 text-sm leading-6 text-slate-300">
+                    {nextBooking
+                      ? `Next up: ${serviceName(nextBooking)} on ${formatDate(nextBooking.booking_date)} at ${String(nextBooking.booking_time).slice(0, 5)}.`
+                      : 'No upcoming booking yet.'}
+                  </p>
+                </div>
+
+                {business?.logo_url ? (
+                  <img src={business.logo_url} alt={business.business_name || 'Business logo'} className="h-14 w-14 rounded-2xl object-cover" />
+                ) : (
+                  <div className="flex h-14 w-14 items-center justify-center rounded-2xl bg-cyan-300 text-xl font-black text-slate-950">
+                    {customerInitials(customer)}
+                  </div>
+                )}
+              </div>
+
+              <div className="mt-5 grid grid-cols-3 gap-3">
+                <button type="button" onClick={() => setActiveTab('bookings')} className="rounded-2xl border border-white/10 bg-black/20 p-4 text-left">
+                  <p className="text-xs font-black uppercase tracking-[0.18em] text-slate-500">Booking</p>
+                  <p className="mt-2 text-sm font-black">{nextBooking ? 'Upcoming' : 'None'}</p>
+                </button>
+
+                <button type="button" onClick={() => setActiveTab('wallet')} className="rounded-2xl border border-white/10 bg-black/20 p-4 text-left">
+                  <p className="text-xs font-black uppercase tracking-[0.18em] text-slate-500">Wallet</p>
+                  <p className="mt-2 text-sm font-black">{money(totalVoucherBalance)}</p>
+                </button>
+
+                <button type="button" onClick={() => setActiveTab('loyalty')} className="rounded-2xl border border-white/10 bg-black/20 p-4 text-left">
+                  <p className="text-xs font-black uppercase tracking-[0.18em] text-slate-500">Rewards</p>
+                  <p className="mt-2 text-sm font-black">{loyaltyProgress}%</p>
+                </button>
+              </div>
+            </section>
+            <aside className="hidden xl:sticky xl:top-8 xl:block xl:self-start">
               <section className="rounded-[28px] border border-white/10 bg-white/[0.04] p-4 shadow-2xl">
                 <div className="mb-4 rounded-2xl border border-white/10 bg-black/20 p-4">
                   <p className="text-xs font-black uppercase tracking-[0.22em] text-cyan-300">Customer menu</p>
@@ -1391,6 +1545,26 @@ export default function CustomerPortalPage() {
                   <HighlightCard title="Membership" value={activeMembership ? activeMembership.membership_name : 'None active'} helper={activeMembership ? `${membershipSessionsRemaining(activeMembership)} sessions remaining` : 'No current plan'} />
                   <HighlightCard title="Available sessions" value={activeMembership ? `${membershipSessionsRemaining(activeMembership)} / ${activeMembership.included_sessions || 0}` : activePackage ? `${sessionsRemaining(activePackage)} package sessions` : '0'} helper="Ready to use" />
                   <HighlightCard title="Outstanding" value={money(outstandingTotal)} helper="Current balance" />
+                </section>
+
+                <section className="grid gap-4 md:grid-cols-3">
+                  <button type="button" onClick={() => setActiveTab('wallet')} className="rounded-[28px] border border-white/10 bg-white/[0.04] p-5 text-left transition hover:border-cyan-300/30 hover:bg-cyan-300/10">
+                    <p className="text-xs font-black uppercase tracking-[0.22em] text-cyan-300">Wallet</p>
+                    <p className="mt-3 text-2xl font-black">Passes</p>
+                    <p className="mt-2 text-sm leading-6 text-slate-400">Membership, loyalty and voucher passes.</p>
+                  </button>
+
+                  <button type="button" onClick={() => setActiveTab('loyalty')} className="rounded-[28px] border border-white/10 bg-white/[0.04] p-5 text-left transition hover:border-cyan-300/30 hover:bg-cyan-300/10">
+                    <p className="text-xs font-black uppercase tracking-[0.22em] text-cyan-300">Rewards</p>
+                    <p className="mt-3 text-2xl font-black">{loyaltyProgress}%</p>
+                    <p className="mt-2 text-sm leading-6 text-slate-400">Track loyalty and referral rewards.</p>
+                  </button>
+
+                  <button type="button" onClick={rebookLastService} className="rounded-[28px] border border-white/10 bg-white/[0.04] p-5 text-left transition hover:border-cyan-300/30 hover:bg-cyan-300/10">
+                    <p className="text-xs font-black uppercase tracking-[0.22em] text-cyan-300">Book again</p>
+                    <p className="mt-3 text-2xl font-black">Book now</p>
+                    <p className="mt-2 text-sm leading-6 text-slate-400">Rebook your last appointment quickly.</p>
+                  </button>
                 </section>
 
                 <section className="grid gap-6 xl:grid-cols-[1fr_0.9fr]">
@@ -1633,6 +1807,15 @@ export default function CustomerPortalPage() {
                       <div className="mt-4 flex justify-center rounded-2xl border border-white/10 bg-white p-4">
                         <QRCode value={voucherCode(voucher)} size={132} />
                       </div>
+
+                      <button
+                        type="button"
+                        onClick={() => createVoucherWalletPass(voucher)}
+                        className="mt-4 w-full rounded-2xl border border-cyan-300/20 bg-cyan-300/10 px-5 py-4 font-black text-cyan-100 hover:bg-cyan-300/20"
+                      >
+                        Open Digital Voucher Pass
+                      </button>
+
                       <p className="mt-3 text-xs font-black uppercase tracking-[0.2em] text-slate-500">
                         {voucher.status || 'active'} · expires {formatDate(voucher.expiry_date)}
                       </p>
@@ -1742,13 +1925,23 @@ export default function CustomerPortalPage() {
 
                 <Panel title="Loyalty stamp card">
                   {loyalty ? (
-                    <LoyaltyStampCard
-                      rewardLabel={loyalty.reward_label || 'Reward'}
-                      completed={loyaltyVisitsCompleted}
-                      required={loyaltyVisitsRequired}
-                      progress={loyaltyProgress}
-                      status={loyalty.status || 'active'}
-                    />
+                    <div className="space-y-3">
+                      <LoyaltyStampCard
+                        rewardLabel={loyalty.reward_label || 'Reward'}
+                        completed={loyaltyVisitsCompleted}
+                        required={loyaltyVisitsRequired}
+                        progress={loyaltyProgress}
+                        status={loyalty.status || 'active'}
+                      />
+
+                      <button
+                        type="button"
+                        onClick={() => createLoyaltyWalletPass(loyalty)}
+                        className="w-full rounded-2xl border border-cyan-300/20 bg-cyan-300/10 px-5 py-4 font-black text-cyan-100 hover:bg-cyan-300/20"
+                      >
+                        Open Digital Loyalty Pass
+                      </button>
+                    </div>
                   ) : (
                     <EmptyState message="No loyalty wallet yet." />
                   )}
@@ -1775,17 +1968,45 @@ export default function CustomerPortalPage() {
                       </div>
                     )}
 
+                    {loyalty && customer && (
+                      <div className="space-y-3">
+                        <DigitalPass
+                          title={loyalty.reward_label || 'Loyalty reward'}
+                          subtitle={customerName(customer)}
+                          code={loyalty.id}
+                          helper={`${loyaltyVisitsCompleted} / ${loyaltyVisitsRequired} visits`}
+                        />
+
+                        <button
+                          type="button"
+                          onClick={() => createLoyaltyWalletPass(loyalty)}
+                          className="w-full rounded-2xl border border-cyan-300/20 bg-cyan-300/10 px-5 py-4 font-black text-cyan-100 hover:bg-cyan-300/20"
+                        >
+                          Open Digital Loyalty Pass
+                        </button>
+                      </div>
+                    )}
+
                     {vouchers.slice(0, 4).map((voucher) => (
-                      <DigitalPass
-                        key={voucher.id}
-                        title={voucherCode(voucher)}
-                        subtitle={money(voucherBalance(voucher))}
-                        code={voucherCode(voucher)}
-                        helper={`Expires ${formatDate(voucher.expiry_date)}`}
-                      />
+                      <div key={voucher.id} className="space-y-3">
+                        <DigitalPass
+                          title={voucherCode(voucher)}
+                          subtitle={money(voucherBalance(voucher))}
+                          code={voucherCode(voucher)}
+                          helper={`Expires ${formatDate(voucher.expiry_date)}`}
+                        />
+
+                        <button
+                          type="button"
+                          onClick={() => createVoucherWalletPass(voucher)}
+                          className="w-full rounded-2xl border border-cyan-300/20 bg-cyan-300/10 px-5 py-4 font-black text-cyan-100 hover:bg-cyan-300/20"
+                        >
+                          Open Digital Voucher Pass
+                        </button>
+                      </div>
                     ))}
 
-                    {!activeMembership && vouchers.length === 0 && (
+                    {!activeMembership && !loyalty && vouchers.length === 0 && (
                       <EmptyState message="No wallet passes yet." />
                     )}
                   </div>
@@ -1968,49 +2189,86 @@ export default function CustomerPortalPage() {
                 </div>
               </Panel>
             )}
-
-
             {activeTab === 'notifications' && (
-              <Panel title="Notifications">
+              <Panel title={`Notifications${unreadNotificationCount > 0 ? ` (${unreadNotificationCount} unread)` : ''}`}>
                 <div className="space-y-3">
-                  {nextBooking && (
-                    <NotificationCard
-                      title="Upcoming appointment"
-                      description={`${serviceName(nextBooking)} on ${formatDate(nextBooking.booking_date)} at ${String(nextBooking.booking_time).slice(0, 5)}`}
-                    />
-                  )}
+                  {notifications.map((notification) => (
+                    <div
+                      key={notification.id}
+                      className={`rounded-2xl border p-5 ${
+                        notification.read
+                          ? 'border-white/10 bg-black/20'
+                          : 'border-cyan-300/20 bg-cyan-300/10'
+                      }`}
+                    >
+                      <div className="flex items-start justify-between gap-4">
+                        <div>
+                          <p className="font-black">{notification.title}</p>
+                          <p className="mt-2 text-sm leading-6 text-slate-300">
+                            {notification.message}
+                          </p>
+                        </div>
 
-                  {activeMembership && (
-                    <NotificationCard
-                      title="Membership renewal"
-                      description={`${activeMembership.membership_name} renews on ${formatDate(activeMembership.current_period_end)}`}
-                    />
-                  )}
+                        {!notification.read && (
+                          <span className="mt-1 h-3 w-3 shrink-0 rounded-full bg-cyan-300" />
+                        )}
+                      </div>
 
-                  {loyalty && loyaltyProgress >= 100 && (
-                    <NotificationCard
-                      title="Loyalty reward unlocked"
-                      description={`You have earned ${loyalty.reward_label || 'your reward'}.`}
-                    />
-                  )}
-
-                  {activeWaitlist && (
-                    <NotificationCard
-                      title="Waitlist request active"
-                      description={`${serviceName(activeWaitlist)} on ${formatDate(activeWaitlist.preferred_date)} · ${activeWaitlist.preferred_time_range || 'Any time'}`}
-                    />
-                  )}
-
-                  {vouchers.filter((voucher) => voucherBalance(voucher) > 0).slice(0, 3).map((voucher) => (
-                    <NotificationCard
-                      key={voucher.id}
-                      title="Voucher available"
-                      description={`${voucherCode(voucher)} has ${money(voucherBalance(voucher))} remaining.`}
-                    />
+                      <div className="mt-4 flex flex-wrap items-center gap-3">
+                        <span className="rounded-full border border-white/10 px-3 py-1 text-xs font-black uppercase text-slate-400">
+                          {notification.notification_type || 'general'}
+                        </span>
+                        <span className="text-xs text-slate-500">
+                          {notification.created_at
+                            ? new Date(notification.created_at).toLocaleString('en-GB')
+                            : 'Recently'}
+                        </span>
+                      </div>
+                    </div>
                   ))}
 
-                  {!nextBooking && !activeMembership && !loyalty && !activeWaitlist && vouchers.length === 0 && (
-                    <EmptyState message="No notifications yet." />
+                  {notifications.length === 0 && (
+                    <>
+                      {nextBooking && (
+                        <NotificationCard
+                          title="Upcoming appointment"
+                          description={`${serviceName(nextBooking)} on ${formatDate(nextBooking.booking_date)} at ${String(nextBooking.booking_time).slice(0, 5)}`}
+                        />
+                      )}
+
+                      {activeMembership && (
+                        <NotificationCard
+                          title="Membership renewal"
+                          description={`${activeMembership.membership_name} renews on ${formatDate(activeMembership.current_period_end)}`}
+                        />
+                      )}
+
+                      {loyalty && loyaltyProgress >= 100 && (
+                        <NotificationCard
+                          title="Loyalty reward unlocked"
+                          description={`You have earned ${loyalty.reward_label || 'your reward'}.`}
+                        />
+                      )}
+
+                      {activeWaitlist && (
+                        <NotificationCard
+                          title="Waitlist request active"
+                          description={`${serviceName(activeWaitlist)} on ${formatDate(activeWaitlist.preferred_date)} · ${activeWaitlist.preferred_time_range || 'Any time'}`}
+                        />
+                      )}
+
+                      {vouchers.filter((voucher) => voucherBalance(voucher) > 0).slice(0, 3).map((voucher) => (
+                        <NotificationCard
+                          key={voucher.id}
+                          title="Voucher available"
+                          description={`${voucherCode(voucher)} has ${money(voucherBalance(voucher))} remaining.`}
+                        />
+                      ))}
+
+                      {!nextBooking && !activeMembership && !loyalty && !activeWaitlist && vouchers.length === 0 && (
+                        <EmptyState message="No notifications yet." />
+                      )}
+                    </>
                   )}
                 </div>
               </Panel>
@@ -2062,19 +2320,20 @@ export default function CustomerPortalPage() {
             </div>
           </div>
         )}
-      </div>
 
         {customer && (
           <nav className="fixed inset-x-0 bottom-0 z-50 border-t border-white/10 bg-slate-950/95 px-3 py-3 backdrop-blur-2xl xl:hidden">
-            <div className="grid grid-cols-5 gap-2">
+            <div className="grid grid-cols-6 gap-1">
               <MobileNavButton label="Home" active={activeTab === 'home'} onClick={() => setActiveTab('home')} />
               <MobileNavButton label="Bookings" active={activeTab === 'bookings'} onClick={() => setActiveTab('bookings')} />
               <MobileNavButton label="Wallet" active={activeTab === 'wallet'} onClick={() => setActiveTab('wallet')} />
-              <MobileNavButton label="Member" active={activeTab === 'memberships'} onClick={() => setActiveTab('memberships')} />
+              <MobileNavButton label="Rewards" active={activeTab === 'loyalty'} onClick={() => setActiveTab('loyalty')} />
+              <MobileNavButton label={unreadNotificationCount > 0 ? `Alerts ${unreadNotificationCount}` : 'Alerts'} active={activeTab === 'notifications'} onClick={() => setActiveTab('notifications')} />
               <MobileNavButton label="Profile" active={activeTab === 'profile'} onClick={() => setActiveTab('profile')} />
             </div>
           </nav>
         )}
+      </div>
     </main>
   )
 }
@@ -2485,7 +2744,7 @@ function MobileNavButton({
     <button
       type="button"
       onClick={onClick}
-      className={`rounded-2xl px-2 py-3 text-xs font-black ${
+      className={`rounded-2xl px-1 py-3 text-[11px] font-black ${
         active ? 'bg-cyan-300 text-slate-950' : 'bg-white/[0.04] text-slate-300'
       }`}
     >
