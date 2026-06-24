@@ -345,6 +345,34 @@ function secondaryButtonClass() {
   return 'rounded-2xl border border-white/10 px-5 py-4 font-black text-white hover:bg-white/10'
 }
 
+const PORTAL_SESSION_KEY = 'amb_customer_portal_session'
+
+type PortalSession = {
+  customerId: string
+  email: string | null
+  businessId: string
+  expires: number
+}
+
+function savePortalSession(customer: Customer, business: Business) {
+  if (typeof window === 'undefined') return
+
+  window.localStorage.setItem(
+    PORTAL_SESSION_KEY,
+    JSON.stringify({
+      customerId: customer.id,
+      email: customer.email,
+      businessId: business.id,
+      expires: Date.now() + 1000 * 60 * 60 * 24 * 30,
+    })
+  )
+}
+
+function clearPortalSession() {
+  if (typeof window === 'undefined') return
+  window.localStorage.removeItem(PORTAL_SESSION_KEY)
+}
+
 export default function CustomerPortalPage() {
   const params = useParams()
   const slug = String(params.slug || '')
@@ -391,6 +419,7 @@ export default function CustomerPortalPage() {
   const [loadingBusiness, setLoadingBusiness] = useState(true)
   const [loadingPortal, setLoadingPortal] = useState(false)
   const [codeRequested, setCodeRequested] = useState(false)
+  const [sessionChecked, setSessionChecked] = useState(false)
 
   const [rescheduleBookingId, setRescheduleBookingId] = useState('')
   const [rescheduleDate, setRescheduleDate] = useState('')
@@ -424,6 +453,13 @@ export default function CustomerPortalPage() {
     loadBusiness()
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [slug])
+
+  useEffect(() => {
+    if (!business || customer || sessionChecked) return
+
+    restoreStoredSession()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [business, customer, sessionChecked])
 
   useEffect(() => {
     if (!customer) return
@@ -472,6 +508,49 @@ export default function CustomerPortalPage() {
   }
 }
 
+  async function restoreStoredSession() {
+    if (!business || typeof window === 'undefined') {
+      setSessionChecked(true)
+      return
+    }
+
+    const rawSession = window.localStorage.getItem(PORTAL_SESSION_KEY)
+
+    if (!rawSession) {
+      setSessionChecked(true)
+      return
+    }
+
+    try {
+      const saved = JSON.parse(rawSession) as PortalSession
+
+      if (!saved?.customerId || saved.businessId !== business.id || saved.expires < Date.now()) {
+        clearPortalSession()
+        setSessionChecked(true)
+        return
+      }
+
+      const { data, error } = await supabase
+        .from('customers')
+        .select('id,business_id,first_name,last_name,email,phone,email_reminders,sms_reminders,marketing_opt_in')
+        .eq('id', saved.customerId)
+        .eq('business_id', business.id)
+        .maybeSingle()
+
+      if (error || !data) {
+        clearPortalSession()
+        setSessionChecked(true)
+        return
+      }
+
+      await loadPortal(data as Customer)
+    } catch {
+      clearPortalSession()
+    } finally {
+      setSessionChecked(true)
+    }
+  }
+
   async function requestAccessCode() {
     setMessage('')
 
@@ -508,6 +587,7 @@ export default function CustomerPortalPage() {
   }
 
   function resetAccess() {
+    clearPortalSession()
     setCustomer(null)
     setCodeRequested(false)
     setAccessCode('')
@@ -544,6 +624,7 @@ export default function CustomerPortalPage() {
       return
     }
 
+    savePortalSession(result.customer as Customer, business)
     await loadPortal(result.customer as Customer)
   }
 
@@ -1271,7 +1352,7 @@ export default function CustomerPortalPage() {
   return (
     <main className="min-h-screen bg-[#020617] px-4 pb-28 pt-8 text-white xl:pb-8">
       <div className="mx-auto max-w-7xl">
-        <section className="mb-8 rounded-[32px] border border-white/10 bg-white/[0.04] p-5 shadow-2xl md:p-6">
+        <section className="mb-8 hidden rounded-[32px] border border-white/10 bg-white/[0.04] p-5 shadow-2xl md:p-6 xl:block">
           <div className="flex flex-col gap-5 md:flex-row md:items-center md:justify-between">
             <div className="flex items-center gap-4">
               {business?.logo_url ? (
@@ -1283,7 +1364,7 @@ export default function CustomerPortalPage() {
               )}
 
               <div>
-                <p className="text-sm font-black uppercase tracking-[0.25em] text-cyan-300">Customer portal V8</p>
+                <p className="text-sm font-black uppercase tracking-[0.25em] text-cyan-300">Customer portal V10</p>
                 <h1 className="mt-1 text-2xl font-black md:text-3xl">
                   {business?.business_name ? `${business.business_name} Account Centre` : 'Your account centre'}
                 </h1>
@@ -1324,13 +1405,13 @@ export default function CustomerPortalPage() {
           </div>
         )}
 
-        {loadingBusiness && (
+        {(loadingBusiness || (business && !customer && !sessionChecked)) && (
           <div className="rounded-3xl border border-white/10 bg-white/[0.04] p-8 text-slate-400">
             Loading portal...
           </div>
         )}
 
-        {!loadingBusiness && !customer && (
+        {!loadingBusiness && sessionChecked && !customer && (
           <section className="mx-auto max-w-xl rounded-[32px] border border-white/10 bg-white/[0.04] p-5 md:p-6">
             <h2 className="text-3xl font-black">Access your account</h2>
             <p className="mt-3 text-slate-400">
@@ -1380,46 +1461,51 @@ export default function CustomerPortalPage() {
 
         {customer && (
           <div className="grid gap-6 xl:grid-cols-[280px_minmax(0,1fr)]">
-            <section className="rounded-[32px] border border-cyan-300/20 bg-gradient-to-br from-cyan-300/20 via-white/[0.06] to-slate-950 p-5 shadow-2xl xl:hidden">
-              <div className="flex items-start justify-between gap-4">
-                <div>
-                  <p className="text-sm font-black uppercase tracking-[0.25em] text-cyan-200">
-                    {business?.business_name || 'Your account'}
-                  </p>
-                  <h2 className="mt-3 text-3xl font-black">
-                    Hi {customer.first_name}.
-                  </h2>
-                  <p className="mt-2 text-sm leading-6 text-slate-300">
+            <section className="space-y-4 xl:hidden">
+              <div className="rounded-[32px] border border-cyan-300/20 bg-gradient-to-br from-cyan-300/20 via-white/[0.06] to-slate-950 p-5 shadow-2xl">
+                <div className="flex items-center justify-between gap-4">
+                  <div className="min-w-0">
+                    <p className="text-xs font-black uppercase tracking-[0.25em] text-cyan-200">
+                      {business?.business_name || 'Your account'}
+                    </p>
+                    <h2 className="mt-3 text-4xl font-black leading-tight">
+                      Hi {customer.first_name}.
+                    </h2>
+                  </div>
+
+                  {business?.logo_url ? (
+                    <img src={business.logo_url} alt={business.business_name || 'Business logo'} className="h-16 w-16 shrink-0 rounded-3xl object-cover" />
+                  ) : (
+                    <div className="flex h-16 w-16 shrink-0 items-center justify-center rounded-3xl bg-cyan-300 text-2xl font-black text-slate-950">
+                      {customerInitials(customer)}
+                    </div>
+                  )}
+                </div>
+
+                <div className="mt-6 rounded-3xl border border-white/10 bg-black/20 p-5">
+                  <p className="text-xs font-black uppercase tracking-[0.22em] text-slate-500">Next appointment</p>
+                  <p className="mt-2 text-2xl font-black">{nextBooking ? serviceName(nextBooking) : 'Nothing booked'}</p>
+                  <p className="mt-1 text-sm leading-6 text-slate-300">
                     {nextBooking
-                      ? `Next up: ${serviceName(nextBooking)} on ${formatDate(nextBooking.booking_date)} at ${String(nextBooking.booking_time).slice(0, 5)}.`
-                      : 'No upcoming booking yet.'}
+                      ? `${formatDate(nextBooking.booking_date)} · ${String(nextBooking.booking_time).slice(0, 5)}`
+                      : 'Book your next appointment when you are ready.'}
                   </p>
                 </div>
 
-                {business?.logo_url ? (
-                  <img src={business.logo_url} alt={business.business_name || 'Business logo'} className="h-14 w-14 rounded-2xl object-cover" />
-                ) : (
-                  <div className="flex h-14 w-14 items-center justify-center rounded-2xl bg-cyan-300 text-xl font-black text-slate-950">
-                    {customerInitials(customer)}
-                  </div>
-                )}
+                <button
+                  type="button"
+                  onClick={bookAppointment}
+                  className="mt-5 w-full rounded-3xl bg-cyan-300 px-6 py-5 text-lg font-black uppercase tracking-[0.12em] text-slate-950 shadow-xl shadow-cyan-950/30"
+                >
+                  Book now
+                </button>
               </div>
 
-              <div className="mt-5 grid grid-cols-3 gap-3">
-                <button type="button" onClick={() => setActiveTab('bookings')} className="rounded-2xl border border-white/10 bg-black/20 p-4 text-left">
-                  <p className="text-xs font-black uppercase tracking-[0.18em] text-slate-500">Booking</p>
-                  <p className="mt-2 text-sm font-black">{nextBooking ? 'Upcoming' : 'None'}</p>
-                </button>
-
-                <button type="button" onClick={() => setActiveTab('wallet')} className="rounded-2xl border border-white/10 bg-black/20 p-4 text-left">
-                  <p className="text-xs font-black uppercase tracking-[0.18em] text-slate-500">Wallet</p>
-                  <p className="mt-2 text-sm font-black">{money(totalVoucherBalance)}</p>
-                </button>
-
-                <button type="button" onClick={() => setActiveTab('loyalty')} className="rounded-2xl border border-white/10 bg-black/20 p-4 text-left">
-                  <p className="text-xs font-black uppercase tracking-[0.18em] text-slate-500">Rewards</p>
-                  <p className="mt-2 text-sm font-black">{loyaltyProgress}%</p>
-                </button>
+              <div className="grid grid-cols-2 gap-3">
+                <MobileActionTile title="Bookings" value={nextBooking ? 'Upcoming' : 'Book now'} onClick={() => setActiveTab('bookings')} />
+                <MobileActionTile title="Wallet" value={money(totalVoucherBalance)} onClick={() => setActiveTab('wallet')} />
+                <MobileActionTile title="Rewards" value={`${loyaltyProgress}%`} onClick={() => setActiveTab('loyalty')} />
+                <MobileActionTile title="Alerts" value={unreadNotificationCount > 0 ? `${unreadNotificationCount} unread` : 'None'} onClick={() => setActiveTab('notifications')} />
               </div>
             </section>
             <aside className="hidden xl:sticky xl:top-8 xl:block xl:self-start">
@@ -1483,7 +1569,7 @@ export default function CustomerPortalPage() {
             </aside>
 
             <div className="min-w-0 space-y-6">
-              <section className="grid gap-4 sm:grid-cols-2 xl:grid-cols-5">
+              <section className="hidden gap-4 sm:grid-cols-2 xl:grid xl:grid-cols-5">
                 <Kpi title="Next booking" value={nextBooking ? serviceName(nextBooking) : 'None'} />
                 <Kpi title="Membership" value={activeMembership ? activeMembership.status || 'active' : 'None'} />
                 <Kpi title="Sessions" value={String(activeMembership ? membershipSessionsRemaining(activeMembership) : activePackage ? sessionsRemaining(activePackage) : 0)} />
@@ -1491,7 +1577,7 @@ export default function CustomerPortalPage() {
                 <Kpi title="Loyalty" value={`${loyaltyProgress}%`} />
               </section>
 
-            <section className="rounded-3xl border border-cyan-300/20 bg-cyan-300/10 p-5">
+            <section className="hidden rounded-3xl border border-cyan-300/20 bg-cyan-300/10 p-5 xl:block">
               <div className="grid gap-4 lg:grid-cols-5">
                 <MiniSummary label="Next booking" value={nextBooking ? `${serviceName(nextBooking)} · ${formatDate(nextBooking.booking_date)}` : 'None booked'} />
                 <MiniSummary label="Active package" value={activePackage ? `${packageName(activePackage)} · ${sessionsRemaining(activePackage)} left` : 'None active'} />
@@ -1501,7 +1587,7 @@ export default function CustomerPortalPage() {
               </div>
             </section>
 
-            <section className="rounded-3xl border border-cyan-300/20 bg-cyan-300/10 p-5">
+            <section className="hidden rounded-3xl border border-cyan-300/20 bg-cyan-300/10 p-5 xl:block">
               <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
                 <div>
                   <p className="text-sm font-black uppercase tracking-[0.25em] text-cyan-200">Waitlist</p>
@@ -1517,7 +1603,7 @@ export default function CustomerPortalPage() {
 
             {activeTab === 'home' && (
               <div className="space-y-6">
-                <section className="rounded-[32px] border border-cyan-300/20 bg-cyan-300/10 p-6 md:p-8">
+                <section className="hidden rounded-[32px] border border-cyan-300/20 bg-cyan-300/10 p-6 md:p-8 xl:block">
                   <div className="flex flex-col gap-6 lg:flex-row lg:items-end lg:justify-between">
                     <div>
                       <p className="text-sm font-black uppercase tracking-[0.25em] text-cyan-200">Overview</p>
@@ -1540,14 +1626,30 @@ export default function CustomerPortalPage() {
                   </div>
                 </section>
 
-                <section className="grid gap-4 md:grid-cols-4">
+                <section className="hidden gap-4 md:grid md:grid-cols-4">
                   <HighlightCard title="Next appointment" value={nextBooking ? serviceName(nextBooking) : 'None booked'} helper={nextBooking ? `${formatDate(nextBooking.booking_date)} · ${String(nextBooking.booking_time).slice(0, 5)}` : 'Book when you are ready'} />
                   <HighlightCard title="Membership" value={activeMembership ? activeMembership.membership_name : 'None active'} helper={activeMembership ? `${membershipSessionsRemaining(activeMembership)} sessions remaining` : 'No current plan'} />
                   <HighlightCard title="Available sessions" value={activeMembership ? `${membershipSessionsRemaining(activeMembership)} / ${activeMembership.included_sessions || 0}` : activePackage ? `${sessionsRemaining(activePackage)} package sessions` : '0'} helper="Ready to use" />
                   <HighlightCard title="Outstanding" value={money(outstandingTotal)} helper="Current balance" />
                 </section>
 
-                <section className="grid gap-4 md:grid-cols-3">
+                <section className="grid gap-4 xl:hidden">
+                  <button type="button" onClick={bookAppointment} className="rounded-[32px] bg-cyan-300 p-6 text-left text-slate-950 shadow-xl shadow-cyan-950/30">
+                    <p className="text-xs font-black uppercase tracking-[0.22em] opacity-70">Primary action</p>
+                    <p className="mt-3 text-3xl font-black">Book appointment</p>
+                    <p className="mt-2 text-sm font-bold opacity-80">Choose a service, date and time.</p>
+                  </button>
+
+                  {nextBooking && (
+                    <div className="rounded-[28px] border border-white/10 bg-white/[0.04] p-5">
+                      <p className="text-xs font-black uppercase tracking-[0.22em] text-cyan-300">Upcoming</p>
+                      <p className="mt-3 text-2xl font-black">{serviceName(nextBooking)}</p>
+                      <p className="mt-2 text-sm text-slate-400">{formatDate(nextBooking.booking_date)} · {String(nextBooking.booking_time).slice(0, 5)}</p>
+                    </div>
+                  )}
+                </section>
+
+                <section className="hidden gap-4 md:grid md:grid-cols-3">
                   <button type="button" onClick={() => setActiveTab('wallet')} className="rounded-[28px] border border-white/10 bg-white/[0.04] p-5 text-left transition hover:border-cyan-300/30 hover:bg-cyan-300/10">
                     <p className="text-xs font-black uppercase tracking-[0.22em] text-cyan-300">Wallet</p>
                     <p className="mt-3 text-2xl font-black">Passes</p>
@@ -2312,24 +2414,41 @@ export default function CustomerPortalPage() {
                   <PreferenceToggle label="Offers and updates" checked={marketingOptIn} setChecked={setMarketingOptIn} />
                 </div>
 
-                <button type="button" onClick={saveProfile} className={`mt-6 ${primaryButtonClass()}`}>
-                  Save profile
-                </button>
+                <div className="mt-6 grid gap-3 md:grid-cols-2">
+                  <button type="button" onClick={saveProfile} className={primaryButtonClass()}>
+                    Save profile
+                  </button>
+
+                  <button type="button" onClick={resetAccess} className={secondaryButtonClass()}>
+                    Use different email
+                  </button>
+                </div>
               </Panel>
             )}
             </div>
           </div>
         )}
 
+        {customer && activeTab !== 'home' && (
+          <div className="fixed inset-x-4 bottom-24 z-40 xl:hidden">
+            <button
+              type="button"
+              onClick={bookAppointment}
+              className="w-full rounded-3xl bg-cyan-300 px-6 py-4 text-base font-black uppercase tracking-[0.12em] text-slate-950 shadow-2xl shadow-cyan-950/40"
+            >
+              Book now
+            </button>
+          </div>
+        )}
+
         {customer && (
-          <nav className="fixed inset-x-0 bottom-0 z-50 border-t border-white/10 bg-slate-950/95 px-3 py-3 backdrop-blur-2xl xl:hidden">
-            <div className="grid grid-cols-6 gap-1">
-              <MobileNavButton label="Home" active={activeTab === 'home'} onClick={() => setActiveTab('home')} />
-              <MobileNavButton label="Bookings" active={activeTab === 'bookings'} onClick={() => setActiveTab('bookings')} />
-              <MobileNavButton label="Wallet" active={activeTab === 'wallet'} onClick={() => setActiveTab('wallet')} />
-              <MobileNavButton label="Rewards" active={activeTab === 'loyalty'} onClick={() => setActiveTab('loyalty')} />
-              <MobileNavButton label={unreadNotificationCount > 0 ? `Alerts ${unreadNotificationCount}` : 'Alerts'} active={activeTab === 'notifications'} onClick={() => setActiveTab('notifications')} />
-              <MobileNavButton label="Profile" active={activeTab === 'profile'} onClick={() => setActiveTab('profile')} />
+          <nav className="fixed inset-x-3 bottom-3 z-50 rounded-[30px] border border-white/10 bg-slate-950/95 p-2 shadow-2xl backdrop-blur-2xl xl:hidden">
+            <div className="grid grid-cols-5 gap-1">
+              <MobileNavButton icon="⌂" label="Home" active={activeTab === 'home'} onClick={() => setActiveTab('home')} />
+              <MobileNavButton icon="◷" label="Bookings" active={activeTab === 'bookings'} onClick={() => setActiveTab('bookings')} />
+              <MobileNavButton icon="▣" label="Wallet" active={activeTab === 'wallet' || activeTab === 'loyalty'} onClick={() => setActiveTab('wallet')} />
+              <MobileNavButton icon="!" label={unreadNotificationCount > 0 ? `${unreadNotificationCount}` : 'Alerts'} active={activeTab === 'notifications'} onClick={() => setActiveTab('notifications')} />
+              <MobileNavButton icon="◉" label="Profile" active={activeTab === 'profile'} onClick={() => setActiveTab('profile')} />
             </div>
           </nav>
         )}
@@ -2731,11 +2850,35 @@ function NotificationCard({
   )
 }
 
+
+function MobileActionTile({
+  title,
+  value,
+  onClick,
+}: {
+  title: string
+  value: string
+  onClick: () => void
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className="rounded-[28px] border border-white/10 bg-white/[0.04] p-5 text-left"
+    >
+      <p className="text-xs font-black uppercase tracking-[0.22em] text-slate-500">{title}</p>
+      <p className="mt-3 text-xl font-black">{value}</p>
+    </button>
+  )
+}
+
 function MobileNavButton({
+  icon,
   label,
   active,
   onClick,
 }: {
+  icon: string
   label: string
   active: boolean
   onClick: () => void
@@ -2744,15 +2887,15 @@ function MobileNavButton({
     <button
       type="button"
       onClick={onClick}
-      className={`rounded-2xl px-1 py-3 text-[11px] font-black ${
+      className={`rounded-3xl px-2 py-3 text-center text-[11px] font-black transition ${
         active ? 'bg-cyan-300 text-slate-950' : 'bg-white/[0.04] text-slate-300'
       }`}
     >
-      {label}
+      <span className="block text-lg leading-none">{icon}</span>
+      <span className="mt-1 block">{label}</span>
     </button>
   )
 }
-
 
 function EmptyState({ message }: { message: string }) {
   return (
