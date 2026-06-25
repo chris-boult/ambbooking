@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useState } from 'react'
 import { supabase } from '@/lib/supabase'
+import { hasFeature } from '@/lib/features'
 
 type Business = {
   id: string
@@ -151,17 +152,6 @@ function formatDate(value?: string | null) {
   })
 }
 
-function formatDateTime(value?: string | null) {
-  if (!value) return '—'
-  return new Date(value).toLocaleString('en-GB', {
-    day: 'numeric',
-    month: 'short',
-    year: 'numeric',
-    hour: '2-digit',
-    minute: '2-digit',
-  })
-}
-
 function todayValue() {
   return new Date().toISOString().slice(0, 10)
 }
@@ -198,6 +188,7 @@ function planBenefits(planId: string, benefits: MembershipBenefit[]) {
 
 export default function MembershipsPage() {
   const [business, setBusiness] = useState<Business | null>(null)
+  const [featureAllowed, setFeatureAllowed] = useState<boolean | null>(null)
   const [plans, setPlans] = useState<MembershipPlan[]>([])
   const [benefits, setBenefits] = useState<MembershipBenefit[]>([])
   const [customers, setCustomers] = useState<Customer[]>([])
@@ -281,6 +272,14 @@ export default function MembershipsPage() {
     try {
       const foundBusiness = await getBusinessForUser()
       setBusiness(foundBusiness)
+
+      const allowed = await hasFeature(supabase, foundBusiness.id, 'memberships')
+      setFeatureAllowed(allowed)
+
+      if (!allowed) {
+        setLoading(false)
+        return
+      }
 
       const [plansResult, benefitsResult, customersResult, membershipsResult, usageResult] = await Promise.all([
         supabase
@@ -479,10 +478,7 @@ export default function MembershipsPage() {
   }
 
   async function updateMembershipStatus(id: string, status: string) {
-    const { error } = await supabase
-      .from('customer_memberships')
-      .update({ status })
-      .eq('id', id)
+    const { error } = await supabase.from('customer_memberships').update({ status }).eq('id', id)
 
     if (error) {
       setMessage(error.message)
@@ -549,7 +545,9 @@ export default function MembershipsPage() {
       return
     }
 
-    setBenefits((current) => [...current, data as MembershipBenefit].sort((a, b) => Number(a.display_order || 0) - Number(b.display_order || 0)))
+    setBenefits((current) =>
+      [...current, data as MembershipBenefit].sort((a, b) => Number(a.display_order || 0) - Number(b.display_order || 0))
+    )
     setBenefitText('')
     setBenefitOrder(String(Number(benefitOrder || 1) + 1))
     setSaving(false)
@@ -670,9 +668,7 @@ export default function MembershipsPage() {
       }),
     ]
 
-    const csv = rows
-      .map((row) => row.map((cell) => `"${String(cell).replaceAll('"', '""')}"`).join(','))
-      .join('\n')
+    const csv = rows.map((row) => row.map((cell) => `"${String(cell).replaceAll('"', '""')}"`).join(',')).join('\n')
 
     const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' })
     const url = URL.createObjectURL(blob)
@@ -722,8 +718,9 @@ export default function MembershipsPage() {
     const used = active.reduce((sum, item) => sum + Number(item.sessions_used || 0), 0)
     const remaining = Math.max(0, included - used)
     const utilisation = included > 0 ? Math.round((used / included) * 100) : 0
-    const benefitRedemptions = usage.filter((item) => item.usage_type === 'benefit').reduce((sum, item) => sum + Number(item.quantity || 1), 0)
-    const manualSessions = usage.reduce((sum, item) => sum + Number(item.sessions_used || 0), 0)
+    const benefitRedemptions = usage
+      .filter((item) => item.usage_type === 'benefit')
+      .reduce((sum, item) => sum + Number(item.quantity || 1), 0)
     const revenuePerMember = active.length > 0 ? mrr / active.length : 0
     const avgSessionsUsed = active.length > 0 ? used / active.length : 0
     const remainingLiability = included > 0 && mrr > 0 ? (remaining / included) * mrr : 0
@@ -738,7 +735,6 @@ export default function MembershipsPage() {
       remaining,
       utilisation,
       benefitRedemptions,
-      manualSessions,
       revenuePerMember,
       avgSessionsUsed,
       remainingLiability,
@@ -760,9 +756,7 @@ export default function MembershipsPage() {
   }, [plans, memberships])
 
   const topMembers = useMemo(() => {
-    return [...memberships]
-      .sort((a, b) => Number(b.sessions_used || 0) - Number(a.sessions_used || 0))
-      .slice(0, 8)
+    return [...memberships].sort((a, b) => Number(b.sessions_used || 0) - Number(a.sessions_used || 0)).slice(0, 8)
   }, [memberships])
 
   const selectedConsumeMembership = memberships.find((item) => item.id === consumeMembershipId)
@@ -778,23 +772,31 @@ export default function MembershipsPage() {
     )
   }
 
+  if (featureAllowed === false) {
+    return (
+      <main className="min-h-screen bg-[#020617] p-8 text-white">
+        <div className="mx-auto max-w-3xl rounded-3xl border border-white/10 bg-white/[0.04] p-8">
+          <p className="text-sm font-black uppercase tracking-[0.25em] text-cyan-300">Feature unavailable</p>
+          <h1 className="mt-3 text-4xl font-black">Memberships are not enabled</h1>
+          <p className="mt-4 text-slate-400">
+            This business does not currently have access to the memberships feature.
+          </p>
+        </div>
+      </main>
+    )
+  }
+
   return (
     <main className="min-h-screen bg-[#020617] p-6 text-white md:p-8">
       <div className="mx-auto max-w-7xl space-y-8">
         <section className="flex flex-col gap-5 md:flex-row md:items-end md:justify-between">
           <div>
-            <p className="text-sm font-black uppercase tracking-[0.25em] text-cyan-300">
-              Membership engine V3
-            </p>
+            <p className="text-sm font-black uppercase tracking-[0.25em] text-cyan-300">Membership engine V3</p>
             <h1 className="mt-2 text-4xl font-black">Memberships</h1>
             <p className="mt-3 max-w-3xl text-slate-400">
               Create plans, manage benefits, assign members, consume sessions manually and track every membership usage event.
             </p>
-            {business?.slug && (
-              <p className="mt-2 text-sm text-slate-500">
-                Public membership page: /book/{business.slug}/memberships
-              </p>
-            )}
+            {business?.slug && <p className="mt-2 text-sm text-slate-500">Public membership page: /book/{business.slug}/memberships</p>}
           </div>
 
           <div className="flex flex-col gap-3 sm:flex-row">
@@ -814,11 +816,7 @@ export default function MembershipsPage() {
           </div>
         </section>
 
-        {message && (
-          <div className="rounded-2xl border border-cyan-300/20 bg-cyan-300/10 p-4 text-cyan-100">
-            {message}
-          </div>
-        )}
+        {message && <div className="rounded-2xl border border-cyan-300/20 bg-cyan-300/10 p-4 text-cyan-100">{message}</div>}
 
         <section className="grid gap-4 md:grid-cols-4 xl:grid-cols-8">
           <Kpi title="Membership MRR" value={money(stats.mrr)} />
@@ -845,9 +843,7 @@ export default function MembershipsPage() {
                 type="button"
                 onClick={() => setTab(key as TabKey)}
                 className={`rounded-2xl px-4 py-3 text-sm font-black ${
-                  tab === key
-                    ? 'bg-white text-slate-950'
-                    : 'border border-white/10 text-slate-300 hover:bg-white/10'
+                  tab === key ? 'bg-white text-slate-950' : 'border border-white/10 text-slate-300 hover:bg-white/10'
                 }`}
               >
                 {label}
@@ -860,36 +856,15 @@ export default function MembershipsPage() {
           <section className="grid gap-6 xl:grid-cols-[0.9fr_1.1fr]">
             <Panel title="Create membership plan">
               <div className="space-y-4">
-                <LabelledInput
-                  label="Plan name"
-                  value={planName}
-                  onChange={setPlanName}
-                  placeholder="Gold Membership"
-                />
-
-                <LabelledTextarea
-                  label="Description"
-                  value={planDescription}
-                  onChange={setPlanDescription}
-                  placeholder="Describe what members get."
-                />
+                <LabelledInput label="Plan name" value={planName} onChange={setPlanName} placeholder="Gold Membership" />
+                <LabelledTextarea label="Description" value={planDescription} onChange={setPlanDescription} placeholder="Describe what members get." />
 
                 <div className="grid gap-4 md:grid-cols-3">
-                  <LabelledInput
-                    label="Membership price (£)"
-                    helper="Amount charged each billing cycle."
-                    value={planAmount}
-                    onChange={setPlanAmount}
-                    type="number"
-                  />
+                  <LabelledInput label="Membership price (£)" helper="Amount charged each billing cycle." value={planAmount} onChange={setPlanAmount} type="number" />
 
                   <label>
                     <span className="mb-2 block text-sm font-bold text-slate-300">Billing frequency</span>
-                    <select
-                      value={planInterval}
-                      onChange={(event) => setPlanInterval(event.target.value)}
-                      className="w-full rounded-2xl border border-white/10 bg-slate-950 px-4 py-4 text-white outline-none"
-                    >
+                    <select value={planInterval} onChange={(event) => setPlanInterval(event.target.value)} className="w-full rounded-2xl border border-white/10 bg-slate-950 px-4 py-4 text-white outline-none">
                       <option value="monthly">Monthly</option>
                       <option value="weekly">Weekly</option>
                       <option value="yearly">Yearly</option>
@@ -897,23 +872,13 @@ export default function MembershipsPage() {
                     <span className="mt-2 block text-xs text-slate-500">How often the customer is billed.</span>
                   </label>
 
-                  <LabelledInput
-                    label="Included sessions"
-                    helper="Number of appointments included per billing cycle."
-                    value={planSessions}
-                    onChange={setPlanSessions}
-                    type="number"
-                  />
+                  <LabelledInput label="Included sessions" helper="Number of appointments included per billing cycle." value={planSessions} onChange={setPlanSessions} type="number" />
                 </div>
 
                 <div className="grid gap-4 md:grid-cols-3">
                   <label>
                     <span className="mb-2 block text-sm font-bold text-slate-300">Membership type</span>
-                    <select
-                      value={planType}
-                      onChange={(event) => setPlanType(event.target.value)}
-                      className="w-full rounded-2xl border border-white/10 bg-slate-950 px-4 py-4 text-white outline-none"
-                    >
+                    <select value={planType} onChange={(event) => setPlanType(event.target.value)} className="w-full rounded-2xl border border-white/10 bg-slate-950 px-4 py-4 text-white outline-none">
                       <option value="session_based">Session Based</option>
                       <option value="unlimited">Unlimited</option>
                       <option value="discount_club">Discount Club</option>
@@ -922,21 +887,8 @@ export default function MembershipsPage() {
                     <span className="mt-2 block text-xs text-slate-500">How this membership should behave.</span>
                   </label>
 
-                  <LabelledInput
-                    label="Joining fee (£)"
-                    helper="Optional one-off setup fee."
-                    value={joiningFee}
-                    onChange={setJoiningFee}
-                    type="number"
-                  />
-
-                  <LabelledInput
-                    label="Discount %"
-                    helper="Used for discount or hybrid memberships."
-                    value={discountPercent}
-                    onChange={setDiscountPercent}
-                    type="number"
-                  />
+                  <LabelledInput label="Joining fee (£)" helper="Optional one-off setup fee." value={joiningFee} onChange={setJoiningFee} type="number" />
+                  <LabelledInput label="Discount %" helper="Used for discount or hybrid memberships." value={discountPercent} onChange={setDiscountPercent} type="number" />
                 </div>
 
                 <div className="grid gap-3 md:grid-cols-2">
@@ -948,12 +900,7 @@ export default function MembershipsPage() {
                   <Check label="Featured public plan" checked={featured} setChecked={setFeatured} />
                 </div>
 
-                <button
-                  type="button"
-                  onClick={createPlan}
-                  disabled={saving}
-                  className="w-full rounded-2xl bg-cyan-400 px-5 py-4 font-black text-slate-950 hover:bg-cyan-300 disabled:opacity-50"
-                >
+                <button type="button" onClick={createPlan} disabled={saving} className="w-full rounded-2xl bg-cyan-400 px-5 py-4 font-black text-slate-950 hover:bg-cyan-300 disabled:opacity-50">
                   {saving ? 'Creating...' : 'Create plan'}
                 </button>
               </div>
@@ -977,35 +924,15 @@ export default function MembershipsPage() {
                           </div>
                           <p className="mt-1 text-slate-400">{plan.description || 'No description'}</p>
                           <p className="mt-2 text-sm text-cyan-300">
-                            {money(plan.monthly_amount)} · {plan.billing_interval || 'monthly'} ·{' '}
-                            {plan.included_sessions || 0} sessions · {plan.membership_type || 'session_based'}
+                            {money(plan.monthly_amount)} · {plan.billing_interval || 'monthly'} · {plan.included_sessions || 0} sessions · {plan.membership_type || 'session_based'}
                           </p>
                           <p className="mt-1 text-xs text-slate-500">
-                            Active members: {activeMembers.length} · Plan MRR: {money(planMrr)} · Stripe price:{' '}
-                            {plan.stripe_price_id || 'Not connected yet'}
+                            Active members: {activeMembers.length} · Plan MRR: {money(planMrr)} · Stripe price: {plan.stripe_price_id || 'Not connected yet'}
                           </p>
-                          {benefitsForPlan.length > 0 && (
-                            <div className="mt-3 flex flex-wrap gap-2">
-                              {benefitsForPlan.slice(0, 4).map((benefit) => (
-                                <span key={benefit.id} className="rounded-full border border-white/10 px-3 py-1 text-xs text-slate-300">
-                                  {benefit.benefit}
-                                </span>
-                              ))}
-                            </div>
-                          )}
                         </div>
 
-                        <button
-                          type="button"
-                          onClick={() => createStripePrice(plan.id)}
-                          disabled={stripeLoadingId === plan.id}
-                          className="rounded-xl border border-cyan-300/20 bg-cyan-300/10 px-4 py-3 text-sm font-black text-cyan-100 hover:bg-cyan-300/20 disabled:opacity-50"
-                        >
-                          {stripeLoadingId === plan.id
-                            ? 'Creating...'
-                            : plan.stripe_price_id
-                              ? 'Refresh Stripe price'
-                              : 'Create Stripe price'}
+                        <button type="button" onClick={() => createStripePrice(plan.id)} disabled={stripeLoadingId === plan.id} className="rounded-xl border border-cyan-300/20 bg-cyan-300/10 px-4 py-3 text-sm font-black text-cyan-100 hover:bg-cyan-300/20 disabled:opacity-50">
+                          {stripeLoadingId === plan.id ? 'Creating...' : plan.stripe_price_id ? 'Refresh Stripe price' : 'Create Stripe price'}
                         </button>
                       </div>
                     </div>
@@ -1024,11 +951,7 @@ export default function MembershipsPage() {
               <div className="space-y-4">
                 <label>
                   <span className="mb-2 block text-sm font-bold text-slate-300">Membership plan</span>
-                  <select
-                    value={benefitPlanId}
-                    onChange={(event) => setBenefitPlanId(event.target.value)}
-                    className="w-full rounded-2xl border border-white/10 bg-slate-950 px-4 py-4 text-white outline-none"
-                  >
+                  <select value={benefitPlanId} onChange={(event) => setBenefitPlanId(event.target.value)} className="w-full rounded-2xl border border-white/10 bg-slate-950 px-4 py-4 text-white outline-none">
                     <option value="">Choose plan</option>
                     {plans.map((plan) => (
                       <option key={plan.id} value={plan.id}>
@@ -1038,27 +961,10 @@ export default function MembershipsPage() {
                   </select>
                 </label>
 
-                <LabelledInput
-                  label="Benefit"
-                  value={benefitText}
-                  onChange={setBenefitText}
-                  placeholder="Priority booking, free add-on, 10% discount..."
-                />
+                <LabelledInput label="Benefit" value={benefitText} onChange={setBenefitText} placeholder="Priority booking, free add-on, 10% discount..." />
+                <LabelledInput label="Display order" value={benefitOrder} onChange={setBenefitOrder} type="number" helper="Lower numbers show first on the public membership page." />
 
-                <LabelledInput
-                  label="Display order"
-                  value={benefitOrder}
-                  onChange={setBenefitOrder}
-                  type="number"
-                  helper="Lower numbers show first on the public membership page."
-                />
-
-                <button
-                  type="button"
-                  onClick={createBenefit}
-                  disabled={saving}
-                  className="w-full rounded-2xl bg-cyan-400 px-5 py-4 font-black text-slate-950 hover:bg-cyan-300 disabled:opacity-50"
-                >
+                <button type="button" onClick={createBenefit} disabled={saving} className="w-full rounded-2xl bg-cyan-400 px-5 py-4 font-black text-slate-950 hover:bg-cyan-300 disabled:opacity-50">
                   {saving ? 'Saving...' : 'Add benefit'}
                 </button>
               </div>
@@ -1075,14 +981,7 @@ export default function MembershipsPage() {
                           <p className="text-lg font-black">{plan.name}</p>
                           <p className="text-sm text-slate-500">{benefitsForPlan.length} benefits attached</p>
                         </div>
-                        <button
-                          type="button"
-                          onClick={() => {
-                            setBenefitPlanId(plan.id)
-                            setTab('benefits')
-                          }}
-                          className="rounded-xl border border-white/10 px-3 py-2 text-xs font-black hover:bg-white/10"
-                        >
+                        <button type="button" onClick={() => setBenefitPlanId(plan.id)} className="rounded-xl border border-white/10 px-3 py-2 text-xs font-black hover:bg-white/10">
                           Add here
                         </button>
                       </div>
@@ -1094,11 +993,7 @@ export default function MembershipsPage() {
                               <p className="font-bold">{benefit.benefit}</p>
                               <p className="text-xs text-slate-500">Display order {benefit.display_order || 0}</p>
                             </div>
-                            <button
-                              type="button"
-                              onClick={() => deleteBenefit(benefit.id)}
-                              className="rounded-lg border border-red-500/20 bg-red-500/10 px-3 py-2 text-xs font-black text-red-300 hover:bg-red-500/20"
-                            >
+                            <button type="button" onClick={() => deleteBenefit(benefit.id)} className="rounded-lg border border-red-500/20 bg-red-500/10 px-3 py-2 text-xs font-black text-red-300 hover:bg-red-500/20">
                               Remove
                             </button>
                           </div>
@@ -1122,11 +1017,7 @@ export default function MembershipsPage() {
               <div className="space-y-4">
                 <label>
                   <span className="mb-2 block text-sm font-bold text-slate-300">Customer</span>
-                  <select
-                    value={assignCustomerId}
-                    onChange={(event) => setAssignCustomerId(event.target.value)}
-                    className="w-full rounded-2xl border border-white/10 bg-slate-950 px-4 py-4 text-white outline-none"
-                  >
+                  <select value={assignCustomerId} onChange={(event) => setAssignCustomerId(event.target.value)} className="w-full rounded-2xl border border-white/10 bg-slate-950 px-4 py-4 text-white outline-none">
                     <option value="">Choose customer</option>
                     {customers.map((customer) => (
                       <option key={customer.id} value={customer.id}>
@@ -1138,11 +1029,7 @@ export default function MembershipsPage() {
 
                 <label>
                   <span className="mb-2 block text-sm font-bold text-slate-300">Membership plan</span>
-                  <select
-                    value={assignPlanId}
-                    onChange={(event) => setAssignPlanId(event.target.value)}
-                    className="w-full rounded-2xl border border-white/10 bg-slate-950 px-4 py-4 text-white outline-none"
-                  >
+                  <select value={assignPlanId} onChange={(event) => setAssignPlanId(event.target.value)} className="w-full rounded-2xl border border-white/10 bg-slate-950 px-4 py-4 text-white outline-none">
                     <option value="">Choose plan</option>
                     {plans.map((plan) => (
                       <option key={plan.id} value={plan.id}>
@@ -1157,12 +1044,7 @@ export default function MembershipsPage() {
                   <LabelledInput label="Period end" value={assignEndDate} onChange={setAssignEndDate} type="date" />
                 </div>
 
-                <button
-                  type="button"
-                  onClick={assignMembership}
-                  disabled={saving}
-                  className="w-full rounded-2xl bg-cyan-400 px-5 py-4 font-black text-slate-950 hover:bg-cyan-300 disabled:opacity-50"
-                >
+                <button type="button" onClick={assignMembership} disabled={saving} className="w-full rounded-2xl bg-cyan-400 px-5 py-4 font-black text-slate-950 hover:bg-cyan-300 disabled:opacity-50">
                   Assign membership
                 </button>
               </div>
@@ -1171,9 +1053,7 @@ export default function MembershipsPage() {
             <Panel title="Customer memberships">
               <div className="space-y-3">
                 {filteredMemberships.map((membership) => {
-                  const benefitsForMembership = membership.membership_plan_id
-                    ? planBenefits(membership.membership_plan_id, benefits)
-                    : []
+                  const benefitsForMembership = membership.membership_plan_id ? planBenefits(membership.membership_plan_id, benefits) : []
                   const memberUsage = usage.filter((item) => item.customer_membership_id === membership.id)
                   const lastUsed = memberUsage[0]
 
@@ -1189,8 +1069,7 @@ export default function MembershipsPage() {
                             {sessionsRemaining(membership)} of {membership.included_sessions || 0} sessions remaining
                           </p>
                           <p className="mt-1 text-xs uppercase tracking-[0.2em] text-slate-500">
-                            {formatDate(membership.current_period_start)} - {formatDate(membership.current_period_end)} · Last used:{' '}
-                            {lastUsed?.usage_date ? formatDate(lastUsed.usage_date) : 'Never'}
+                            {formatDate(membership.current_period_start)} - {formatDate(membership.current_period_end)} · Last used: {lastUsed?.usage_date ? formatDate(lastUsed.usage_date) : 'Never'}
                           </p>
                           {benefitsForMembership.length > 0 && (
                             <div className="mt-3 flex flex-wrap gap-2">
@@ -1206,46 +1085,21 @@ export default function MembershipsPage() {
                         <div className="flex w-full flex-col gap-3 lg:w-auto lg:min-w-[190px]">
                           <StatusPill value={membership.status || 'active'} />
 
-                          <button
-                            type="button"
-                            onClick={() => {
-                              setConsumeMembershipId(membership.id)
-                              setTab('usage')
-                            }}
-                            className="w-full rounded-2xl border border-cyan-300/20 bg-cyan-300/10 px-4 py-3 text-sm font-black text-cyan-100 transition hover:bg-cyan-300/20"
-                          >
+                          <button type="button" onClick={() => { setConsumeMembershipId(membership.id); setTab('usage') }} className="w-full rounded-2xl border border-cyan-300/20 bg-cyan-300/10 px-4 py-3 text-sm font-black text-cyan-100 transition hover:bg-cyan-300/20">
                             Consume usage
                           </button>
 
                           {membership.stripe_customer_id && (
-                            <button
-                              type="button"
-                              onClick={() => openStripePortal(membership)}
-                              disabled={portalLoadingId === membership.id}
-                              className="w-full rounded-2xl bg-white px-4 py-3 text-sm font-black text-slate-950 transition hover:bg-cyan-100 disabled:opacity-50"
-                            >
+                            <button type="button" onClick={() => openStripePortal(membership)} disabled={portalLoadingId === membership.id} className="w-full rounded-2xl bg-white px-4 py-3 text-sm font-black text-slate-950 transition hover:bg-cyan-100 disabled:opacity-50">
                               {portalLoadingId === membership.id ? 'Opening...' : 'Manage billing'}
                             </button>
                           )}
 
                           <div className="grid grid-cols-2 gap-2">
-                            <button
-                              type="button"
-                              onClick={() =>
-                                updateMembershipStatus(
-                                  membership.id,
-                                  membership.status === 'paused' ? 'active' : 'paused'
-                                )
-                              }
-                              className="rounded-2xl border border-white/10 px-4 py-3 text-sm font-black transition hover:bg-white/10"
-                            >
+                            <button type="button" onClick={() => updateMembershipStatus(membership.id, membership.status === 'paused' ? 'active' : 'paused')} className="rounded-2xl border border-white/10 px-4 py-3 text-sm font-black transition hover:bg-white/10">
                               {membership.status === 'paused' ? 'Resume' : 'Pause'}
                             </button>
-                            <button
-                              type="button"
-                              onClick={() => updateMembershipStatus(membership.id, 'cancelled')}
-                              className="rounded-2xl border border-red-500/20 bg-red-500/10 px-4 py-3 text-sm font-black text-red-300 transition hover:bg-red-500/20"
-                            >
+                            <button type="button" onClick={() => updateMembershipStatus(membership.id, 'cancelled')} className="rounded-2xl border border-red-500/20 bg-red-500/10 px-4 py-3 text-sm font-black text-red-300 transition hover:bg-red-500/20">
                               Cancel
                             </button>
                           </div>
@@ -1267,29 +1121,19 @@ export default function MembershipsPage() {
               <div className="space-y-4">
                 <label>
                   <span className="mb-2 block text-sm font-bold text-slate-300">Customer membership</span>
-                  <select
-                    value={consumeMembershipId}
-                    onChange={(event) => setConsumeMembershipId(event.target.value)}
-                    className="w-full rounded-2xl border border-white/10 bg-slate-950 px-4 py-4 text-white outline-none"
-                  >
+                  <select value={consumeMembershipId} onChange={(event) => setConsumeMembershipId(event.target.value)} className="w-full rounded-2xl border border-white/10 bg-slate-950 px-4 py-4 text-white outline-none">
                     <option value="">Choose membership</option>
-                    {memberships
-                      .filter((membership) => membership.status !== 'cancelled')
-                      .map((membership) => (
-                        <option key={membership.id} value={membership.id}>
-                          {customerName(membership.customers)} · {membership.membership_name} · {sessionsRemaining(membership)} left
-                        </option>
-                      ))}
+                    {memberships.filter((membership) => membership.status !== 'cancelled').map((membership) => (
+                      <option key={membership.id} value={membership.id}>
+                        {customerName(membership.customers)} · {membership.membership_name} · {sessionsRemaining(membership)} left
+                      </option>
+                    ))}
                   </select>
                 </label>
 
                 <label>
                   <span className="mb-2 block text-sm font-bold text-slate-300">Usage type</span>
-                  <select
-                    value={consumeType}
-                    onChange={(event) => setConsumeType(event.target.value as typeof consumeType)}
-                    className="w-full rounded-2xl border border-white/10 bg-slate-950 px-4 py-4 text-white outline-none"
-                  >
+                  <select value={consumeType} onChange={(event) => setConsumeType(event.target.value as typeof consumeType)} className="w-full rounded-2xl border border-white/10 bg-slate-950 px-4 py-4 text-white outline-none">
                     <option value="session">Session consumption</option>
                     <option value="benefit">Benefit redemption</option>
                     <option value="adjustment">Manual adjustment</option>
@@ -1297,24 +1141,14 @@ export default function MembershipsPage() {
                 </label>
 
                 {(consumeType === 'session' || consumeType === 'adjustment') && (
-                  <LabelledInput
-                    label="Sessions used"
-                    value={consumeSessions}
-                    onChange={setConsumeSessions}
-                    type="number"
-                    helper="This updates the member's sessions_used balance."
-                  />
+                  <LabelledInput label="Sessions used" value={consumeSessions} onChange={setConsumeSessions} type="number" helper="This updates the member's sessions_used balance." />
                 )}
 
                 {consumeType === 'benefit' && (
                   <>
                     <label>
                       <span className="mb-2 block text-sm font-bold text-slate-300">Benefit redeemed</span>
-                      <select
-                        value={consumeBenefit}
-                        onChange={(event) => setConsumeBenefit(event.target.value)}
-                        className="w-full rounded-2xl border border-white/10 bg-slate-950 px-4 py-4 text-white outline-none"
-                      >
+                      <select value={consumeBenefit} onChange={(event) => setConsumeBenefit(event.target.value)} className="w-full rounded-2xl border border-white/10 bg-slate-950 px-4 py-4 text-white outline-none">
                         <option value="">Choose benefit</option>
                         {selectedConsumeBenefits.map((benefit) => (
                           <option key={benefit.id} value={benefit.benefit}>
@@ -1332,12 +1166,7 @@ export default function MembershipsPage() {
                   <LabelledInput label="Created by" value={consumeCreatedBy} onChange={setConsumeCreatedBy} placeholder="Staff name" />
                 </div>
 
-                <LabelledTextarea
-                  label="Notes"
-                  value={consumeNotes}
-                  onChange={setConsumeNotes}
-                  placeholder="Optional audit note."
-                />
+                <LabelledTextarea label="Notes" value={consumeNotes} onChange={setConsumeNotes} placeholder="Optional audit note." />
 
                 {selectedConsumeMembership && (
                   <div className="rounded-2xl border border-cyan-300/20 bg-cyan-300/10 p-4 text-sm text-cyan-100">
@@ -1345,12 +1174,7 @@ export default function MembershipsPage() {
                   </div>
                 )}
 
-                <button
-                  type="button"
-                  onClick={consumeMembershipUsage}
-                  disabled={saving}
-                  className="w-full rounded-2xl bg-cyan-400 px-5 py-4 font-black text-slate-950 hover:bg-cyan-300 disabled:opacity-50"
-                >
+                <button type="button" onClick={consumeMembershipUsage} disabled={saving} className="w-full rounded-2xl bg-cyan-400 px-5 py-4 font-black text-slate-950 hover:bg-cyan-300 disabled:opacity-50">
                   {saving ? 'Recording...' : 'Record usage'}
                 </button>
               </div>
@@ -1359,11 +1183,7 @@ export default function MembershipsPage() {
             <Panel title="Membership usage ledger">
               <div className="mb-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
                 <p className="text-sm text-slate-500">Every manual session, adjustment and benefit redemption is logged here.</p>
-                <button
-                  type="button"
-                  onClick={exportUsageCsv}
-                  className="rounded-xl border border-white/10 px-4 py-3 text-sm font-black hover:bg-white/10"
-                >
+                <button type="button" onClick={exportUsageCsv} className="rounded-xl border border-white/10 px-4 py-3 text-sm font-black hover:bg-white/10">
                   Export CSV
                 </button>
               </div>
@@ -1432,9 +1252,7 @@ export default function MembershipsPage() {
                       <div className="flex items-start justify-between gap-4">
                         <div>
                           <p className="font-black">{plan.name}</p>
-                          <p className="mt-1 text-sm text-slate-500">
-                            {members} active members · {used}/{included} sessions used
-                          </p>
+                          <p className="mt-1 text-sm text-slate-500">{members} active members · {used}/{included} sessions used</p>
                         </div>
                         <p className="font-black text-cyan-300">{money(revenue)}</p>
                       </div>
@@ -1453,9 +1271,7 @@ export default function MembershipsPage() {
                           <p className="font-black">{customerName(membership.customers)}</p>
                           <p className="mt-1 text-sm text-slate-500">{membership.membership_name}</p>
                         </div>
-                        <p className="font-black text-cyan-300">
-                          {membership.sessions_used || 0}/{membership.included_sessions || 0}
-                        </p>
+                        <p className="font-black text-cyan-300">{membership.sessions_used || 0}/{membership.included_sessions || 0}</p>
                       </div>
                     </div>
                   ))}
@@ -1554,12 +1370,7 @@ function Check({
   return (
     <label className="flex items-center justify-between rounded-2xl border border-white/10 bg-slate-950 px-4 py-4">
       <span className="font-bold">{label}</span>
-      <input
-        type="checkbox"
-        checked={checked}
-        onChange={(event) => setChecked(event.target.checked)}
-        className="h-5 w-5"
-      />
+      <input type="checkbox" checked={checked} onChange={(event) => setChecked(event.target.checked)} className="h-5 w-5" />
     </label>
   )
 }
