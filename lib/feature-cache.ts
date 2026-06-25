@@ -1,0 +1,1 @@
+export const featureCache = new Map<string, boolean>();

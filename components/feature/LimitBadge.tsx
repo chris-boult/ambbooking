@@ -1,0 +1,1 @@
+export default function LimitBadge({value}:{value:string|number}){return <span>{value}</span>}
