@@ -2430,13 +2430,17 @@ export default function CustomerPortalPage() {
           </div>
         )}
 
-        {customer && activeTab !== 'home' && activeTab !== 'profile' && (
-          <div className="fixed inset-x-4 bottom-28 z-40 xl:hidden">
-            <button type="button" onClick={bookAppointment} className="w-full rounded-[28px] bg-cyan-300 px-6 py-4 text-base font-black uppercase tracking-[0.12em] text-slate-950 shadow-2xl shadow-cyan-950/40">
-              Book appointment
-            </button>
-          </div>
-        )}
+        {customer && !['home', 'profile', 'bookings'].includes(activeTab) && (
+  <div className="fixed inset-x-4 bottom-28 z-40 xl:hidden pointer-events-none">
+    <button
+      type="button"
+      onClick={bookAppointment}
+      className="pointer-events-auto w-full rounded-[28px] bg-cyan-300 px-6 py-4 text-base font-black uppercase tracking-[0.12em] text-slate-950 shadow-2xl shadow-cyan-950/40"
+    >
+      Book appointment
+    </button>
+  </div>
+)}
 
         {customer && (
           <nav className="fixed inset-x-4 bottom-4 z-50 rounded-[32px] border border-white/10 bg-slate-950/95 p-2 shadow-2xl backdrop-blur-2xl xl:hidden">

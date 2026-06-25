@@ -1,0 +1,17 @@
+{
+  "name": "AMB Booking",
+  "short_name": "AMB Booking",
+  "description": "Book appointments, manage memberships, wallet passes and rewards.",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#020617",
+  "theme_color": "#020617",
+  "orientation": "portrait",
+  "icons": [
+    {
+      "src": "/favicon.ico",
+      "sizes": "48x48",
+      "type": "image/x-icon"
+    }
+  ]
+}
