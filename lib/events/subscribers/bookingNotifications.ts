@@ -20,5 +20,7 @@ subscribe('booking.created', async (event) => {
       : '/business/dashboard/bookings',
 
     data: event.payload,
+
+    email: (event.payload as any)?.customerEmail,
   })
 })

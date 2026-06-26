@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
+import { publishEvent } from '@/lib/events'
 
 export const dynamic = 'force-dynamic'
 
@@ -62,20 +63,28 @@ export async function POST(request: Request) {
       .select('*')
       .single()
 
-    if (usageError) return NextResponse.json({ error: usageError.message }, { status: 500 })
+    if (usageError) {
+      return NextResponse.json({ error: usageError.message }, { status: 500 })
+    }
+
+    const newSessionsUsed = existingUsed + sessionsUsed
+    const newRemaining =
+      includedSessions > 0 ? Math.max(includedSessions - newSessionsUsed, 0) : null
 
     const { error: updateError } = await supabaseAdmin
       .from('customer_memberships')
       .update({
-        sessions_used: existingUsed + sessionsUsed,
+        sessions_used: newSessionsUsed,
         updated_at: new Date().toISOString(),
       })
       .eq('id', customerMembershipId)
 
-    if (updateError) return NextResponse.json({ error: updateError.message }, { status: 500 })
+    if (updateError) {
+      return NextResponse.json({ error: updateError.message }, { status: 500 })
+    }
 
     if (bookingId) {
-      await supabaseAdmin
+      const { error: bookingUpdateError } = await supabaseAdmin
         .from('bookings')
         .update({
           customer_membership_id: customerMembershipId,
@@ -84,10 +93,40 @@ export async function POST(request: Request) {
           amount_due: 0,
         })
         .eq('id', bookingId)
+
+      if (bookingUpdateError) {
+        return NextResponse.json({ error: bookingUpdateError.message }, { status: 500 })
+      }
     }
+
+    await publishEvent({
+      id: crypto.randomUUID(),
+      type: 'membership.renewed',
+      businessId,
+      customerId,
+      createdAt: new Date().toISOString(),
+      payload: {
+        customerMembershipId,
+        membershipId: customerMembershipId,
+        bookingId,
+        usageId: usage.id,
+        sessionsUsed,
+        totalSessionsUsed: newSessionsUsed,
+        sessionsRemaining: newRemaining,
+        notes,
+      },
+    })
 
     return NextResponse.json({ ok: true, usage })
   } catch (error) {
-    return NextResponse.json({ error: error instanceof Error ? error.message : 'Could not use membership session.' }, { status: 500 })
+    return NextResponse.json(
+      {
+        error:
+          error instanceof Error
+            ? error.message
+            : 'Could not use membership session.',
+      },
+      { status: 500 }
+    )
   }
 }
