@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
 import Stripe from 'stripe'
+import { publishEvent } from '@/lib/events'
 
 export const dynamic = 'force-dynamic'
 
@@ -423,16 +424,44 @@ export async function POST(req: Request) {
       }
 
       if (bookingId) {
-        const { error } = await supabase
-          .from('bookings')
-          .update({
-            payment_status: 'paid',
-            stripe_session_id: session.id,
-          })
-          .eq('id', bookingId)
+  const { data: booking, error } = await supabase
+    .from('bookings')
+    .update({
+      payment_status: 'paid',
+      stripe_session_id: session.id,
+    })
+    .eq('id', bookingId)
+    .select(`
+      id,
+      business_id,
+      customer_id,
+      service_id,
+      booking_date,
+      booking_time,
+      total_price
+    `)
+    .single()
 
-        if (error) throw error
-      }
+  if (error) throw error
+
+  await publishEvent({
+    id: crypto.randomUUID(),
+    type: 'booking.created',
+    businessId: booking.business_id,
+    customerId: booking.customer_id || undefined,
+    createdAt: new Date().toISOString(),
+    payload: {
+      bookingId: booking.id,
+      serviceId: booking.service_id,
+      bookingDate: booking.booking_date,
+      bookingTime: booking.booking_time,
+      paymentStatus: 'paid',
+      paymentType: session.metadata?.payment_type ?? 'full_payment',
+      totalPrice: booking.total_price,
+      stripeSessionId: session.id,
+    },
+  })
+}
 
       if (businessId && plan) {
         const updateData: Record<string, any> = {

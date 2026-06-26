@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
 import Stripe from 'stripe'
+import { publishEvent } from '@/lib/events'
 
 export const dynamic = 'force-dynamic'
 
@@ -139,12 +140,12 @@ export async function POST(request: Request) {
     }
 
     const bookingServices = (bookingServicesData || []).map((item: any) => ({
-  service_id: item.service_id,
-  service_name: item.service_name,
-  price: Number(item.price || 0),
-  duration_minutes: Number(item.duration_minutes || 0),
-  services: Array.isArray(item.services) ? item.services[0] : item.services,
-})) as BookingService[]
+      service_id: item.service_id,
+      service_name: item.service_name,
+      price: Number(item.price || 0),
+      duration_minutes: Number(item.duration_minutes || 0),
+      services: Array.isArray(item.services) ? item.services[0] : item.services,
+    })) as BookingService[]
 
     if (bookingServices.length === 0) {
       return NextResponse.json(
@@ -238,6 +239,24 @@ export async function POST(request: Request) {
           { status: 500 }
         )
       }
+
+      await publishEvent({
+        id: crypto.randomUUID(),
+        type: 'booking.created',
+        businessId: booking.business_id,
+        customerId: booking.customer_id || undefined,
+        createdAt: new Date().toISOString(),
+        payload: {
+          bookingId: booking.id,
+          serviceId: booking.service_id,
+          bookingDate: booking.booking_date,
+          bookingTime: booking.booking_time,
+          paymentStatus: 'not_required',
+          paymentType,
+          amountDue: totalPrice,
+          totalPrice,
+        },
+      })
 
       return NextResponse.json({
         success: true,
