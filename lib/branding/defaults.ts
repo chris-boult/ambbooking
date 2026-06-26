@@ -4,7 +4,7 @@ export const defaultBrand: BrandConfig = {
   businessName: 'AMB Booking',
   bookingName: 'AMB Booking',
   platformName: 'AMB Booking',
-  logoUrl: null,
+  logoUrl: '/logo.png',
   faviconUrl: null,
   primaryColour: '#06b6d4',
   secondaryColour: '#0f172a',
