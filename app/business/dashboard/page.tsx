@@ -4,6 +4,7 @@ import { useEffect, useState } from 'react'
 import { supabase } from '@/lib/supabase'
 import { useRouter } from 'next/navigation'
 import Link from 'next/link'
+import { PushNotificationOptIn } from '@/components/notifications/PushNotificationOptIn'
 
 import {
   Chart as ChartJS,
@@ -61,6 +62,7 @@ export default function DashboardPage() {
 
   const [email, setEmail] = useState('')
   const [businessName, setBusinessName] = useState('')
+  const [businessId, setBusinessId] = useState('')
   const [bookings, setBookings] = useState<Booking[]>([])
   const [customersCount, setCustomersCount] = useState(0)
   const [servicesCount, setServicesCount] = useState(0)
@@ -104,6 +106,7 @@ export default function DashboardPage() {
   }
 
   setBusinessName(business.business_name)
+  setBusinessId(business.id)
 
   const { count: customerCount } = await supabase
     .from('customers')
@@ -260,6 +263,12 @@ export default function DashboardPage() {
           </Link>
         </div>
       </div>
+
+      {businessId && (
+        <div className="mb-10">
+          <PushNotificationOptIn businessId={businessId} />
+        </div>
+      )}
 
       <div className="grid grid-cols-1 md:grid-cols-4 gap-6 mb-10">
         <StatCard label="Today's revenue" value={`£${revenueToday}`} />
