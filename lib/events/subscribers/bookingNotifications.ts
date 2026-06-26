@@ -1,42 +1,24 @@
 import { subscribe } from '../subscribe'
-import { supabase } from '@/lib/supabase'
-import { sendPushNotification } from '@/lib/notifications/push'
+import { notify } from '@/lib/notifications/notify'
 
 subscribe('booking.created', async (event) => {
   const bookingId = (event.payload as any)?.bookingId
 
-  const title = 'New booking'
-  const message = 'A new booking has been created.'
-
-  const link = bookingId
-    ? `/business/dashboard/bookings?id=${bookingId}`
-    : '/business/dashboard/bookings'
-
-  const { error } = await supabase
-    .from('notifications')
-    .insert({
-      business_id: event.businessId,
-      user_id: event.userId ?? null,
-      customer_id: event.customerId ?? null,
-      type: 'booking.created',
-      title,
-      message,
-      link,
-      data: event.payload,
-    })
-
-  if (error) {
-    console.error(
-      '[Notifications] Failed to create notification',
-      error
-    )
-    return
-  }
-
-  await sendPushNotification({
+  await notify({
     businessId: event.businessId,
-    title,
-    message,
-    url: link,
+    userId: event.userId,
+    customerId: event.customerId,
+
+    type: 'booking.created',
+
+    title: 'New booking',
+
+    message: 'A new booking has been created.',
+
+    link: bookingId
+      ? `/business/dashboard/bookings?id=${bookingId}`
+      : '/business/dashboard/bookings',
+
+    data: event.payload,
   })
 })
