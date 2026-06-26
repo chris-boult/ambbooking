@@ -3,8 +3,27 @@
 import Link from 'next/link'
 import { useEffect, useMemo, useState } from 'react'
 import { supabase } from '@/lib/supabase'
+import { BrandProvider, resolveBrand, useBrand, type BrandConfig } from '@/lib/branding'
 
 type UserRole = 'owner' | 'manager' | 'staff' | null
+
+type BusinessBrandRow = {
+  id?: string
+  business_name?: string | null
+  slug?: string | null
+  logo_url?: string | null
+  favicon_url?: string | null
+  primary_colour?: string | null
+  secondary_colour?: string | null
+  accent_colour?: string | null
+  email?: string | null
+  phone?: string | null
+  website?: string | null
+  custom_domain?: string | null
+  white_label_mode?: boolean | null
+  hide_amb_branding?: boolean | null
+  brand_mode?: 'amb' | 'co_branded' | 'white_label' | 'agency' | null
+}
 
 export default function DashboardLayout({
   children,
@@ -13,9 +32,10 @@ export default function DashboardLayout({
 }) {
   const [role, setRole] = useState<UserRole>(null)
   const [loadingRole, setLoadingRole] = useState(true)
+  const [brand, setBrand] = useState<BrandConfig | undefined>()
 
   useEffect(() => {
-    async function loadRole() {
+    async function loadRoleAndBrand() {
       const { data: userData } = await supabase.auth.getUser()
 
       if (!userData.user?.email) {
@@ -24,18 +44,94 @@ export default function DashboardLayout({
         return
       }
 
-      const { data } = await supabase
+      const { data: staffData } = await supabase
         .from('staff_users')
-        .select('role')
+        .select('role, business_id')
         .eq('email', userData.user.email)
         .limit(1)
 
-      setRole((data?.[0]?.role as UserRole) || null)
+      const staffRow = staffData?.[0]
+      setRole((staffRow?.role as UserRole) || null)
+
+      let businessRow: BusinessBrandRow | null = null
+
+      if (staffRow?.business_id) {
+        const { data } = await supabase
+          .from('businesses')
+          .select(`
+            id,
+            business_name,
+            slug,
+            logo_url,
+            favicon_url,
+            primary_colour,
+            secondary_colour,
+            accent_colour,
+            email,
+            phone,
+            website,
+            custom_domain,
+            white_label_mode,
+            hide_amb_branding,
+            brand_mode
+          `)
+          .eq('id', staffRow.business_id)
+          .maybeSingle()
+
+        businessRow = data as BusinessBrandRow | null
+      } else {
+        const { data } = await supabase
+          .from('businesses')
+          .select(`
+            id,
+            business_name,
+            slug,
+            logo_url,
+            favicon_url,
+            primary_colour,
+            secondary_colour,
+            accent_colour,
+            email,
+            phone,
+            website,
+            custom_domain,
+            white_label_mode,
+            hide_amb_branding,
+            brand_mode
+          `)
+          .eq('user_id', userData.user.id)
+          .order('created_at', { ascending: false })
+          .limit(1)
+
+        businessRow = (data?.[0] as BusinessBrandRow | undefined) || null
+      }
+
+      setBrand(resolveBrand(businessRow))
       setLoadingRole(false)
     }
 
-    loadRole()
+    loadRoleAndBrand()
   }, [])
+
+  return (
+    <BrandProvider brand={brand}>
+      <DashboardShell role={role} loadingRole={loadingRole}>
+        {children}
+      </DashboardShell>
+    </BrandProvider>
+  )
+}
+
+function DashboardShell({
+  children,
+  role,
+  loadingRole,
+}: {
+  children: React.ReactNode
+  role: UserRole
+  loadingRole: boolean
+}) {
+  const brand = useBrand()
 
   const navItems = useMemo(() => {
     const allItems = [
@@ -50,7 +146,7 @@ export default function DashboardLayout({
       { name: 'Memberships', href: '/business/dashboard/memberships', roles: ['owner', 'manager'] },
       { name: 'Gift Vouchers', href: '/business/dashboard/gift-vouchers', roles: ['owner', 'manager'] },
       { name: 'Customer Engagement', href: '/business/dashboard/customer-engagement', roles: ['owner', 'manager'] },
-      { name: 'SNS Marketing', href: '/business/dashboard/marketing/sms', roles: ['owner', 'manager'] },
+      { name: 'SMS Marketing', href: '/business/dashboard/marketing/sms', roles: ['owner', 'manager'] },
       { name: 'Email Campaigns', href: '/business/dashboard/marketing/email', roles: ['owner', 'manager'] },
       { name: 'Reports', href: '/business/dashboard/reports', roles: ['owner', 'manager'] },
       { name: 'Money', href: '/business/dashboard/money', roles: ['owner', 'manager'] },
@@ -61,22 +157,42 @@ export default function DashboardLayout({
   }, [role])
 
   return (
-    <div className="min-h-screen bg-[#020617] text-white relative overflow-hidden">
-      <div className="fixed inset-0 pointer-events-none bg-[radial-gradient(circle_at_top_left,#8B5CF633_0%,transparent_30%),radial-gradient(circle_at_bottom_right,#2563EB33_0%,transparent_32%)]" />
+    <div
+      className="min-h-screen bg-[#020617] text-white relative overflow-hidden"
+      style={
+        {
+          '--brand-primary': brand.primaryColour,
+          '--brand-secondary': brand.secondaryColour,
+          '--brand-accent': brand.accentColour,
+        } as React.CSSProperties
+      }
+    >
+      <div
+        className="fixed inset-0 pointer-events-none"
+        style={{
+          background: `radial-gradient(circle at top left, ${brand.accentColour}33 0%, transparent 30%), radial-gradient(circle at bottom right, ${brand.primaryColour}33 0%, transparent 32%)`,
+        }}
+      />
 
       <div className="relative z-10 flex min-h-screen">
         <aside className="hidden lg:flex w-64 shrink-0 flex-col border-r border-white/10 bg-black/50 backdrop-blur-2xl px-6 py-7">
           <Link href="/business" className="mb-10 block">
             <div className="rounded-2xl border border-white/10 bg-black p-4">
-              <img
-                src="/logo.png"
-                alt="AMB360"
-                className="block w-full max-w-[170px] h-auto"
-              />
+              {brand.logoUrl ? (
+                <img
+                  src={brand.logoUrl}
+                  alt={brand.businessName}
+                  className="block w-full max-w-[170px] h-auto"
+                />
+              ) : (
+                <div className="text-xl font-black tracking-tight">
+                  {brand.platformName}
+                </div>
+              )}
             </div>
 
             <div className="mt-4 text-[10px] uppercase tracking-[0.45em] text-slate-500">
-              BOOKING
+              {brand.whiteLabel ? 'BOOKING' : brand.bookingName}
             </div>
           </Link>
 
@@ -113,7 +229,10 @@ export default function DashboardLayout({
             {role === 'owner' && (
               <Link
                 href="/onboarding/plan"
-                className="mt-5 block rounded-xl bg-gradient-to-r from-violet-500 to-blue-500 px-4 py-3 text-center text-sm font-bold"
+                className="mt-5 block rounded-xl px-4 py-3 text-center text-sm font-bold text-white"
+                style={{
+                  background: `linear-gradient(90deg, ${brand.accentColour}, ${brand.primaryColour})`,
+                }}
               >
                 Manage Plan
               </Link>
@@ -126,11 +245,13 @@ export default function DashboardLayout({
             <div className="flex items-center justify-between">
               <div>
                 <div className="text-[10px] uppercase tracking-[0.45em] text-slate-500">
-                  AMB360 BOOKING
+                  {brand.platformName}
                 </div>
 
                 <div className="mt-1 text-sm text-slate-400">
-                  Book more. Manage less.
+                  {brand.whiteLabel
+                    ? `Manage ${brand.businessName}`
+                    : 'Book more. Manage less.'}
                 </div>
               </div>
 
