@@ -7,6 +7,8 @@ type Business = {
   id: string
   business_name: string | null
   slug: string | null
+  plan: string | null
+  lifetime_access: boolean | null
 }
 
 type Customer = {
@@ -32,7 +34,103 @@ type DocumentWithCustomer = CustomerDocument & {
 
 type AssignmentFilter = 'all' | 'all_customers' | 'assigned'
 
+const DOCUMENTS_FEATURE = 'documents'
+const DOCUMENT_UPLOADS_FEATURE = 'document_uploads'
+const DOCUMENT_ASSIGNMENT_FEATURE = 'document_assignment'
+const DOCUMENT_EXPORT_FEATURE = 'document_export'
+const DOCUMENT_TEMPLATES_FEATURE = 'document_templates'
+const DOCUMENT_SIGNATURES_FEATURE = 'document_signatures'
+const DOCUMENT_CONSENT_FORMS_FEATURE = 'document_consent_forms'
+const DOCUMENT_BULK_UPLOAD_FEATURE = 'document_bulk_upload'
+
+type FeatureState = {
+  documents: boolean
+  uploads: boolean
+  assignment: boolean
+  exportCsv: boolean
+  templates: boolean
+  signatures: boolean
+  consentForms: boolean
+  bulkUpload: boolean
+}
+
+const defaultFeatureState: FeatureState = {
+  documents: false,
+  uploads: false,
+  assignment: false,
+  exportCsv: false,
+  templates: false,
+  signatures: false,
+  consentForms: false,
+  bulkUpload: false,
+}
+
 const DOCUMENT_BUCKET = 'customer-documents'
+
+function normalisePlan(plan?: string | null) {
+  const value = String(plan || 'starter').toLowerCase().trim()
+
+  if (value === 'premium') return 'pro'
+  if (value === 'professional') return 'pro'
+  if (value === 'agency') return 'pro'
+
+  return value
+}
+
+function planDefaultsForBusiness(business?: Business | null): FeatureState {
+  if (business?.lifetime_access) {
+    return {
+      documents: true,
+      uploads: true,
+      assignment: true,
+      exportCsv: true,
+      templates: true,
+      signatures: true,
+      consentForms: true,
+      bulkUpload: true,
+    }
+  }
+
+  const plan = normalisePlan(business?.plan)
+
+  if (plan === 'pro' || plan === 'enterprise') {
+    return {
+      documents: true,
+      uploads: true,
+      assignment: true,
+      exportCsv: true,
+      templates: true,
+      signatures: true,
+      consentForms: true,
+      bulkUpload: true,
+    }
+  }
+
+  if (plan === 'growth') {
+    return {
+      documents: true,
+      uploads: true,
+      assignment: true,
+      exportCsv: true,
+      templates: true,
+      signatures: false,
+      consentForms: true,
+      bulkUpload: false,
+    }
+  }
+
+  return {
+    documents: false,
+    uploads: false,
+    assignment: false,
+    exportCsv: false,
+    templates: false,
+    signatures: false,
+    consentForms: false,
+    bulkUpload: false,
+  }
+}
+
 
 function formatDate(value?: string | null) {
   if (!value) return '—'
@@ -60,6 +158,7 @@ export default function DocumentsCentrePage() {
   const [business, setBusiness] = useState<Business | null>(null)
   const [customers, setCustomers] = useState<Customer[]>([])
   const [documents, setDocuments] = useState<DocumentWithCustomer[]>([])
+  const [features, setFeatures] = useState<FeatureState>(defaultFeatureState)
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
   const [uploading, setUploading] = useState(false)
@@ -87,7 +186,7 @@ export default function DocumentsCentrePage() {
 
     const { data: ownedBusinesses, error: businessError } = await supabase
       .from('businesses')
-      .select('id,business_name,slug')
+      .select('id,business_name,slug,plan,lifetime_access')
       .eq('user_id', user.id)
       .order('created_at', { ascending: false })
       .limit(1)
@@ -107,7 +206,7 @@ export default function DocumentsCentrePage() {
     if (staffRows?.[0]?.business_id) {
       const { data: staffBusinesses, error: staffBusinessError } = await supabase
         .from('businesses')
-        .select('id,business_name,slug')
+        .select('id,business_name,slug,plan,lifetime_access')
         .eq('id', staffRows[0].business_id)
         .limit(1)
 
@@ -120,6 +219,36 @@ export default function DocumentsCentrePage() {
     throw new Error('No business found for this user.')
   }
 
+  async function loadFeatureState(foundBusiness: Business) {
+    const planDefaults = planDefaultsForBusiness(foundBusiness)
+
+    const { data, error } = await supabase
+      .from('business_features')
+      .select('feature_key, enabled')
+      .eq('business_id', foundBusiness.id)
+
+    if (error) {
+      setFeatures(planDefaults)
+      return
+    }
+
+    const applyOverride = (key: string, fallback: boolean) => {
+      const row = data?.find((feature) => feature.feature_key === key)
+      return typeof row?.enabled === 'boolean' ? row.enabled : fallback
+    }
+
+    setFeatures({
+      documents: applyOverride(DOCUMENTS_FEATURE, planDefaults.documents),
+      uploads: applyOverride(DOCUMENT_UPLOADS_FEATURE, planDefaults.uploads),
+      assignment: applyOverride(DOCUMENT_ASSIGNMENT_FEATURE, planDefaults.assignment),
+      exportCsv: applyOverride(DOCUMENT_EXPORT_FEATURE, planDefaults.exportCsv),
+      templates: applyOverride(DOCUMENT_TEMPLATES_FEATURE, planDefaults.templates),
+      signatures: applyOverride(DOCUMENT_SIGNATURES_FEATURE, planDefaults.signatures),
+      consentForms: applyOverride(DOCUMENT_CONSENT_FORMS_FEATURE, planDefaults.consentForms),
+      bulkUpload: applyOverride(DOCUMENT_BULK_UPLOAD_FEATURE, planDefaults.bulkUpload),
+    })
+  }
+
   async function loadData() {
     setLoading(true)
     setMessage('')
@@ -127,6 +256,7 @@ export default function DocumentsCentrePage() {
     try {
       const foundBusiness = await getBusinessForUser()
       setBusiness(foundBusiness)
+      await loadFeatureState(foundBusiness)
 
       const [customerResult, documentResult] = await Promise.all([
         supabase
@@ -169,6 +299,16 @@ export default function DocumentsCentrePage() {
 
     setMessage('')
 
+    if (!features.documents) {
+      setMessage('Documents are not enabled on this plan.')
+      return
+    }
+
+    if (!features.uploads) {
+      setMessage('Document uploads are not enabled on this plan.')
+      return
+    }
+
     if (!title.trim()) {
       setMessage('Enter a document title.')
       return
@@ -176,6 +316,11 @@ export default function DocumentsCentrePage() {
 
     if (!selectedFile) {
       setMessage('Choose a file to upload.')
+      return
+    }
+
+    if (customerId !== 'all' && !features.assignment) {
+      setMessage('Customer-specific document assignment is not enabled on this plan.')
       return
     }
 
@@ -274,6 +419,37 @@ export default function DocumentsCentrePage() {
     setMessage('Document deleted.')
   }
 
+
+  function exportDocumentsCsv() {
+    if (!features.exportCsv) {
+      setMessage('Document export is not enabled on this plan.')
+      return
+    }
+
+    const rows = [
+      ['Title', 'Category', 'Assigned to', 'File URL', 'Created at'],
+      ...filteredDocuments.map((document) => [
+        document.title,
+        document.category || '',
+        customerName(document.customer_lookup),
+        document.file_url,
+        formatDate(document.created_at),
+      ]),
+    ]
+
+    const csv = rows
+      .map((row) => row.map((cell) => `"${String(cell).replaceAll('"', '""')}"`).join(','))
+      .join('\n')
+
+    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' })
+    const url = URL.createObjectURL(blob)
+    const link = document.createElement('a')
+    link.href = url
+    link.download = `customer-documents-${new Date().toISOString().slice(0, 10)}.csv`
+    link.click()
+    URL.revokeObjectURL(url)
+  }
+
   const filteredDocuments = useMemo(() => {
     const q = search.toLowerCase().trim()
 
@@ -312,6 +488,32 @@ export default function DocumentsCentrePage() {
     return <div className="text-white">Loading documents...</div>
   }
 
+  if (!features.documents) {
+    return (
+      <div>
+        <section className="mb-10">
+          <p className="mb-2 text-slate-400">Customer Engagement</p>
+          <h1 className="mb-2 text-4xl font-bold">Documents</h1>
+          <p className="max-w-3xl text-slate-500">
+            Documents are locked on this plan.
+            {business?.business_name ? ` Connected to ${business.business_name}.` : ''}
+          </p>
+        </section>
+
+        {message && (
+          <div className="mb-6 rounded-2xl border border-cyan-300/20 bg-cyan-300/10 p-4 text-cyan-100">
+            {message}
+          </div>
+        )}
+
+        <LockedFeatureCard
+          title="Documents are locked"
+          text="Upgrade this business or enable documents from the Master Admin Feature Manager to unlock customer document uploads and sharing."
+        />
+      </div>
+    )
+  }
+
   return (
     <div>
       <section className="mb-10 flex flex-col gap-6 lg:flex-row lg:items-end lg:justify-between">
@@ -322,15 +524,29 @@ export default function DocumentsCentrePage() {
             Upload files and share them with individual customers or all customer portal users.
             {business?.business_name ? ` Connected to ${business.business_name}.` : ''}
           </p>
+          <div className="mt-4 inline-flex rounded-full border border-slate-800 bg-slate-900 px-4 py-2 text-sm font-bold text-slate-300">
+            Current plan: {normalisePlan(business?.plan).toUpperCase()}
+          </div>
         </div>
 
-        <button
-          type="button"
-          onClick={loadData}
-          className="rounded-xl bg-white px-5 py-3 font-bold text-slate-950"
-        >
-          Refresh
-        </button>
+        <div className="flex flex-col gap-3 sm:flex-row">
+          <button
+            type="button"
+            onClick={exportDocumentsCsv}
+            disabled={!features.exportCsv}
+            className="rounded-xl bg-slate-800 px-5 py-3 font-bold text-white hover:bg-slate-700 disabled:cursor-not-allowed disabled:opacity-50"
+          >
+            Export CSV
+          </button>
+
+          <button
+            type="button"
+            onClick={loadData}
+            className="rounded-xl bg-white px-5 py-3 font-bold text-slate-950"
+          >
+            Refresh
+          </button>
+        </div>
       </section>
 
       {message && (
@@ -339,11 +555,67 @@ export default function DocumentsCentrePage() {
         </div>
       )}
 
+      <section className="mb-8 grid gap-4 md:grid-cols-4 xl:grid-cols-8">
+        <FeatureCard title="Documents" enabled={features.documents} />
+        <FeatureCard title="Uploads" enabled={features.uploads} />
+        <FeatureCard title="Assignment" enabled={features.assignment} />
+        <FeatureCard title="Export" enabled={features.exportCsv} />
+        <FeatureCard title="Templates" enabled={features.templates} />
+        <FeatureCard title="Signatures" enabled={features.signatures} />
+        <FeatureCard title="Consent Forms" enabled={features.consentForms} />
+        <FeatureCard title="Bulk Upload" enabled={features.bulkUpload} />
+      </section>
+
+
+      <section className="mb-8 rounded-2xl border border-cyan-500/20 bg-cyan-500/10 p-6 text-cyan-100">
+        <h2 className="text-2xl font-bold">Documents commercial status</h2>
+        <p className="mt-2 max-w-4xl text-sm">
+          Documents now use plan defaults with business feature overrides. A Pro or Premium business unlocks the full Documents Centre by default, while the Master Admin Feature Manager can still switch individual capabilities on or off.
+        </p>
+      </section>
+
       <section className="mb-8 grid gap-6 md:grid-cols-4">
         <StatCard label="Documents uploaded" value={stats.total} />
         <StatCard label="Shared with all" value={stats.allCustomers} />
         <StatCard label="Customer assigned" value={stats.assigned} />
         <StatCard label="Categories" value={stats.categories} />
+      </section>
+
+
+      {(!features.templates || !features.exportCsv || !features.signatures || !features.consentForms || !features.bulkUpload) && (
+        <section className="mb-8 rounded-2xl border border-amber-500/20 bg-amber-500/10 p-6 text-amber-100">
+          <h2 className="text-2xl font-bold text-amber-200">Premium document tools</h2>
+          <p className="mt-2 text-sm">
+            Locked document tools can be enabled by moving this business to Pro/Premium or by switching on individual feature overrides in Master Admin.
+          </p>
+        </section>
+      )}
+
+
+      <section className="mb-8 grid gap-6 xl:grid-cols-4">
+        <PremiumFeaturePanel
+          title="Document templates"
+          description="Create reusable document templates for onboarding packs, treatment forms, waivers and customer guides."
+          enabled={features.templates}
+        />
+
+        <PremiumFeaturePanel
+          title="PDF export"
+          description="Export document lists, customer document records and internal audit logs for operational reporting."
+          enabled={features.exportCsv}
+        />
+
+        <PremiumFeaturePanel
+          title="Digital signatures"
+          description="Send forms and documents for approval, agreement or acceptance before appointments."
+          enabled={features.signatures}
+        />
+
+        <PremiumFeaturePanel
+          title="Consent forms"
+          description="Manage consent forms, waivers, treatment acceptance forms and customer declarations."
+          enabled={features.consentForms}
+        />
       </section>
 
       <section className="mb-8 grid gap-8 xl:grid-cols-[0.9fr_1.1fr]">
@@ -354,6 +626,14 @@ export default function DocumentsCentrePage() {
           </p>
 
           <div className="space-y-4">
+            {!features.uploads && (
+              <LockedInline message="Document uploads are locked on this plan." />
+            )}
+
+            {!features.assignment && (
+              <LockedInline message="Customer-specific assignment is locked on this plan." />
+            )}
+
             <label className="block">
               <span className="mb-2 block text-sm font-bold text-slate-400">Document title</span>
               <input
@@ -368,6 +648,7 @@ export default function DocumentsCentrePage() {
               <span className="mb-2 block text-sm font-bold text-slate-400">File</span>
               <input
                 id="customer-document-file"
+                disabled={!features.uploads}
                 type="file"
                 accept=".pdf,.doc,.docx,.png,.jpg,.jpeg,.webp,.txt,.csv"
                 onChange={(event) => setSelectedFile(event.target.files?.[0] || null)}
@@ -393,6 +674,7 @@ export default function DocumentsCentrePage() {
             <label className="block">
               <span className="mb-2 block text-sm font-bold text-slate-400">Assign to</span>
               <select
+                disabled={!features.assignment}
                 value={customerId}
                 onChange={(event) => setCustomerId(event.target.value)}
                 className="w-full rounded-xl border border-slate-800 bg-slate-950 px-4 py-3 text-white outline-none"
@@ -404,13 +686,18 @@ export default function DocumentsCentrePage() {
                   </option>
                 ))}
               </select>
+              {!features.assignment && (
+                <span className="mt-2 block text-xs text-amber-300">
+                  Individual customer assignment is locked. Enable Document Assignment to unlock customer-specific files.
+                </span>
+              )}
             </label>
 
             <button
               type="button"
               onClick={uploadAndShareDocument}
-              disabled={saving || uploading}
-              className="w-full rounded-xl bg-white px-5 py-3 font-bold text-slate-950 disabled:opacity-50"
+              disabled={saving || uploading || !features.uploads}
+              className="w-full rounded-xl bg-white px-5 py-3 font-bold text-slate-950 disabled:cursor-not-allowed disabled:opacity-50"
             >
               {uploading ? 'Uploading...' : saving ? 'Sharing...' : 'Upload and share document'}
             </button>
@@ -510,6 +797,78 @@ function DocumentCard({
         </div>
       </div>
     </article>
+  )
+}
+
+function FeatureCard({ title, enabled }: { title: string; enabled: boolean }) {
+  return (
+    <div className="rounded-2xl border border-slate-800 bg-slate-900 p-5">
+      <div className="flex items-center justify-between gap-4">
+        <p className="font-bold text-white">{title}</p>
+        <span
+          className={
+            enabled
+              ? 'rounded-full bg-emerald-500/10 px-3 py-1 text-xs font-black text-emerald-300'
+              : 'rounded-full bg-amber-500/10 px-3 py-1 text-xs font-black text-amber-300'
+          }
+        >
+          {enabled ? 'Enabled' : 'Locked'}
+        </span>
+      </div>
+    </div>
+  )
+}
+
+function PremiumFeaturePanel({
+  title,
+  description,
+  enabled,
+}: {
+  title: string
+  description: string
+  enabled: boolean
+}) {
+  return (
+    <div className="rounded-2xl border border-slate-800 bg-slate-900 p-6">
+      <div className="mb-4 flex items-center justify-between gap-4">
+        <h3 className="text-lg font-bold text-white">{title}</h3>
+        <span
+          className={
+            enabled
+              ? 'rounded-full bg-emerald-500/10 px-3 py-1 text-xs font-black text-emerald-300'
+              : 'rounded-full bg-amber-500/10 px-3 py-1 text-xs font-black text-amber-300'
+          }
+        >
+          {enabled ? 'Enabled' : 'Pro Feature'}
+        </span>
+      </div>
+      <p className="text-sm text-slate-400">{description}</p>
+      {!enabled && (
+        <div className="mt-4 rounded-xl border border-amber-500/20 bg-amber-500/10 p-3 text-sm text-amber-200">
+          Enable this from the Master Admin Feature Manager.
+        </div>
+      )}
+    </div>
+  )
+}
+
+function LockedInline({ message }: { message: string }) {
+  return (
+    <div className="rounded-2xl border border-amber-500/20 bg-amber-500/10 p-4 text-sm font-semibold text-amber-200">
+      {message}
+    </div>
+  )
+}
+
+function LockedFeatureCard({ title, text }: { title: string; text: string }) {
+  return (
+    <div className="max-w-3xl rounded-3xl border border-amber-500/20 bg-amber-500/10 p-8 text-amber-100">
+      <p className="mb-3 text-xs font-black uppercase tracking-[0.22em] text-amber-300">
+        Upgrade required
+      </p>
+      <h2 className="text-3xl font-black text-white">{title}</h2>
+      <p className="mt-3 text-slate-300">{text}</p>
+    </div>
   )
 }
 

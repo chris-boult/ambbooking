@@ -33,6 +33,25 @@ type ReferralWithCustomer = CustomerReferral & {
 
 type StatusFilter = 'all' | 'pending' | 'converted' | 'paid' | 'cancelled'
 
+const REFERRALS_FEATURE = 'referrals'
+const REFERRAL_REWARDS_FEATURE = 'referral_rewards'
+const REFERRAL_EXPORT_FEATURE = 'referral_export'
+const REFERRAL_ANALYTICS_FEATURE = 'referral_analytics'
+
+type FeatureState = {
+  referrals: boolean
+  rewards: boolean
+  exportCsv: boolean
+  analytics: boolean
+}
+
+const defaultFeatureState: FeatureState = {
+  referrals: false,
+  rewards: false,
+  exportCsv: false,
+  analytics: false,
+}
+
 function money(value: number | string | null | undefined) {
   return `£${Number(value || 0).toFixed(2)}`
 }
@@ -59,6 +78,7 @@ export default function ReferralsManagementPage() {
   const [business, setBusiness] = useState<Business | null>(null)
   const [customers, setCustomers] = useState<Customer[]>([])
   const [referrals, setReferrals] = useState<ReferralWithCustomer[]>([])
+  const [features, setFeatures] = useState<FeatureState>(defaultFeatureState)
   const [loading, setLoading] = useState(true)
   const [savingId, setSavingId] = useState('')
   const [message, setMessage] = useState('')
@@ -130,6 +150,32 @@ export default function ReferralsManagementPage() {
     return `${businessPrefix}-${customerPrefix}`
   }
 
+  async function loadFeatureState(businessId: string) {
+    const { data, error } = await supabase
+      .from('business_features')
+      .select('feature_key, enabled')
+      .eq('business_id', businessId)
+
+    if (error) {
+      setFeatures(defaultFeatureState)
+      return
+    }
+
+    const enabled = (key: string) =>
+      data?.some(
+        (feature) =>
+          feature.feature_key === key &&
+          feature.enabled === true
+      ) ?? false
+
+    setFeatures({
+      referrals: enabled(REFERRALS_FEATURE),
+      rewards: enabled(REFERRAL_REWARDS_FEATURE),
+      exportCsv: enabled(REFERRAL_EXPORT_FEATURE),
+      analytics: enabled(REFERRAL_ANALYTICS_FEATURE),
+    })
+  }
+
   async function loadData() {
     setLoading(true)
     setMessage('')
@@ -137,6 +183,7 @@ export default function ReferralsManagementPage() {
     try {
       const foundBusiness = await getBusinessForUser()
       setBusiness(foundBusiness)
+      await loadFeatureState(foundBusiness.id)
 
       const [customerResult, referralResult] = await Promise.all([
         supabase
@@ -178,6 +225,11 @@ export default function ReferralsManagementPage() {
 
     setMessage('')
 
+    if (!features.referrals) {
+      setMessage('Referrals are not enabled on this plan.')
+      return
+    }
+
     if (!customerId) {
       setMessage('Choose a customer.')
       return
@@ -187,6 +239,11 @@ export default function ReferralsManagementPage() {
 
     if (!customer) {
       setMessage('Customer not found.')
+      return
+    }
+
+    if (rewardAmount > 0 && !features.rewards) {
+      setMessage('Referral rewards are not enabled on this plan.')
       return
     }
 
@@ -228,6 +285,12 @@ export default function ReferralsManagementPage() {
     setSavingId(referral.id)
     setMessage('')
 
+    if (status === 'paid' && !features.rewards) {
+      setMessage('Referral rewards are not enabled on this plan.')
+      setSavingId('')
+      return
+    }
+
     const { error } = await supabase
       .from('customer_referrals')
       .update({ status })
@@ -265,6 +328,11 @@ export default function ReferralsManagementPage() {
   }
 
   function exportCsv() {
+    if (!features.exportCsv) {
+      setMessage('Referral CSV export is not enabled on this plan.')
+      return
+    }
+
     const rows = [
       ['Date', 'Customer', 'Customer email', 'Referral code', 'Friend email', 'Status', 'Reward amount'],
       ...filteredReferrals.map((referral) => [
@@ -353,6 +421,32 @@ export default function ReferralsManagementPage() {
     return <div className="text-white">Loading referrals...</div>
   }
 
+  if (!features.referrals) {
+    return (
+      <div>
+        <section className="mb-10">
+          <p className="mb-2 text-slate-400">Customer Engagement</p>
+          <h1 className="mb-2 text-4xl font-bold">Referrals</h1>
+          <p className="max-w-3xl text-slate-500">
+            Customer referrals are locked on this plan.
+            {business?.business_name ? ` Connected to ${business.business_name}.` : ''}
+          </p>
+        </section>
+
+        {message && (
+          <div className="mb-6 rounded-2xl border border-cyan-300/20 bg-cyan-300/10 p-4 text-cyan-100">
+            {message}
+          </div>
+        )}
+
+        <LockedFeatureCard
+          title="Referrals are locked"
+          text="Upgrade this business or enable referrals from the Master Admin Feature Manager to unlock customer referral tracking."
+        />
+      </div>
+    )
+  }
+
   return (
     <div>
       <section className="mb-10 flex flex-col gap-6 lg:flex-row lg:items-end lg:justify-between">
@@ -369,7 +463,8 @@ export default function ReferralsManagementPage() {
           <button
             type="button"
             onClick={exportCsv}
-            className="rounded-xl bg-slate-800 px-5 py-3 font-bold text-white hover:bg-slate-700"
+            disabled={!features.exportCsv}
+            className="rounded-xl bg-slate-800 px-5 py-3 font-bold text-white hover:bg-slate-700 disabled:cursor-not-allowed disabled:opacity-50"
           >
             Export CSV
           </button>
@@ -389,6 +484,13 @@ export default function ReferralsManagementPage() {
           {message}
         </div>
       )}
+
+      <section className="mb-8 grid gap-4 md:grid-cols-4">
+        <FeatureCard title="Referrals" enabled={features.referrals} />
+        <FeatureCard title="Rewards" enabled={features.rewards} />
+        <FeatureCard title="CSV Export" enabled={features.exportCsv} />
+        <FeatureCard title="Analytics" enabled={features.analytics} />
+      </section>
 
       <section className="mb-8 grid gap-6 md:grid-cols-4">
         <StatCard label="Referral leads" value={stats.total} />
@@ -437,21 +539,24 @@ export default function ReferralsManagementPage() {
               <input
                 type="number"
                 min="0"
+                disabled={!features.rewards}
                 value={rewardAmount}
                 onChange={(event) => setRewardAmount(Number(event.target.value))}
-                className="w-full rounded-xl border border-slate-800 bg-slate-950 px-4 py-3 text-white outline-none"
+                className="w-full rounded-xl border border-slate-800 bg-slate-950 px-4 py-3 text-white outline-none disabled:opacity-50"
               />
             </label>
 
             <button
               type="button"
               onClick={createReferral}
-              className="w-full rounded-xl bg-white px-5 py-3 font-bold text-slate-950"
+              disabled={!features.referrals}
+              className="w-full rounded-xl bg-white px-5 py-3 font-bold text-slate-950 disabled:cursor-not-allowed disabled:opacity-50"
             >
               Create referral
             </button>
           </div>
 
+          {features.analytics ? (
           <div className="mt-6 rounded-2xl border border-slate-800 bg-slate-950 p-5">
             <h3 className="mb-3 font-bold">Top referrers</h3>
             <div className="space-y-3">
@@ -468,6 +573,11 @@ export default function ReferralsManagementPage() {
               {topReferrers.length === 0 && <p className="text-sm text-slate-500">No referrers yet.</p>}
             </div>
           </div>
+          ) : (
+            <div className="mt-6 rounded-2xl border border-amber-500/20 bg-amber-500/10 p-5 text-amber-200">
+              Referral analytics are locked on this plan.
+            </div>
+          )}
         </section>
 
         <section className="rounded-2xl border border-slate-800 bg-slate-900 p-5">
@@ -498,6 +608,7 @@ export default function ReferralsManagementPage() {
                 key={referral.id}
                 referral={referral}
                 saving={savingId === referral.id}
+                rewardsEnabled={features.rewards}
                 onPending={() => updateReferralStatus(referral, 'pending')}
                 onConverted={() => updateReferralStatus(referral, 'converted')}
                 onPaid={() => updateReferralStatus(referral, 'paid')}
@@ -532,6 +643,7 @@ function StatCard({
 function ReferralCard({
   referral,
   saving,
+  rewardsEnabled,
   onPending,
   onConverted,
   onPaid,
@@ -540,6 +652,7 @@ function ReferralCard({
 }: {
   referral: ReferralWithCustomer
   saving: boolean
+  rewardsEnabled: boolean
   onPending: () => void
   onConverted: () => void
   onPaid: () => void
@@ -577,7 +690,7 @@ function ReferralCard({
           <button
             type="button"
             onClick={onPaid}
-            disabled={saving}
+            disabled={saving || !rewardsEnabled}
             className="rounded-xl bg-violet-500/10 px-4 py-3 text-sm font-bold text-violet-300 hover:bg-violet-500/20 disabled:opacity-50"
           >
             Mark paid
@@ -637,6 +750,37 @@ function StatusPill({ value }: { value: string }) {
     >
       {value}
     </span>
+  )
+}
+
+function FeatureCard({ title, enabled }: { title: string; enabled: boolean }) {
+  return (
+    <div className="rounded-2xl border border-slate-800 bg-slate-900 p-5">
+      <div className="flex items-center justify-between gap-4">
+        <p className="font-bold text-white">{title}</p>
+        <span
+          className={
+            enabled
+              ? 'rounded-full bg-emerald-500/10 px-3 py-1 text-xs font-black text-emerald-300'
+              : 'rounded-full bg-amber-500/10 px-3 py-1 text-xs font-black text-amber-300'
+          }
+        >
+          {enabled ? 'Enabled' : 'Locked'}
+        </span>
+      </div>
+    </div>
+  )
+}
+
+function LockedFeatureCard({ title, text }: { title: string; text: string }) {
+  return (
+    <div className="max-w-3xl rounded-3xl border border-amber-500/20 bg-amber-500/10 p-8 text-amber-100">
+      <p className="mb-3 text-xs font-black uppercase tracking-[0.22em] text-amber-300">
+        Upgrade required
+      </p>
+      <h2 className="text-3xl font-black text-white">{title}</h2>
+      <p className="mt-3 text-slate-300">{text}</p>
+    </div>
   )
 }
 

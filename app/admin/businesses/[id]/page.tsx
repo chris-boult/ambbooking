@@ -20,12 +20,21 @@ type BusinessHealth = any
 type SupportTicket = any
 type LaunchReadiness = any
 type EmailBranding = any
+type BusinessFeature = {
+  id?: string
+  business_id: string
+  feature_key: string
+  is_enabled: boolean
+  created_at?: string
+  updated_at?: string
+}
 
 const tabs = [
   'overview',
   'launch',
   'white-label',
   'commercial',
+  'features',
   'health',
   'customers',
   'bookings',
@@ -41,6 +50,121 @@ const tabs = [
 ] as const
 
 type Tab = typeof tabs[number]
+
+const planOptions = ['starter', 'growth', 'premium', 'enterprise'] as const
+
+const featureGroups = [
+  {
+    title: 'Revenue',
+    features: [
+      ['memberships', 'Memberships'],
+      ['packages', 'Packages'],
+      ['gift_vouchers', 'Gift Vouchers'],
+      ['vouchers', 'Vouchers Legacy'],
+      ['online_payments', 'Online Payments'],
+    ],
+  },
+  {
+    title: 'Customer engagement',
+    features: [
+      ['waiting_list', 'Waiting List'],
+      ['loyalty', 'Loyalty'],
+      ['reviews', 'Reviews'],
+      ['referrals', 'Referrals'],
+      ['referral_rewards', 'Referral Rewards'],
+      ['referral_export', 'Referral Export'],
+      ['referral_analytics', 'Referral Analytics'],
+      ['documents', 'Documents'],
+      ['document_uploads', 'Document Uploads'],
+      ['document_assignment', 'Document Assignment'],
+      ['document_export', 'Document Export'],
+      ['document_templates', 'Document Templates'],
+      ['document_signatures', 'Document Signatures'],
+      ['document_consent_forms', 'Consent Forms'],
+      ['document_bulk_upload', 'Bulk Upload'],
+    ],
+  },
+  {
+    title: 'Reporting',
+    features: [
+      ['reporting', 'Reporting'],
+      ['advanced_reporting', 'Advanced Reporting'],
+      ['exports', 'Exports'],
+      ['financial_reporting', 'Financial Reporting'],
+      ['staff_reporting', 'Staff Reporting'],
+      ['membership_reporting', 'Membership Reporting'],
+    ],
+  },
+  {
+    title: 'White label',
+    features: [
+      ['white_label', 'White Label'],
+      ['branding', 'Branding'],
+      ['custom_themes', 'Custom Themes'],
+      ['email_branding', 'Email Branding'],
+      ['custom_domain', 'Custom Domain'],
+      ['remove_amb_branding', 'Remove AMB Branding'],
+    ],
+  },
+  {
+    title: 'Future modules',
+    features: [
+      ['mobile_app', 'Mobile App'],
+      ['push_notifications', 'Push Notifications'],
+      ['marketplace', 'Marketplace'],
+      ['api_access', 'API Access'],
+      ['webhooks', 'Webhooks'],
+      ['beta_features', 'Beta Features'],
+    ],
+  },
+] as const
+
+const allFeatureKeys = featureGroups.flatMap((group) => group.features.map(([key]) => key))
+
+function normalisePlan(plan?: string | null) {
+  const value = String(plan || 'starter').toLowerCase().trim()
+  if (value === 'pro') return 'premium'
+  if (value === 'professional') return 'premium'
+  return value
+}
+
+function featureDefaultsForPlan(planValue?: string | null) {
+  const plan = normalisePlan(planValue)
+  const enabled = new Set<string>()
+
+  if (plan === 'growth' || plan === 'premium' || plan === 'enterprise') {
+    ;[
+      'waiting_list',
+      'loyalty',
+      'reviews',
+      'referrals',
+      'referral_rewards',
+      'referral_analytics',
+      'documents',
+      'document_uploads',
+      'document_assignment',
+      'document_export',
+      'document_templates',
+      'document_consent_forms',
+      'reporting',
+    ].forEach((key) => enabled.add(key))
+  }
+
+  if (plan === 'premium' || plan === 'enterprise') {
+    allFeatureKeys.forEach((key) => enabled.add(key))
+    enabled.delete('mobile_app')
+    enabled.delete('marketplace')
+    enabled.delete('api_access')
+    enabled.delete('webhooks')
+    enabled.delete('beta_features')
+  }
+
+  if (plan === 'enterprise') {
+    allFeatureKeys.forEach((key) => enabled.add(key))
+  }
+
+  return enabled
+}
 
 export default function AdminBusinessDetailPage() {
   const params = useParams()
@@ -64,11 +188,13 @@ export default function AdminBusinessDetailPage() {
   const [notes, setNotes] = useState<BusinessNote[]>([])
   const [auditLogs, setAuditLogs] = useState<AuditLog[]>([])
   const [subscriptionOverrides, setSubscriptionOverrides] = useState<SubscriptionOverride[]>([])
+  const [businessFeatures, setBusinessFeatures] = useState<Record<string, boolean>>({})
 
   const [newNote, setNewNote] = useState('')
   const [message, setMessage] = useState('')
   const [loading, setLoading] = useState(true)
   const [savingSuccess, setSavingSuccess] = useState(false)
+  const [savingFeatures, setSavingFeatures] = useState(false)
 
   useEffect(() => {
     loadBusinessDetail()
@@ -81,6 +207,7 @@ export default function AdminBusinessDetailPage() {
 
     const [
       businessRes,
+      featuresRes,
       healthRes,
       launchRes,
       emailBrandingRes,
@@ -98,6 +225,7 @@ export default function AdminBusinessDetailPage() {
       subscriptionRes,
     ] = await Promise.all([
       supabase.from('businesses').select('*').eq('id', businessId).single(),
+      supabase.from('business_features').select('*').eq('business_id', businessId),
       supabase.from('business_health').select('*').eq('business_id', businessId).maybeSingle(),
       supabase.from('launch_readiness_checks').select('*').eq('business_id', businessId).maybeSingle(),
       supabase.from('email_branding').select('*').eq('business_id', businessId).maybeSingle(),
@@ -117,7 +245,8 @@ export default function AdminBusinessDetailPage() {
 
     if (businessRes.error) setMessage(businessRes.error.message)
 
-    setBusiness(businessRes.data || null)
+    const loadedBusiness = businessRes.data || null
+    setBusiness(loadedBusiness)
     setHealth(healthRes.data || null)
     setLaunchReadiness(launchRes.data || null)
     setEmailBranding(emailBrandingRes.data || null)
@@ -133,6 +262,19 @@ export default function AdminBusinessDetailPage() {
     setNotes(notesRes.data || [])
     setAuditLogs(auditRes.data || [])
     setSubscriptionOverrides(subscriptionRes.data || [])
+
+    const defaults = featureDefaultsForPlan(loadedBusiness?.plan)
+    const nextFeatures: Record<string, boolean> = {}
+
+    allFeatureKeys.forEach((key) => {
+      nextFeatures[key] = Boolean(loadedBusiness?.lifetime_access) || defaults.has(key)
+    })
+
+    ;((featuresRes.data || []) as BusinessFeature[]).forEach((row) => {
+      if (row.feature_key) nextFeatures[row.feature_key] = row.is_enabled === true
+    })
+
+    setBusinessFeatures(nextFeatures)
     setLoading(false)
   }
 
@@ -143,16 +285,8 @@ export default function AdminBusinessDetailPage() {
     const monthBookings = activeBookings.filter((b) => b.booking_date >= monthStart)
     const todayBookings = activeBookings.filter((b) => b.booking_date === today)
 
-    const revenueMonth = monthBookings.reduce(
-      (sum, b) => sum + Number(b.total_price || b.amount_paid || 0),
-      0
-    )
-
-    const revenueAll = activeBookings.reduce(
-      (sum, b) => sum + Number(b.total_price || b.amount_paid || 0),
-      0
-    )
-
+    const revenueMonth = monthBookings.reduce((sum, b) => sum + Number(b.total_price || b.amount_paid || 0), 0)
+    const revenueAll = activeBookings.reduce((sum, b) => sum + Number(b.total_price || b.amount_paid || 0), 0)
     const noShows = bookings.filter((b) => b.status === 'no_show').length
     const averageBookingValue = activeBookings.length ? revenueAll / activeBookings.length : 0
 
@@ -162,14 +296,8 @@ export default function AdminBusinessDetailPage() {
     }, 0)
 
     const vipCustomers = customers.filter((c) => c.vip).length
-    const outstandingBalance = customers.reduce(
-      (sum, c) => sum + Number(c.outstanding_balance || 0),
-      0
-    )
-
-    const openSupport = supportTickets.filter(
-      (ticket) => ticket.status !== 'resolved' && ticket.status !== 'closed'
-    ).length
+    const outstandingBalance = customers.reduce((sum, c) => sum + Number(c.outstanding_balance || 0), 0)
+    const openSupport = supportTickets.filter((ticket) => ticket.status !== 'resolved' && ticket.status !== 'closed').length
 
     return {
       revenueMonth,
@@ -195,6 +323,8 @@ export default function AdminBusinessDetailPage() {
   const launchScore = launchReadiness?.overall_score ?? business?.launch_readiness_score ?? 0
   const launchStatus = launchReadiness?.readiness_status ?? business?.launch_readiness_status ?? 'not_ready'
   const suspended = (business?.status || business?.subscription_status) === 'suspended'
+
+  const enabledFeatureCount = Object.values(businessFeatures).filter(Boolean).length
 
   const whiteLabelScore = useMemo(() => {
     const checks = [
@@ -236,6 +366,78 @@ export default function AdminBusinessDetailPage() {
     await audit(action, patch)
     setMessage('Business updated.')
     await loadBusinessDetail()
+  }
+
+  async function syncFeaturesForPlan(plan: string, lifetimeAccess = Boolean(business?.lifetime_access)) {
+    const defaults = featureDefaultsForPlan(plan)
+    const rows = allFeatureKeys.map((feature_key) => ({
+      business_id: businessId,
+      feature_key,
+      is_enabled: lifetimeAccess || defaults.has(feature_key),
+      updated_at: new Date().toISOString(),
+    }))
+
+    const { error } = await supabase
+      .from('business_features')
+      .upsert(rows, { onConflict: 'business_id,feature_key' })
+
+    if (error) throw error
+  }
+
+  async function saveFeatureManager() {
+    setSavingFeatures(true)
+    setMessage('')
+
+    const rows = allFeatureKeys.map((feature_key) => ({
+      business_id: businessId,
+      feature_key,
+      is_enabled: Boolean(businessFeatures[feature_key]),
+      updated_at: new Date().toISOString(),
+    }))
+
+    const { error } = await supabase
+      .from('business_features')
+      .upsert(rows, { onConflict: 'business_id,feature_key' })
+
+    if (error) {
+      setMessage(error.message)
+      setSavingFeatures(false)
+      return
+    }
+
+    await audit('business_features_updated', { features: businessFeatures })
+    setMessage('Feature manager saved.')
+    await loadBusinessDetail()
+    setSavingFeatures(false)
+  }
+
+  async function applyPlanDefaults(plan: string) {
+    const confirmed = window.confirm(`Apply ${plan} feature defaults to this business? This will update all feature switches.`)
+    if (!confirmed) return
+
+    setSavingFeatures(true)
+    setMessage('')
+
+    try {
+      await updateBusiness({ plan }, `plan_changed_to_${plan}`)
+      await syncFeaturesForPlan(plan)
+      await supabase.from('subscription_overrides').insert({
+        business_id: businessId,
+        billing_type: business?.billing_type || 'manual',
+        override_plan: plan,
+        monthly_amount: Number(business?.monthly_amount || 0),
+        lifetime_access: Boolean(business?.lifetime_access),
+        notes: `Plan changed to ${plan} and feature defaults synchronised`,
+        created_by: (await supabase.auth.getUser()).data.user?.email || 'unknown',
+      })
+      await audit('plan_features_synced', { plan })
+      setMessage(`Plan changed to ${plan} and features synchronised.`)
+      await loadBusinessDetail()
+    } catch (error: any) {
+      setMessage(error?.message || 'Could not apply plan defaults.')
+    }
+
+    setSavingFeatures(false)
   }
 
   async function updateCustomerSuccess() {
@@ -309,10 +511,7 @@ export default function AdminBusinessDetailPage() {
     const date = new Date(business?.trial_ends_at || new Date())
     date.setDate(date.getDate() + Number(days))
 
-    await updateBusiness(
-      { trial_ends_at: date.toISOString(), subscription_status: 'trialing' },
-      'trial_extended'
-    )
+    await updateBusiness({ trial_ends_at: date.toISOString(), subscription_status: 'trialing' }, 'trial_extended')
 
     await supabase.from('subscription_overrides').insert({
       business_id: businessId,
@@ -344,17 +543,7 @@ export default function AdminBusinessDetailPage() {
   }
 
   async function changePlan(plan: string) {
-    await updateBusiness({ plan }, `plan_changed_to_${plan}`)
-
-    await supabase.from('subscription_overrides').insert({
-      business_id: businessId,
-      billing_type: business?.billing_type || 'manual',
-      override_plan: plan,
-      monthly_amount: Number(business?.monthly_amount || 0),
-      lifetime_access: Boolean(business?.lifetime_access),
-      notes: `Plan changed to ${plan}`,
-      created_by: (await supabase.auth.getUser()).data.user?.email || 'unknown',
-    })
+    await applyPlanDefaults(plan)
   }
 
   async function impersonate() {
@@ -409,6 +598,7 @@ export default function AdminBusinessDetailPage() {
             <Badge label={suspended ? 'Suspended' : business.subscription_status || 'No status'} tone={suspended ? 'red' : 'green'} />
             {business.is_internal && <Badge label="Internal" tone="blue" />}
             {business.lifetime_access && <Badge label="Lifetime" tone="purple" />}
+            <Badge label={`${enabledFeatureCount}/${allFeatureKeys.length} features`} tone="blue" />
             <ReadinessBadge status={launchStatus} />
             {health?.status && <HealthBadge status={health.status} />}
             {health?.churn_level && <ChurnBadge level={health.churn_level} />}
@@ -467,39 +657,10 @@ export default function AdminBusinessDetailPage() {
       )}
 
       <section className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
-        <HeroCard
-          label="Launch readiness"
-          value={`${launchScore}%`}
-          sub={statusLabel(launchStatus)}
-          tone={launchScore >= 90 ? 'green' : launchScore >= 70 ? 'blue' : launchScore >= 40 ? 'amber' : 'red'}
-          href="/admin/launch-readiness"
-        />
-
-        <HeroCard
-          label="White label health"
-          value={`${whiteLabelScore}%`}
-          sub={`${statusLabel(business.white_label_mode || 'amb_branded')} · ${business.domain_status || 'No domain'}`}
-          tone={whiteLabelScore >= 90 ? 'green' : whiteLabelScore >= 60 ? 'amber' : 'red'}
-          href="/admin/branding"
-        />
-
-        <HeroCard
-          label="Subscription"
-          value={business.plan || 'No plan'}
-          sub={`${money(business.monthly_amount || 0)} / month · ${business.billing_type || 'stripe'}`}
-          tone={suspended ? 'red' : 'green'}
-          href="#billing"
-          onClick={() => setActiveTab('billing')}
-        />
-
-        <HeroCard
-          label="Commercial"
-          value={money(metrics.revenueAll)}
-          sub={`${metrics.bookings} bookings · ${metrics.customers} customers`}
-          tone="blue"
-          href="#commercial"
-          onClick={() => setActiveTab('commercial')}
-        />
+        <HeroCard label="Launch readiness" value={`${launchScore}%`} sub={statusLabel(launchStatus)} tone={launchScore >= 90 ? 'green' : launchScore >= 70 ? 'blue' : launchScore >= 40 ? 'amber' : 'red'} href="/admin/launch-readiness" />
+        <HeroCard label="Feature Manager" value={`${enabledFeatureCount}/${allFeatureKeys.length}`} sub={`Plan: ${business.plan || 'Not set'}`} tone="purple" href="#features" onClick={() => setActiveTab('features')} />
+        <HeroCard label="Subscription" value={business.plan || 'No plan'} sub={`${money(business.monthly_amount || 0)} / month · ${business.billing_type || 'stripe'}`} tone={suspended ? 'red' : 'green'} href="#billing" onClick={() => setActiveTab('billing')} />
+        <HeroCard label="Commercial" value={money(metrics.revenueAll)} sub={`${metrics.bookings} bookings · ${metrics.customers} customers`} tone="blue" href="#commercial" onClick={() => setActiveTab('commercial')} />
       </section>
 
       <section className="grid gap-4 md:grid-cols-4 xl:grid-cols-8">
@@ -510,7 +671,7 @@ export default function AdminBusinessDetailPage() {
         <StatCard label="30d bookings" value={health?.bookings_last_30_days ?? metrics.monthBookings} />
         <StatCard label="Customers" value={metrics.customers} />
         <StatCard label="Support" value={metrics.openSupport} />
-        <StatCard label="Waiting" value={metrics.waiting} />
+        <StatCard label="Features" value={`${enabledFeatureCount}/${allFeatureKeys.length}`} />
       </section>
 
       {health?.attention_required && (
@@ -536,6 +697,90 @@ export default function AdminBusinessDetailPage() {
         ))}
       </div>
 
+      {activeTab === 'features' && (
+        <section className="space-y-6">
+          <Panel title="Master Admin Feature Manager">
+            <div className="mb-6 rounded-2xl border border-blue-500/20 bg-blue-500/10 p-5 text-blue-100">
+              <p className="font-bold">Plan-driven entitlement control</p>
+              <p className="mt-2 text-sm">
+                Apply a plan to automatically synchronise feature access, or manually override individual features below.
+              </p>
+            </div>
+
+            <div className="mb-8 grid gap-3 md:grid-cols-4">
+              {planOptions.map((plan) => (
+                <button
+                  key={plan}
+                  type="button"
+                  disabled={savingFeatures}
+                  onClick={() => applyPlanDefaults(plan)}
+                  className={`rounded-2xl border px-5 py-4 text-left font-black capitalize disabled:opacity-50 ${
+                    normalisePlan(business.plan) === normalisePlan(plan)
+                      ? 'border-white bg-white text-slate-950'
+                      : 'border-white/10 bg-black/20 text-white hover:bg-white/10'
+                  }`}
+                >
+                  {plan}
+                  <span className="mt-1 block text-xs font-medium opacity-70">
+                    {plan === 'starter'
+                      ? 'Core only'
+                      : plan === 'growth'
+                        ? 'Growth tools'
+                        : plan === 'premium'
+                          ? 'Full commercial suite'
+                          : 'Everything + future modules'}
+                  </span>
+                </button>
+              ))}
+            </div>
+
+            <div className="grid gap-6 xl:grid-cols-2">
+              {featureGroups.map((group) => (
+                <div key={group.title} className="rounded-3xl border border-white/10 bg-black/20 p-5">
+                  <h3 className="mb-4 text-xl font-black">{group.title}</h3>
+
+                  <div className="space-y-3">
+                    {group.features.map(([key, label]) => (
+                      <FeatureToggleRow
+                        key={key}
+                        label={label}
+                        enabled={Boolean(businessFeatures[key])}
+                        onChange={(enabled) =>
+                          setBusinessFeatures((current) => ({
+                            ...current,
+                            [key]: enabled,
+                          }))
+                        }
+                      />
+                    ))}
+                  </div>
+                </div>
+              ))}
+            </div>
+
+            <div className="mt-8 flex flex-wrap gap-3">
+              <button
+                type="button"
+                onClick={saveFeatureManager}
+                disabled={savingFeatures}
+                className="rounded-2xl bg-white px-6 py-4 font-black text-slate-950 disabled:opacity-50"
+              >
+                {savingFeatures ? 'Saving...' : 'Save feature overrides'}
+              </button>
+
+              <button
+                type="button"
+                onClick={() => applyPlanDefaults(business.plan || 'starter')}
+                disabled={savingFeatures}
+                className="rounded-2xl border border-white/10 px-6 py-4 font-black text-white hover:bg-white/10 disabled:opacity-50"
+              >
+                Re-sync current plan
+              </button>
+            </div>
+          </Panel>
+        </section>
+      )}
+
       {activeTab === 'overview' && (
         <section className="grid gap-6 xl:grid-cols-[1fr_0.8fr]">
           <Panel title="Executive overview">
@@ -549,24 +794,6 @@ export default function AdminBusinessDetailPage() {
             <Detail label="Status" value={business.status || business.subscription_status || 'Not set'} />
             <Detail label="Onboarding status" value={statusLabel(business.onboarding_status || 'setup')} />
             <Detail label="Created" value={business.created_at ? new Date(business.created_at).toLocaleString('en-GB') : 'Not set'} />
-
-            <div className="mt-6 flex flex-wrap gap-2">
-              <Link href="/admin/launch-readiness" className="rounded-2xl bg-white px-5 py-3 font-black text-slate-950">
-                View Launch Readiness
-              </Link>
-
-              <Link href="/admin/branding" className="rounded-2xl border border-white/10 px-5 py-3 font-black text-white hover:bg-white/10">
-                Manage Branding
-              </Link>
-
-              <Link href="/admin/domains" className="rounded-2xl border border-white/10 px-5 py-3 font-black text-white hover:bg-white/10">
-                Manage Domain
-              </Link>
-
-              <Link href="/admin/email-branding" className="rounded-2xl border border-white/10 px-5 py-3 font-black text-white hover:bg-white/10">
-                Manage Emails
-              </Link>
-            </div>
           </Panel>
 
           <Panel title="Customer success">
@@ -578,11 +805,7 @@ export default function AdminBusinessDetailPage() {
             <EditableSuccessField id="last_contacted_at" label="Last contacted" type="date" defaultValue={dateInput(business.last_contacted_at)} />
             <EditableSuccessField id="next_review_at" label="Next review" type="date" defaultValue={dateInput(business.next_review_at)} />
 
-            <button
-              onClick={updateCustomerSuccess}
-              disabled={savingSuccess}
-              className="mt-5 rounded-2xl bg-white px-5 py-3 font-black text-slate-950 disabled:opacity-60"
-            >
+            <button onClick={updateCustomerSuccess} disabled={savingSuccess} className="mt-5 rounded-2xl bg-white px-5 py-3 font-black text-slate-950 disabled:opacity-60">
               {savingSuccess ? 'Saving...' : 'Save customer success'}
             </button>
           </Panel>
@@ -595,11 +818,9 @@ export default function AdminBusinessDetailPage() {
             <div className="rounded-3xl border border-white/10 bg-black/20 p-6 text-center">
               <p className={`text-7xl font-black ${scoreClass(launchScore)}`}>{launchScore}%</p>
               <p className="mt-3 text-sm font-black uppercase tracking-wide text-slate-500">{statusLabel(launchStatus)}</p>
-
               <div className="mt-6 h-4 overflow-hidden rounded-full bg-slate-800">
                 <div className={`h-full rounded-full ${progressClass(launchScore)}`} style={{ width: `${launchScore}%` }} />
               </div>
-
               <button onClick={recalculateLaunchReadiness} className="mt-6 rounded-2xl bg-white px-5 py-3 font-black text-slate-950">
                 Recalculate
               </button>
@@ -628,12 +849,6 @@ export default function AdminBusinessDetailPage() {
             <Detail label="Logo" value={business.logo_url ? 'Configured' : 'Missing'} />
             <Detail label="Booking headline" value={business.custom_booking_headline || 'Missing'} />
             <Detail label="Booking intro" value={business.custom_booking_intro || 'Missing'} />
-
-            <div className="mt-6">
-              <Link href="/admin/branding" className="inline-block rounded-2xl bg-white px-5 py-3 font-black text-slate-950">
-                Open Branding Centre
-              </Link>
-            </div>
           </Panel>
 
           <Panel title="Domain and email">
@@ -644,16 +859,6 @@ export default function AdminBusinessDetailPage() {
             <Detail label="Email sender" value={emailBranding?.sender_name || business.sender_name || 'Not set'} />
             <Detail label="Reply to" value={emailBranding?.reply_to_email || business.reply_to_email || 'Not set'} />
             <Detail label="Email footer" value={emailBranding?.footer_text || 'Not set'} />
-
-            <div className="mt-6 flex flex-wrap gap-2">
-              <Link href="/admin/domains" className="rounded-2xl bg-white px-5 py-3 font-black text-slate-950">
-                Open Domain Centre
-              </Link>
-
-              <Link href="/admin/email-branding" className="rounded-2xl border border-white/10 px-5 py-3 font-black text-white hover:bg-white/10">
-                Open Email Branding
-              </Link>
-            </div>
           </Panel>
         </section>
       )}
@@ -698,12 +903,6 @@ export default function AdminBusinessDetailPage() {
           <Detail label="30d customers" value={health?.customers_last_30_days || 0} />
           <Detail label="Last booking" value={health?.last_booking_date ? new Date(health.last_booking_date).toLocaleDateString('en-GB') : 'Never'} />
           <Detail label="Last calculated" value={health?.last_calculated_at ? new Date(health.last_calculated_at).toLocaleString('en-GB') : 'Never'} />
-
-          <div className="mt-6">
-            <Link href="/admin/health" className="inline-block rounded-2xl bg-white px-5 py-3 font-black text-slate-950">
-              Open Health Engine
-            </Link>
-          </div>
         </Panel>
       )}
 
@@ -860,7 +1059,7 @@ export default function AdminBusinessDetailPage() {
       {activeTab === 'billing' && (
         <Panel title="Billing and overrides">
           <div className="mb-6 flex flex-wrap gap-2">
-            {['starter', 'growth', 'premium', 'enterprise'].map((plan) => (
+            {planOptions.map((plan) => (
               <button
                 key={plan}
                 onClick={() => changePlan(plan)}
@@ -882,7 +1081,6 @@ export default function AdminBusinessDetailPage() {
 
           <div className="mt-8">
             <h3 className="mb-4 text-xl font-black">Override history</h3>
-
             <DataList rows={subscriptionOverrides} empty="No overrides yet." render={(item) => (
               <Row key={item.id}>
                 <div>
@@ -904,7 +1102,6 @@ export default function AdminBusinessDetailPage() {
                 <p className="font-black">{humanAction(log.action)}</p>
                 <p className="mt-1 text-sm text-slate-500">{log.actor_email || 'Unknown'} · {new Date(log.created_at).toLocaleString('en-GB')}</p>
               </div>
-
               <pre className="max-w-xl whitespace-pre-wrap break-words text-xs text-slate-500">
                 {JSON.stringify(log.metadata || {}, null, 2)}
               </pre>
@@ -947,6 +1144,28 @@ function Detail({ label, value }: { label: string; value: string | number }) {
       <p className="text-sm font-bold text-slate-500">{label}</p>
       <p className="break-words font-medium text-slate-200">{value}</p>
     </div>
+  )
+}
+
+function FeatureToggleRow({
+  label,
+  enabled,
+  onChange,
+}: {
+  label: string
+  enabled: boolean
+  onChange: (enabled: boolean) => void
+}) {
+  return (
+    <label className="flex cursor-pointer items-center justify-between gap-4 rounded-2xl border border-white/10 bg-white/[0.03] p-4">
+      <span className="font-bold text-slate-200">{label}</span>
+      <input
+        type="checkbox"
+        checked={enabled}
+        onChange={(event) => onChange(event.target.checked)}
+        className="h-5 w-5 accent-white"
+      />
+    </label>
   )
 }
 
@@ -1061,10 +1280,7 @@ function ScoreDetail({ label, value }: { label: string; value: number }) {
       </div>
 
       <div className="h-2 overflow-hidden rounded-full bg-slate-800">
-        <div
-          className={`h-full rounded-full ${progressClass(value)}`}
-          style={{ width: `${value}%` }}
-        />
+        <div className={`h-full rounded-full ${progressClass(value)}`} style={{ width: `${value}%` }} />
       </div>
     </div>
   )
@@ -1101,15 +1317,11 @@ function valueById(id: string) {
 }
 
 function humanAction(action: string) {
-  return action
-    .replaceAll('_', ' ')
-    .replace(/\b\w/g, (letter) => letter.toUpperCase())
+  return action.replaceAll('_', ' ').replace(/\b\w/g, (letter) => letter.toUpperCase())
 }
 
 function statusLabel(value: string) {
-  return String(value || 'not_ready')
-    .replaceAll('_', ' ')
-    .replace(/\b\w/g, (letter) => letter.toUpperCase())
+  return String(value || 'not_ready').replaceAll('_', ' ').replace(/\b\w/g, (letter) => letter.toUpperCase())
 }
 
 function scoreClass(score: number) {

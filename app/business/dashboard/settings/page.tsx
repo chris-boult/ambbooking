@@ -41,6 +41,31 @@ const brandThemes = [
   { id: 'monochrome', name: 'Monochrome', description: 'Black, white and timeless.' },
 ]
 
+const WHITE_LABEL_FEATURE = 'white_label'
+const BRANDING_FEATURE = 'branding'
+const CUSTOM_THEMES_FEATURE = 'custom_themes'
+const EMAIL_BRANDING_FEATURE = 'email_branding'
+const CUSTOM_DOMAIN_FEATURE = 'custom_domain'
+const REMOVE_AMB_BRANDING_FEATURE = 'remove_amb_branding'
+
+type FeatureState = {
+  whiteLabel: boolean
+  branding: boolean
+  customThemes: boolean
+  emailBranding: boolean
+  customDomain: boolean
+  removeAmbBranding: boolean
+}
+
+const defaultFeatureState: FeatureState = {
+  whiteLabel: false,
+  branding: false,
+  customThemes: false,
+  emailBranding: false,
+  customDomain: false,
+  removeAmbBranding: false,
+}
+
 function safeFileName(fileName: string) {
   return fileName
     .toLowerCase()
@@ -53,6 +78,7 @@ export default function SettingsPage() {
   const [business, setBusiness] = useState<Business | null>(null)
   const [teamMembers, setTeamMembers] = useState<TeamMember[]>([])
   const [staffUsers, setStaffUsers] = useState<StaffUser[]>([])
+  const [features, setFeatures] = useState<FeatureState>(defaultFeatureState)
 
   const [businessName, setBusinessName] = useState('')
   const [slug, setSlug] = useState('')
@@ -77,6 +103,34 @@ export default function SettingsPage() {
   useEffect(() => {
     loadSettings()
   }, [])
+
+  async function loadFeatureState(businessId: string) {
+    const { data, error } = await supabase
+      .from('business_features')
+      .select('feature_key, enabled')
+      .eq('business_id', businessId)
+
+    if (error) {
+      setFeatures(defaultFeatureState)
+      return
+    }
+
+    const enabled = (key: string) =>
+      data?.some(
+        (feature) =>
+          feature.feature_key === key &&
+          feature.enabled === true
+      ) ?? false
+
+    setFeatures({
+      whiteLabel: enabled(WHITE_LABEL_FEATURE),
+      branding: enabled(BRANDING_FEATURE),
+      customThemes: enabled(CUSTOM_THEMES_FEATURE),
+      emailBranding: enabled(EMAIL_BRANDING_FEATURE),
+      customDomain: enabled(CUSTOM_DOMAIN_FEATURE),
+      removeAmbBranding: enabled(REMOVE_AMB_BRANDING_FEATURE),
+    })
+  }
 
   async function loadSettings() {
     setLoading(true)
@@ -129,6 +183,7 @@ export default function SettingsPage() {
     }
 
     setBusiness(businessData as Business)
+    await loadFeatureState(businessData.id)
     setBusinessName(businessData.business_name || '')
     setSlug(businessData.slug || '')
     setLogoUrl(businessData.logo_url || '')
@@ -340,6 +395,11 @@ export default function SettingsPage() {
         <p className="text-slate-500">
           Manage your public booking page, branding and staff accounts.
         </p>
+        <div className="mt-5 rounded-2xl border border-slate-800 bg-slate-900 p-4">
+          <p className="text-sm text-slate-400">
+            White Label controls are powered by the commercial entitlement system. Pro businesses can use branding, custom themes, email branding, custom domains and AMB branding removal when enabled from the Master Admin feature controls.
+          </p>
+        </div>
       </div>
 
       {message && (
@@ -402,11 +462,34 @@ export default function SettingsPage() {
             <h2 className="text-2xl font-bold mb-6">Branding</h2>
 
             <div className="space-y-5">
+            {!features.whiteLabel && (
+              <div className="rounded-2xl border border-amber-500/20 bg-amber-500/10 p-5 text-amber-100">
+                <div className="flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
+                  <div>
+                    <p className="font-bold text-amber-200">White Label locked</p>
+                    <p className="mt-1 text-sm">
+                      Branding controls are available on Pro when enabled for this business.
+                    </p>
+                  </div>
+                  <span className="rounded-full bg-amber-500/20 px-3 py-1 text-xs font-black uppercase tracking-wide text-amber-200">
+                    Pro Feature
+                  </span>
+                </div>
+              </div>
+            )}
+
+
               <div>
                 <label className="block text-slate-400 mb-2">Brand theme</label>
 
+                <div className="flex items-center justify-between mb-2">
+                  <label className="text-slate-400">Brand theme</label>
+                  {!features.customThemes && <span className="text-xs rounded bg-amber-500/20 px-2 py-1 text-amber-300">Pro Feature</span>}
+                </div>
+
                 <select
-                  className="w-full p-3 rounded-lg bg-slate-800 border border-slate-700"
+                  disabled={!features.customThemes}
+                  className="w-full p-3 rounded-lg bg-slate-800 border border-slate-700 disabled:opacity-50"
                   value={brandTheme}
                   onChange={(e) => setBrandTheme(e.target.value)}
                 >
@@ -429,10 +512,15 @@ export default function SettingsPage() {
 
                 <input
                   type="file"
+                  disabled={!features.branding}
                   accept="image/*"
                   onChange={(event) => uploadBrandAsset(event, 'business-logos')}
                   className="w-full p-3 rounded-lg bg-slate-800 border border-slate-700"
                 />
+
+                {!features.branding && (
+                  <p className="mt-2 text-sm text-amber-300">Logo upload is locked until Branding is enabled.</p>
+                )}
 
                 {uploadingLogo && (
                   <p className="text-slate-500 text-sm mt-2">Uploading logo...</p>
@@ -455,10 +543,15 @@ export default function SettingsPage() {
 
                 <input
                   type="file"
+                  disabled={!features.branding}
                   accept="image/*"
                   onChange={(event) => uploadBrandAsset(event, 'business-hero-images')}
                   className="w-full p-3 rounded-lg bg-slate-800 border border-slate-700"
                 />
+
+                {!features.branding && (
+                  <p className="mt-2 text-sm text-amber-300">Hero image upload is locked until Branding is enabled.</p>
+                )}
 
                 {uploadingHero && (
                   <p className="text-slate-500 text-sm mt-2">Uploading hero image...</p>
@@ -480,7 +573,8 @@ export default function SettingsPage() {
                   <label className="block text-slate-400 mb-2">Primary colour</label>
                   <input
                     type="color"
-                    className="w-full h-12 rounded-lg bg-slate-800 border border-slate-700"
+                    disabled={!features.branding}
+                    className="w-full h-12 rounded-lg bg-slate-800 border border-slate-700 disabled:opacity-50"
                     value={primaryColour}
                     onChange={(e) => setPrimaryColour(e.target.value)}
                   />
@@ -490,7 +584,8 @@ export default function SettingsPage() {
                   <label className="block text-slate-400 mb-2">Secondary colour</label>
                   <input
                     type="color"
-                    className="w-full h-12 rounded-lg bg-slate-800 border border-slate-700"
+                    disabled={!features.branding}
+                    className="w-full h-12 rounded-lg bg-slate-800 border border-slate-700 disabled:opacity-50"
                     value={secondaryColour}
                     onChange={(e) => setSecondaryColour(e.target.value)}
                   />
@@ -516,12 +611,92 @@ export default function SettingsPage() {
               <button
                 type="button"
                 onClick={saveBusinessDetails}
-                disabled={saving || !business}
+                disabled={saving || !business || !features.branding}
                 className="w-full bg-white text-slate-950 font-bold px-5 py-3 rounded-xl disabled:opacity-50"
               >
                 {saving ? 'Saving...' : 'Save branding'}
               </button>
             </div>
+          </section>
+
+          
+          <section className="bg-slate-900 border border-slate-800 rounded-2xl p-6">
+            <h2 className="text-2xl font-bold mb-6">Commercial features</h2>
+
+            <div className="space-y-4">
+              <FeatureRow title="White Label" enabled={features.whiteLabel}/>
+              <FeatureRow title="Branding" enabled={features.branding}/>
+              <FeatureRow title="Custom Themes" enabled={features.customThemes}/>
+              <FeatureRow title="Email Branding" enabled={features.emailBranding}/>
+              <FeatureRow title="Custom Domain" enabled={features.customDomain}/>
+              <FeatureRow title="Remove AMB Branding" enabled={features.removeAmbBranding}/>
+            </div>
+
+            {!features.emailBranding && (
+              <LockedCard title="Email Branding" text="Available on the Pro plan." />
+            )}
+
+            {!features.customDomain && (
+              <LockedCard title="Custom Domain" text="Available on the Pro plan." />
+            )}
+
+            {!features.removeAmbBranding && (
+              <LockedCard title="Remove AMB Branding" text="Available on the Pro plan." />
+            )}
+          </section>
+
+
+
+          <section className="xl:col-span-2 bg-slate-900 border border-slate-800 rounded-2xl p-6">
+            <h2 className="text-2xl font-bold mb-6">Email branding & Domains</h2>
+
+            <div className="grid md:grid-cols-2 gap-6">
+              <div className="rounded-xl border border-slate-800 p-5">
+                <div className="flex justify-between items-center">
+                  <h3 className="font-bold">Email Branding</h3>
+                  <span className={features.emailBranding ? "text-emerald-400":"text-amber-300"}>
+                    {features.emailBranding ? "Enabled":"Locked"}
+                  </span>
+                </div>
+                <input
+                  disabled={!features.emailBranding}
+                  placeholder="Email sender coming in Email Branding V2"
+                  className="mt-4 w-full rounded-lg border border-slate-700 bg-slate-800 p-3 disabled:opacity-50"
+                />
+              </div>
+
+              <div className="rounded-xl border border-slate-800 p-5">
+                <div className="flex justify-between items-center">
+                  <h3 className="font-bold">Custom Domain</h3>
+                  <span className={features.customDomain ? "text-emerald-400":"text-amber-300"}>
+                    {features.customDomain ? "Enabled":"Locked"}
+                  </span>
+                </div>
+                <input
+                  disabled={!features.customDomain}
+                  placeholder="Custom domain coming in Domain Manager V2"
+                  className="mt-4 w-full rounded-lg border border-slate-700 bg-slate-800 p-3 disabled:opacity-50"
+                />
+              </div>
+            </div>
+
+            <div className="mt-6 rounded-xl border border-slate-800 p-5">
+              <label className="flex items-center justify-between">
+                <span className="font-semibold">Remove AMB Branding</span>
+                <input
+                  type="checkbox"
+                  disabled={!features.removeAmbBranding}
+                />
+              </label>
+            </div>
+          </section>
+
+
+          <section className="xl:col-span-2 rounded-2xl border border-cyan-500/20 bg-cyan-500/10 p-6 text-cyan-100">
+            <h2 className="text-2xl font-bold">White Label status</h2>
+            <p className="mt-2 text-sm">
+              This page is now wired to business feature entitlements. The Master Admin Feature Manager will be able to enable or disable each white-label capability per business without changing this page again.
+            </p>
           </section>
 
           <section className="xl:col-span-2 bg-slate-900 border border-slate-800 rounded-2xl p-6">
@@ -602,5 +777,25 @@ export default function SettingsPage() {
       )}
       </div>
     </RoleGuard>
+  )
+}
+
+function FeatureRow({ title, enabled }: { title: string; enabled: boolean }) {
+  return(
+    <div className="flex items-center justify-between rounded-xl border border-slate-800 p-3">
+      <span>{title}</span>
+      <span className={enabled?"text-emerald-400":"text-amber-300"}>
+        {enabled?"Enabled":"Locked"}
+      </span>
+    </div>
+  )
+}
+
+function LockedCard({ title, text }: { title: string; text: string }) {
+  return(
+    <div className="mt-4 rounded-xl border border-amber-500/20 bg-amber-500/10 p-4">
+      <h3 className="font-bold text-amber-200">{title}</h3>
+      <p className="text-amber-100 text-sm mt-1">{text}</p>
+    </div>
   )
 }

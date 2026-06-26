@@ -1,7 +1,11 @@
 'use client'
 
-import { useEffect, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { supabase } from '@/lib/supabase'
+
+const PACKAGE_FEATURE_KEY = 'packages'
+const PACKAGE_ASSIGNMENT_FEATURE_KEY = 'package_assignments'
+const PACKAGE_USAGE_FEATURE_KEY = 'package_session_usage'
 
 type Package = {
   id: string
@@ -36,13 +40,70 @@ type Customer = {
 
 type Business = {
   id: string
+  plan?: string | null
+  status?: string | null
+  lifetime_access?: boolean | null
+}
+
+type BusinessFeature = {
+  id?: string
+  business_id?: string
+  feature_key?: string | null
+  feature?: string | null
+  key?: string | null
+  enabled?: boolean | null
+  is_enabled?: boolean | null
+  active?: boolean | null
+  status?: string | null
+}
+
+type FeatureState = {
+  packages: boolean
+  packageAssignments: boolean
+  packageUsage: boolean
+}
+
+const defaultFeatureState: FeatureState = {
+  packages: false,
+  packageAssignments: false,
+  packageUsage: false,
+}
+
+const planFeatures: Record<string, FeatureState> = {
+  starter: {
+    packages: false,
+    packageAssignments: false,
+    packageUsage: false,
+  },
+  growth: {
+    packages: true,
+    packageAssignments: true,
+    packageUsage: true,
+  },
+  pro: {
+    packages: true,
+    packageAssignments: true,
+    packageUsage: true,
+  },
+  agency: {
+    packages: true,
+    packageAssignments: true,
+    packageUsage: true,
+  },
+  enterprise: {
+    packages: true,
+    packageAssignments: true,
+    packageUsage: true,
+  },
 }
 
 export default function PackagesPage() {
   const [businessId, setBusinessId] = useState('')
+  const [business, setBusiness] = useState<Business | null>(null)
   const [packages, setPackages] = useState<Package[]>([])
   const [customerPackages, setCustomerPackages] = useState<CustomerPackage[]>([])
   const [customers, setCustomers] = useState<Customer[]>([])
+  const [features, setFeatures] = useState<FeatureState>(defaultFeatureState)
   const [loading, setLoading] = useState(true)
   const [message, setMessage] = useState('')
 
@@ -68,29 +129,88 @@ export default function PackagesPage() {
 
     const { data: ownerBusiness } = await supabase
       .from('businesses')
-      .select('id')
+      .select('id, plan, status, lifetime_access')
       .eq('owner_id', user.id)
       .maybeSingle()
 
-    if (ownerBusiness) return (ownerBusiness as Business).id
+    if (ownerBusiness) {
+      setBusiness(ownerBusiness as Business)
+      return (ownerBusiness as Business).id
+    }
 
     const { data: userBusiness } = await supabase
       .from('businesses')
-      .select('id')
+      .select('id, plan, status, lifetime_access')
       .eq('user_id', user.id)
       .maybeSingle()
 
-    if (userBusiness) return (userBusiness as Business).id
+    if (userBusiness) {
+      setBusiness(userBusiness as Business)
+      return (userBusiness as Business).id
+    }
 
     const { data: anyBusiness } = await supabase
       .from('businesses')
-      .select('id')
+      .select('id, plan, status, lifetime_access')
       .limit(1)
       .maybeSingle()
 
-    if (anyBusiness) return (anyBusiness as Business).id
+    if (anyBusiness) {
+      setBusiness(anyBusiness as Business)
+      return (anyBusiness as Business).id
+    }
 
     return ''
+  }
+
+  async function loadFeatureState(foundBusinessId: string, loadedBusiness?: Business | null) {
+    const plan = String(loadedBusiness?.plan || business?.plan || 'starter').toLowerCase()
+    const baseFeatures = loadedBusiness?.lifetime_access
+      ? planFeatures.enterprise
+      : planFeatures[plan] || defaultFeatureState
+
+    const nextFeatures: FeatureState = {
+      ...baseFeatures,
+    }
+
+    const { data } = await supabase
+      .from('business_features')
+      .select('*')
+      .eq('business_id', foundBusinessId)
+
+    const rows = ((data || []) as BusinessFeature[])
+
+    rows.forEach((row) => {
+      const key = row.feature_key || row.feature || row.key || ''
+      const enabled =
+        row.enabled === true ||
+        row.is_enabled === true ||
+        row.active === true ||
+        row.status === 'active' ||
+        row.status === 'enabled'
+
+      const disabled =
+        row.enabled === false ||
+        row.is_enabled === false ||
+        row.active === false ||
+        row.status === 'disabled' ||
+        row.status === 'inactive'
+
+      if (key === PACKAGE_FEATURE_KEY) {
+        nextFeatures.packages = enabled || (!disabled && nextFeatures.packages)
+      }
+
+      if (key === PACKAGE_ASSIGNMENT_FEATURE_KEY) {
+        nextFeatures.packageAssignments = enabled || (!disabled && nextFeatures.packageAssignments)
+      }
+
+      if (key === PACKAGE_USAGE_FEATURE_KEY) {
+        nextFeatures.packageUsage = enabled || (!disabled && nextFeatures.packageUsage)
+      }
+    })
+
+    setFeatures(nextFeatures)
+    return nextFeatures
   }
 
   async function loadData() {
@@ -106,6 +226,16 @@ export default function PackagesPage() {
     }
 
     setBusinessId(foundBusinessId)
+
+    const { data: businessData } = await supabase
+      .from('businesses')
+      .select('id, plan, status, lifetime_access')
+      .eq('id', foundBusinessId)
+      .maybeSingle()
+
+    if (businessData) setBusiness(businessData as Business)
+
+    await loadFeatureState(foundBusinessId, businessData as Business)
 
     const { data: packageData, error: packageError } = await supabase
       .from('packages')
@@ -144,8 +274,16 @@ export default function PackagesPage() {
     setLoading(false)
   }
 
+  function requireFeature(enabled: boolean, featureName: string) {
+    if (enabled) return true
+    setMessage(`${featureName} is not included on this plan. Upgrade the business plan to unlock it.`)
+    return false
+  }
+
   async function createPackage() {
     setMessage('')
+
+    if (!requireFeature(features.packages, 'Packages')) return
 
     if (!businessId || !packageName || !packageSessions || !packagePrice) {
       setMessage('Please complete the package name, number of sessions and sale price.')
@@ -167,8 +305,8 @@ export default function PackagesPage() {
 
     const { error } = await supabase.from('packages').insert({
       business_id: businessId,
-      name: packageName,
-      description: packageDescription || null,
+      name: packageName.trim(),
+      description: packageDescription.trim() || null,
       total_sessions: sessions,
       price,
       active: true,
@@ -191,6 +329,8 @@ export default function PackagesPage() {
   async function assignPackageToCustomer() {
     setMessage('')
 
+    if (!requireFeature(features.packageAssignments, 'Package assignment')) return
+
     if (!businessId || !selectedCustomerId || !selectedPackageId) {
       setMessage('Please choose a customer and a package type to assign.')
       return
@@ -202,6 +342,11 @@ export default function PackagesPage() {
 
     if (!selectedPackage) {
       setMessage('Package type not found.')
+      return
+    }
+
+    if (!selectedPackage.active) {
+      setMessage('This package type is inactive and cannot be assigned.')
       return
     }
 
@@ -230,10 +375,15 @@ export default function PackagesPage() {
   }
 
   async function updatePackageStatus(id: string, active: boolean) {
+    setMessage('')
+
+    if (!requireFeature(features.packages, 'Package management')) return
+
     const { error } = await supabase
       .from('packages')
       .update({ active })
       .eq('id', id)
+      .eq('business_id', businessId)
 
     if (error) {
       setMessage(error.message)
@@ -245,6 +395,8 @@ export default function PackagesPage() {
 
   async function useSession(customerPackage: CustomerPackage) {
     setMessage('')
+
+    if (!requireFeature(features.packageUsage, 'Package session usage')) return
 
     if (customerPackage.sessions_remaining <= 0) {
       setMessage('This customer package has no sessions remaining.')
@@ -263,6 +415,7 @@ export default function PackagesPage() {
         status: newStatus,
       })
       .eq('id', customerPackage.id)
+      .eq('business_id', businessId)
 
     if (error) {
       setMessage(error.message)
@@ -273,10 +426,15 @@ export default function PackagesPage() {
   }
 
   async function cancelCustomerPackage(id: string) {
+    setMessage('')
+
+    if (!requireFeature(features.packageAssignments, 'Package assignment')) return
+
     const { error } = await supabase
       .from('customer_packages')
       .update({ status: 'cancelled' })
       .eq('id', id)
+      .eq('business_id', businessId)
 
     if (error) {
       setMessage(error.message)
@@ -306,17 +464,56 @@ export default function PackagesPage() {
     .filter((item) => item.status === 'active')
     .reduce((sum, item) => sum + Number(item.sessions_remaining || 0), 0)
 
+  const currentPlan = useMemo(() => {
+    return String(business?.plan || 'starter').toUpperCase()
+  }, [business?.plan])
+
   if (loading) {
     return <div className="p-8 text-white">Loading packages...</div>
   }
 
+  if (!features.packages) {
+    return (
+      <div className="p-8 text-white">
+        <div className="mb-8">
+          <p className="mb-3 text-xs font-black uppercase tracking-[0.22em] text-slate-500">
+            Commercial gating
+          </p>
+          <h1 className="text-4xl font-bold mb-2">Packages</h1>
+          <p className="max-w-3xl text-slate-400">
+            Prepaid package selling and package balance tracking are not included on the current {currentPlan} plan.
+          </p>
+        </div>
+
+        <LockedFeatureCard
+          title="Packages are locked"
+          description="Upgrade this business to unlock prepaid session bundles, customer package balances and package session usage."
+          feature="Packages"
+          plan={currentPlan}
+        />
+      </div>
+    )
+  }
+
   return (
     <div className="p-8 text-white">
-      <div className="mb-8">
-        <h1 className="text-4xl font-bold mb-2">Packages</h1>
-        <p className="text-slate-400">
-          Create prepaid session bundles, assign them to customers and track remaining sessions.
-        </p>
+      <div className="mb-8 flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
+        <div>
+          <p className="mb-3 text-xs font-black uppercase tracking-[0.22em] text-slate-500">
+            Pack 4 commercial gating
+          </p>
+          <h1 className="text-4xl font-bold mb-2">Packages</h1>
+          <p className="text-slate-400">
+            Create prepaid session bundles, assign them to customers and track remaining sessions.
+          </p>
+        </div>
+
+        <div className="rounded-2xl border border-white/10 bg-slate-900 px-5 py-4">
+          <p className="text-xs font-black uppercase tracking-[0.2em] text-slate-500">
+            Current plan
+          </p>
+          <p className="mt-1 text-2xl font-black">{currentPlan}</p>
+        </div>
       </div>
 
       {message && (
@@ -332,14 +529,41 @@ export default function PackagesPage() {
         <StatCard title="Sessions still owed" value={remainingSessions.toString()} />
       </div>
 
+      <div className="grid xl:grid-cols-3 gap-4 mb-8">
+        <FeatureStatusCard
+          title="Package products"
+          enabled={features.packages}
+          description="Create and manage prepaid session bundle products."
+        />
+        <FeatureStatusCard
+          title="Customer assignment"
+          enabled={features.packageAssignments}
+          description="Assign purchased package balances to customer records."
+        />
+        <FeatureStatusCard
+          title="Session usage"
+          enabled={features.packageUsage}
+          description="Manually consume sessions from customer package balances."
+        />
+      </div>
+
       <div className="grid xl:grid-cols-2 gap-8 mb-8">
         <div className="bg-slate-900 border border-slate-800 rounded-2xl p-6">
-          <h2 className="text-2xl font-bold mb-2">Create a package type</h2>
-          <p className="text-slate-400 mb-6">
-            This creates the package product, for example “5 Haircuts” or “10 PT Sessions”.
-          </p>
+          <div className="mb-6 flex items-start justify-between gap-4">
+            <div>
+              <h2 className="text-2xl font-bold mb-2">Create a package type</h2>
+              <p className="text-slate-400">
+                This creates the package product, for example “5 Haircuts” or “10 PT Sessions”.
+              </p>
+            </div>
+            {!features.packages && <SmallLockedBadge />}
+          </div>
 
-          <div className="grid gap-4">
+          {!features.packages && (
+            <LockedInline message="Package creation is not included on this plan." />
+          )}
+
+          <div className={`grid gap-4 ${!features.packages ? 'pointer-events-none opacity-40' : ''}`}>
             <div>
               <label className="block text-sm font-bold text-slate-300 mb-2">
                 Package name
@@ -397,7 +621,8 @@ export default function PackagesPage() {
             <button
               type="button"
               onClick={createPackage}
-              className="bg-white text-slate-950 font-bold px-6 py-3 rounded-lg"
+              className="bg-white text-slate-950 font-bold px-6 py-3 rounded-lg disabled:cursor-not-allowed disabled:opacity-50"
+              disabled={!features.packages}
             >
               Create package type
             </button>
@@ -405,12 +630,21 @@ export default function PackagesPage() {
         </div>
 
         <div className="bg-slate-900 border border-slate-800 rounded-2xl p-6">
-          <h2 className="text-2xl font-bold mb-2">Assign package to customer</h2>
-          <p className="text-slate-400 mb-6">
-            Use this when a customer has bought a package and you want to add the sessions to their account.
-          </p>
+          <div className="mb-6 flex items-start justify-between gap-4">
+            <div>
+              <h2 className="text-2xl font-bold mb-2">Assign package to customer</h2>
+              <p className="text-slate-400">
+                Use this when a customer has bought a package and you want to add the sessions to their account.
+              </p>
+            </div>
+            {!features.packageAssignments && <SmallLockedBadge />}
+          </div>
 
-          <div className="grid gap-4">
+          {!features.packageAssignments && (
+            <LockedInline message="Customer package assignment is not included on this plan." />
+          )}
+
+          <div className={`grid gap-4 ${!features.packageAssignments ? 'pointer-events-none opacity-40' : ''}`}>
             <div>
               <label className="block text-sm font-bold text-slate-300 mb-2">
                 Customer
@@ -466,7 +700,8 @@ export default function PackagesPage() {
             <button
               type="button"
               onClick={assignPackageToCustomer}
-              className="bg-white text-slate-950 font-bold px-6 py-3 rounded-lg"
+              className="bg-white text-slate-950 font-bold px-6 py-3 rounded-lg disabled:cursor-not-allowed disabled:opacity-50"
+              disabled={!features.packageAssignments}
             >
               Assign package to customer
             </button>
@@ -490,7 +725,16 @@ export default function PackagesPage() {
               key={item.id}
               className="bg-slate-950 border border-slate-800 rounded-xl p-5"
             >
-              <h3 className="text-xl font-bold">{item.name}</h3>
+              <div className="flex items-start justify-between gap-3">
+                <h3 className="text-xl font-bold">{item.name}</h3>
+                <span className={`rounded-full px-3 py-1 text-xs font-black ${
+                  item.active
+                    ? 'bg-emerald-500/10 text-emerald-300'
+                    : 'bg-red-500/10 text-red-300'
+                }`}>
+                  {item.active ? 'Active' : 'Inactive'}
+                </span>
+              </div>
 
               <p className="text-slate-400 mt-2">
                 {item.description || 'No internal description added.'}
@@ -506,9 +750,9 @@ export default function PackagesPage() {
                   {Number(item.price).toFixed(2)}
                 </p>
                 <p>
-                  <span className="text-slate-500">Package status:</span>{' '}
-                  <span className={item.active ? 'text-emerald-400' : 'text-red-400'}>
-                    {item.active ? 'active' : 'inactive'}
+                  <span className="text-slate-500">Feature access:</span>{' '}
+                  <span className={features.packages ? 'text-emerald-400' : 'text-red-400'}>
+                    {features.packages ? 'unlocked' : 'locked'}
                   </span>
                 </p>
               </div>
@@ -516,7 +760,8 @@ export default function PackagesPage() {
               <button
                 type="button"
                 onClick={() => updatePackageStatus(item.id, !item.active)}
-                className="mt-4 bg-slate-700 hover:bg-slate-600 px-4 py-2 rounded-lg font-semibold"
+                className="mt-4 bg-slate-700 hover:bg-slate-600 px-4 py-2 rounded-lg font-semibold disabled:cursor-not-allowed disabled:opacity-50"
+                disabled={!features.packages}
               >
                 {item.active ? 'Deactivate package type' : 'Reactivate package type'}
               </button>
@@ -541,6 +786,10 @@ export default function PackagesPage() {
           {customerPackages.map((item) => {
             const customer = getCustomer(item.customer_id)
             const packageItem = getPackage(item.package_id)
+            const progress =
+              item.sessions_purchased > 0
+                ? Math.min(100, (item.sessions_used / item.sessions_purchased) * 100)
+                : 0
 
             return (
               <div
@@ -548,14 +797,28 @@ export default function PackagesPage() {
                 className="bg-slate-900 border border-slate-800 rounded-xl p-6"
               >
                 <div className="flex flex-col lg:flex-row lg:items-start lg:justify-between gap-4">
-                  <div>
-                    <h3 className="text-xl font-bold">
-                      {customer
-                        ? `${customer.first_name} ${customer.last_name || ''}`
-                        : 'Unknown customer'}
-                    </h3>
+                  <div className="min-w-0 flex-1">
+                    <div className="flex flex-wrap items-center gap-3">
+                      <h3 className="text-xl font-bold">
+                        {customer
+                          ? `${customer.first_name} ${customer.last_name || ''}`
+                          : 'Unknown customer'}
+                      </h3>
 
-                    <p className="text-slate-400">{customer?.email}</p>
+                      <span
+                        className={
+                          item.status === 'active'
+                            ? 'rounded-full bg-emerald-500/10 px-3 py-1 text-xs font-black text-emerald-300'
+                            : item.status === 'used'
+                              ? 'rounded-full bg-sky-500/10 px-3 py-1 text-xs font-black text-sky-300'
+                              : 'rounded-full bg-red-500/10 px-3 py-1 text-xs font-black text-red-300'
+                        }
+                      >
+                        {item.status}
+                      </span>
+                    </div>
+
+                    <p className="text-slate-400">{customer?.email || 'No customer email'}</p>
 
                     <div className="mt-4 grid gap-2 text-sm text-slate-300">
                       <p>
@@ -578,27 +841,19 @@ export default function PackagesPage() {
                         {item.sessions_remaining}
                       </p>
 
-                      <p>
-                        <span className="text-slate-500">Customer package status:</span>{' '}
-                        <span
-                          className={
-                            item.status === 'active'
-                              ? 'text-emerald-400'
-                              : item.status === 'used'
-                                ? 'text-sky-400'
-                                : 'text-red-400'
-                          }
-                        >
-                          {item.status}
-                        </span>
-                      </p>
-
                       {item.expiry_date && (
                         <p>
                           <span className="text-slate-500">Expiry date:</span>{' '}
                           {new Date(item.expiry_date).toLocaleDateString('en-GB')}
                         </p>
                       )}
+                    </div>
+
+                    <div className="mt-5 h-3 overflow-hidden rounded-full bg-slate-800">
+                      <div
+                        className="h-full rounded-full bg-emerald-400"
+                        style={{ width: `${progress}%` }}
+                      />
                     </div>
                   </div>
 
@@ -608,7 +863,8 @@ export default function PackagesPage() {
                         <button
                           type="button"
                           onClick={() => useSession(item)}
-                          className="bg-emerald-600 hover:bg-emerald-700 px-4 py-2 rounded-lg font-semibold"
+                          className="bg-emerald-600 hover:bg-emerald-700 px-4 py-2 rounded-lg font-semibold disabled:cursor-not-allowed disabled:opacity-50"
+                          disabled={!features.packageUsage}
                         >
                           Use one session
                         </button>
@@ -616,11 +872,18 @@ export default function PackagesPage() {
                         <button
                           type="button"
                           onClick={() => cancelCustomerPackage(item.id)}
-                          className="bg-red-600 hover:bg-red-700 px-4 py-2 rounded-lg font-semibold"
+                          className="bg-red-600 hover:bg-red-700 px-4 py-2 rounded-lg font-semibold disabled:cursor-not-allowed disabled:opacity-50"
+                          disabled={!features.packageAssignments}
                         >
                           Cancel customer package
                         </button>
                       </>
+                    )}
+
+                    {!features.packageUsage && (
+                      <div className="w-full rounded-xl border border-amber-500/20 bg-amber-500/10 p-3 text-sm font-semibold text-amber-200">
+                        Session usage is locked on this plan.
+                      </div>
                     )}
                   </div>
                 </div>
@@ -639,5 +902,82 @@ function StatCard({ title, value }: { title: string; value: string }) {
       <p className="text-slate-400 text-sm mb-2">{title}</p>
       <p className="text-3xl font-bold">{value}</p>
     </div>
+  )
+}
+
+function FeatureStatusCard({
+  title,
+  enabled,
+  description,
+}: {
+  title: string
+  enabled: boolean
+  description: string
+}) {
+  return (
+    <div className="rounded-2xl border border-slate-800 bg-slate-900 p-5">
+      <div className="mb-3 flex items-center justify-between gap-4">
+        <h3 className="font-black">{title}</h3>
+        <span
+          className={
+            enabled
+              ? 'rounded-full bg-emerald-500/10 px-3 py-1 text-xs font-black text-emerald-300'
+              : 'rounded-full bg-red-500/10 px-3 py-1 text-xs font-black text-red-300'
+          }
+        >
+          {enabled ? 'Unlocked' : 'Locked'}
+        </span>
+      </div>
+      <p className="text-sm text-slate-400">{description}</p>
+    </div>
+  )
+}
+
+function LockedFeatureCard({
+  title,
+  description,
+  feature,
+  plan,
+}: {
+  title: string
+  description: string
+  feature: string
+  plan: string
+}) {
+  return (
+    <div className="max-w-3xl rounded-3xl border border-amber-500/20 bg-amber-500/10 p-8">
+      <p className="mb-3 text-xs font-black uppercase tracking-[0.22em] text-amber-300">
+        Upgrade required
+      </p>
+      <h2 className="text-3xl font-black text-white">{title}</h2>
+      <p className="mt-3 text-slate-300">{description}</p>
+      <div className="mt-6 grid gap-3 rounded-2xl border border-white/10 bg-black/20 p-5 text-sm text-slate-300">
+        <p>
+          <span className="font-black text-white">Feature:</span> {feature}
+        </p>
+        <p>
+          <span className="font-black text-white">Current plan:</span> {plan}
+        </p>
+        <p>
+          <span className="font-black text-white">Action:</span> Enable this feature from the platform admin feature controls or move the business to a package-enabled plan.
+        </p>
+      </div>
+    </div>
+  )
+}
+
+function LockedInline({ message }: { message: string }) {
+  return (
+    <div className="mb-5 rounded-xl border border-amber-500/20 bg-amber-500/10 p-4 text-sm font-semibold text-amber-200">
+      {message}
+    </div>
+  )
+}
+
+function SmallLockedBadge() {
+  return (
+    <span className="shrink-0 rounded-full border border-amber-500/20 bg-amber-500/10 px-3 py-1 text-xs font-black text-amber-200">
+      Locked
+    </span>
   )
 }

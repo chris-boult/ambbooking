@@ -3,10 +3,30 @@
 import { useEffect, useMemo, useState } from 'react'
 import { supabase } from '@/lib/supabase'
 
+const REVIEWS_FEATURE_KEY = 'reviews'
+const REVIEW_MODERATION_FEATURE_KEY = 'review_moderation'
+const REVIEW_EXPORT_FEATURE_KEY = 'review_export'
+const REVIEW_REPORTING_FEATURE_KEY = 'review_reporting'
+
 type Business = {
   id: string
   business_name: string | null
   slug: string | null
+  plan?: string | null
+  status?: string | null
+  lifetime_access?: boolean | null
+}
+
+type BusinessFeature = {
+  id?: string
+  business_id?: string
+  feature_key?: string | null
+  feature?: string | null
+  key?: string | null
+  enabled?: boolean | null
+  is_enabled?: boolean | null
+  active?: boolean | null
+  status?: string | null
 }
 
 type Review = {
@@ -45,7 +65,54 @@ type ReviewWithLookups = Review & {
   service_lookup?: ServiceLookup | null
 }
 
+type FeatureState = {
+  reviews: boolean
+  moderation: boolean
+  exportCsv: boolean
+  reporting: boolean
+}
+
 type StatusFilter = 'all' | 'submitted' | 'published' | 'rejected' | 'draft' | 'pending'
+
+const defaultFeatureState: FeatureState = {
+  reviews: false,
+  moderation: false,
+  exportCsv: false,
+  reporting: false,
+}
+
+const planFeatures: Record<string, FeatureState> = {
+  starter: {
+    reviews: false,
+    moderation: false,
+    exportCsv: false,
+    reporting: false,
+  },
+  growth: {
+    reviews: true,
+    moderation: true,
+    exportCsv: false,
+    reporting: false,
+  },
+  pro: {
+    reviews: true,
+    moderation: true,
+    exportCsv: true,
+    reporting: true,
+  },
+  agency: {
+    reviews: true,
+    moderation: true,
+    exportCsv: true,
+    reporting: true,
+  },
+  enterprise: {
+    reviews: true,
+    moderation: true,
+    exportCsv: true,
+    reporting: true,
+  },
+}
 
 function formatDate(value?: string | null) {
   if (!value) return '—'
@@ -80,6 +147,7 @@ function ratingStars(value?: number | null) {
 
 export default function ReviewsManagementPage() {
   const [business, setBusiness] = useState<Business | null>(null)
+  const [features, setFeatures] = useState<FeatureState>(defaultFeatureState)
   const [reviews, setReviews] = useState<ReviewWithLookups[]>([])
   const [loading, setLoading] = useState(true)
   const [message, setMessage] = useState('')
@@ -100,9 +168,18 @@ export default function ReviewsManagementPage() {
     if (userError) throw userError
     if (!user) throw new Error('You need to be logged in.')
 
+    const { data: ownerBusinesses, error: ownerError } = await supabase
+      .from('businesses')
+      .select('id,business_name,slug,plan,status,lifetime_access')
+      .eq('owner_id', user.id)
+      .order('created_at', { ascending: false })
+      .limit(1)
+
+    if (!ownerError && ownerBusinesses?.[0]) return ownerBusinesses[0] as Business
+
     const { data: ownedBusinesses, error: businessError } = await supabase
       .from('businesses')
-      .select('id,business_name,slug')
+      .select('id,business_name,slug,plan,status,lifetime_access')
       .eq('user_id', user.id)
       .order('created_at', { ascending: false })
       .limit(1)
@@ -122,7 +199,7 @@ export default function ReviewsManagementPage() {
     if (!staffError && staffRows?.[0]?.business_id) {
       const { data: staffBusinesses, error: staffBusinessError } = await supabase
         .from('businesses')
-        .select('id,business_name,slug')
+        .select('id,business_name,slug,plan,status,lifetime_access')
         .eq('id', staffRows[0].business_id)
         .limit(1)
 
@@ -135,6 +212,60 @@ export default function ReviewsManagementPage() {
     throw new Error('No business found for this user.')
   }
 
+  async function loadFeatureState(foundBusiness: Business) {
+    const plan = String(foundBusiness.plan || 'starter').toLowerCase()
+    const baseFeatures = foundBusiness.lifetime_access
+      ? planFeatures.enterprise
+      : planFeatures[plan] || defaultFeatureState
+
+    const nextFeatures: FeatureState = {
+      ...baseFeatures,
+    }
+
+    const { data } = await supabase
+      .from('business_features')
+      .select('*')
+      .eq('business_id', foundBusiness.id)
+
+    const rows = ((data || []) as BusinessFeature[])
+
+    rows.forEach((row) => {
+      const key = row.feature_key || row.feature || row.key || ''
+      const enabled =
+        row.enabled === true ||
+        row.is_enabled === true ||
+        row.active === true ||
+        row.status === 'active' ||
+        row.status === 'enabled'
+
+      const disabled =
+        row.enabled === false ||
+        row.is_enabled === false ||
+        row.active === false ||
+        row.status === 'disabled' ||
+        row.status === 'inactive'
+
+      if (key === REVIEWS_FEATURE_KEY) {
+        nextFeatures.reviews = enabled || (!disabled && nextFeatures.reviews)
+      }
+
+      if (key === REVIEW_MODERATION_FEATURE_KEY) {
+        nextFeatures.moderation = enabled || (!disabled && nextFeatures.moderation)
+      }
+
+      if (key === REVIEW_EXPORT_FEATURE_KEY) {
+        nextFeatures.exportCsv = enabled || (!disabled && nextFeatures.exportCsv)
+      }
+
+      if (key === REVIEW_REPORTING_FEATURE_KEY) {
+        nextFeatures.reporting = enabled || (!disabled && nextFeatures.reporting)
+      }
+    })
+
+    setFeatures(nextFeatures)
+    return nextFeatures
+  }
+
   async function loadData() {
     setLoading(true)
     setMessage('')
@@ -142,6 +273,8 @@ export default function ReviewsManagementPage() {
     try {
       const foundBusiness = await getBusinessForUser()
       setBusiness(foundBusiness)
+
+      await loadFeatureState(foundBusiness)
 
       const { data: reviewData, error: reviewError } = await supabase
         .from('customer_reviews')
@@ -228,14 +361,24 @@ export default function ReviewsManagementPage() {
     setLoading(false)
   }
 
+  function requireFeature(enabled: boolean, featureName: string) {
+    if (enabled) return true
+    setMessage(`${featureName} is not included on this plan. Upgrade the business plan to unlock it.`)
+    return false
+  }
+
   async function updateReviewStatus(id: string, status: string) {
-    setSavingId(id)
     setMessage('')
+
+    if (!requireFeature(features.moderation, 'Review moderation')) return
+
+    setSavingId(id)
 
     const { error } = await supabase
       .from('customer_reviews')
       .update({ status })
       .eq('id', id)
+      .eq('business_id', business?.id || '')
 
     if (error) {
       setMessage(error.message)
@@ -252,6 +395,10 @@ export default function ReviewsManagementPage() {
   }
 
   function exportCsv() {
+    setMessage('')
+
+    if (!requireFeature(features.exportCsv, 'Review CSV export')) return
+
     const rows = [
       ['Date', 'Customer', 'Email', 'Service', 'Booking date', 'Rating', 'Status', 'Review'],
       ...filteredReviews.map((review) => [
@@ -315,15 +462,47 @@ export default function ReviewsManagementPage() {
     }
   }, [reviews])
 
+  const currentPlan = useMemo(() => {
+    return String(business?.plan || 'starter').toUpperCase()
+  }, [business?.plan])
+
   if (loading) {
     return <div className="text-white">Loading reviews...</div>
+  }
+
+  if (!features.reviews) {
+    return (
+      <div>
+        <section className="mb-10">
+          <p className="mb-2 text-slate-400">Pack 8 commercial gating</p>
+          <h1 className="mb-2 text-4xl font-bold">Reviews</h1>
+          <p className="max-w-3xl text-slate-500">
+            Customer reviews are not included on the current {currentPlan} plan.
+            {business?.business_name ? ` Connected to ${business.business_name}.` : ''}
+          </p>
+        </section>
+
+        {message && (
+          <div className="mb-6 rounded-2xl border border-cyan-300/20 bg-cyan-300/10 p-4 text-cyan-100">
+            {message}
+          </div>
+        )}
+
+        <LockedFeatureCard
+          title="Reviews are locked"
+          description="Upgrade this business to unlock customer feedback, review moderation, publishing controls, reporting and CSV export."
+          feature="Reviews"
+          plan={currentPlan}
+        />
+      </div>
+    )
   }
 
   return (
     <div>
       <section className="mb-10 flex flex-col gap-6 lg:flex-row lg:items-end lg:justify-between">
         <div>
-          <p className="mb-2 text-slate-400">Customer Engagement</p>
+          <p className="mb-2 text-slate-400">Pack 8 commercial gating</p>
           <h1 className="mb-2 text-4xl font-bold">Reviews</h1>
           <p className="max-w-3xl text-slate-500">
             View customer feedback, approve published reviews and export review data.
@@ -332,10 +511,18 @@ export default function ReviewsManagementPage() {
         </div>
 
         <div className="flex flex-col gap-3 sm:flex-row">
+          <div className="rounded-xl border border-slate-800 bg-slate-900 px-5 py-3">
+            <p className="text-xs font-black uppercase tracking-[0.2em] text-slate-500">
+              Current plan
+            </p>
+            <p className="mt-1 text-xl font-black text-white">{currentPlan}</p>
+          </div>
+
           <button
             type="button"
             onClick={exportCsv}
-            className="rounded-xl bg-slate-800 px-5 py-3 font-bold text-white hover:bg-slate-700"
+            disabled={!features.exportCsv}
+            className="rounded-xl bg-slate-800 px-5 py-3 font-bold text-white hover:bg-slate-700 disabled:cursor-not-allowed disabled:opacity-50"
           >
             Export CSV
           </button>
@@ -356,13 +543,44 @@ export default function ReviewsManagementPage() {
         </div>
       )}
 
-      <section className="mb-8 grid gap-6 md:grid-cols-5">
-        <StatCard label="Average rating" value={stats.average ? stats.average.toFixed(1) : '—'} />
-        <StatCard label="Total reviews" value={stats.total} />
-        <StatCard label="Submitted" value={stats.submitted} />
-        <StatCard label="Published" value={stats.published} />
-        <StatCard label="Rejected" value={stats.rejected} />
+      <section className="mb-8 grid gap-4 md:grid-cols-4">
+        <FeatureStatusCard
+          title="Reviews"
+          enabled={features.reviews}
+          description="View and manage customer review records."
+        />
+        <FeatureStatusCard
+          title="Moderation"
+          enabled={features.moderation}
+          description="Publish, reject and resubmit reviews."
+        />
+        <FeatureStatusCard
+          title="Export"
+          enabled={features.exportCsv}
+          description="Download review data as CSV."
+        />
+        <FeatureStatusCard
+          title="Reporting"
+          enabled={features.reporting}
+          description="View review performance metrics."
+        />
       </section>
+
+      {features.reporting && (
+        <section className="mb-8 grid gap-6 md:grid-cols-5">
+          <StatCard label="Average rating" value={stats.average ? stats.average.toFixed(1) : '—'} />
+          <StatCard label="Total reviews" value={stats.total} />
+          <StatCard label="Submitted" value={stats.submitted} />
+          <StatCard label="Published" value={stats.published} />
+          <StatCard label="Rejected" value={stats.rejected} />
+        </section>
+      )}
+
+      {!features.reporting && (
+        <div className="mb-8 rounded-2xl border border-amber-500/20 bg-amber-500/10 p-4 text-amber-200">
+          Review reporting is locked on this plan. Review records remain available where enabled.
+        </div>
+      )}
 
       <section className="mb-8 rounded-2xl border border-slate-800 bg-slate-900 p-5">
         <div className="grid gap-4 lg:grid-cols-[1fr_260px]">
@@ -394,6 +612,7 @@ export default function ReviewsManagementPage() {
             key={review.id}
             review={review}
             saving={savingId === review.id}
+            moderationEnabled={features.moderation}
             onPublish={() => updateReviewStatus(review.id, 'published')}
             onReject={() => updateReviewStatus(review.id, 'rejected')}
             onSubmit={() => updateReviewStatus(review.id, 'submitted')}
@@ -424,12 +643,14 @@ function StatCard({
 function ReviewCard({
   review,
   saving,
+  moderationEnabled,
   onPublish,
   onReject,
   onSubmit,
 }: {
   review: ReviewWithLookups
   saving: boolean
+  moderationEnabled: boolean
   onPublish: () => void
   onReject: () => void
   onSubmit: () => void
@@ -460,8 +681,8 @@ function ReviewCard({
           <button
             type="button"
             onClick={onPublish}
-            disabled={saving}
-            className="rounded-xl bg-emerald-500/10 px-4 py-3 text-sm font-bold text-emerald-300 hover:bg-emerald-500/20 disabled:opacity-50"
+            disabled={saving || !moderationEnabled}
+            className="rounded-xl bg-emerald-500/10 px-4 py-3 text-sm font-bold text-emerald-300 hover:bg-emerald-500/20 disabled:cursor-not-allowed disabled:opacity-50"
           >
             Publish
           </button>
@@ -469,8 +690,8 @@ function ReviewCard({
           <button
             type="button"
             onClick={onSubmit}
-            disabled={saving}
-            className="rounded-xl border border-white/10 px-4 py-3 text-sm font-bold text-slate-300 hover:bg-white/10 disabled:opacity-50"
+            disabled={saving || !moderationEnabled}
+            className="rounded-xl border border-white/10 px-4 py-3 text-sm font-bold text-slate-300 hover:bg-white/10 disabled:cursor-not-allowed disabled:opacity-50"
           >
             Mark submitted
           </button>
@@ -478,8 +699,8 @@ function ReviewCard({
           <button
             type="button"
             onClick={onReject}
-            disabled={saving}
-            className="rounded-xl bg-red-500/10 px-4 py-3 text-sm font-bold text-red-300 hover:bg-red-500/20 disabled:opacity-50"
+            disabled={saving || !moderationEnabled}
+            className="rounded-xl bg-red-500/10 px-4 py-3 text-sm font-bold text-red-300 hover:bg-red-500/20 disabled:cursor-not-allowed disabled:opacity-50"
           >
             Reject
           </button>
@@ -508,6 +729,67 @@ function StatusPill({ value }: { value: string }) {
     >
       {value}
     </span>
+  )
+}
+
+function FeatureStatusCard({
+  title,
+  enabled,
+  description,
+}: {
+  title: string
+  enabled: boolean
+  description: string
+}) {
+  return (
+    <div className="rounded-2xl border border-slate-800 bg-slate-900 p-5">
+      <div className="mb-3 flex items-center justify-between gap-4">
+        <h3 className="font-black text-white">{title}</h3>
+        <span
+          className={
+            enabled
+              ? 'rounded-full bg-emerald-500/10 px-3 py-1 text-xs font-black text-emerald-300'
+              : 'rounded-full bg-red-500/10 px-3 py-1 text-xs font-black text-red-300'
+          }
+        >
+          {enabled ? 'Unlocked' : 'Locked'}
+        </span>
+      </div>
+      <p className="text-sm text-slate-400">{description}</p>
+    </div>
+  )
+}
+
+function LockedFeatureCard({
+  title,
+  description,
+  feature,
+  plan,
+}: {
+  title: string
+  description: string
+  feature: string
+  plan: string
+}) {
+  return (
+    <div className="max-w-3xl rounded-3xl border border-amber-500/20 bg-amber-500/10 p-8">
+      <p className="mb-3 text-xs font-black uppercase tracking-[0.22em] text-amber-300">
+        Upgrade required
+      </p>
+      <h2 className="text-3xl font-black text-white">{title}</h2>
+      <p className="mt-3 text-slate-300">{description}</p>
+      <div className="mt-6 grid gap-3 rounded-2xl border border-white/10 bg-black/20 p-5 text-sm text-slate-300">
+        <p>
+          <span className="font-black text-white">Feature:</span> {feature}
+        </p>
+        <p>
+          <span className="font-black text-white">Current plan:</span> {plan}
+        </p>
+        <p>
+          <span className="font-black text-white">Action:</span> Enable this feature from platform admin feature controls or move the business to a reviews-enabled plan.
+        </p>
+      </div>
+    </div>
   )
 }
 

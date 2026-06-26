@@ -3,10 +3,30 @@
 import { useEffect, useMemo, useState } from 'react'
 import { supabase } from '@/lib/supabase'
 
+const LOYALTY_FEATURE_KEY = 'loyalty'
+const LOYALTY_REWARDS_FEATURE_KEY = 'loyalty_rewards'
+const LOYALTY_REDEMPTION_FEATURE_KEY = 'loyalty_redemption'
+const LOYALTY_REPORTING_FEATURE_KEY = 'loyalty_reporting'
+
 type Business = {
   id: string
   business_name: string | null
   slug: string | null
+  plan?: string | null
+  status?: string | null
+  lifetime_access?: boolean | null
+}
+
+type BusinessFeature = {
+  id?: string
+  business_id?: string
+  feature_key?: string | null
+  feature?: string | null
+  key?: string | null
+  enabled?: boolean | null
+  is_enabled?: boolean | null
+  active?: boolean | null
+  status?: string | null
 }
 
 type Customer = {
@@ -31,7 +51,54 @@ type LoyaltyWithCustomer = LoyaltyWallet & {
   customer_lookup?: Customer | null
 }
 
+type FeatureState = {
+  loyalty: boolean
+  rewards: boolean
+  redemption: boolean
+  reporting: boolean
+}
+
 type StatusFilter = 'all' | 'active' | 'earned' | 'redeemed' | 'cancelled'
+
+const defaultFeatureState: FeatureState = {
+  loyalty: false,
+  rewards: false,
+  redemption: false,
+  reporting: false,
+}
+
+const planFeatures: Record<string, FeatureState> = {
+  starter: {
+    loyalty: false,
+    rewards: false,
+    redemption: false,
+    reporting: false,
+  },
+  growth: {
+    loyalty: true,
+    rewards: true,
+    redemption: true,
+    reporting: false,
+  },
+  pro: {
+    loyalty: true,
+    rewards: true,
+    redemption: true,
+    reporting: true,
+  },
+  agency: {
+    loyalty: true,
+    rewards: true,
+    redemption: true,
+    reporting: true,
+  },
+  enterprise: {
+    loyalty: true,
+    rewards: true,
+    redemption: true,
+    reporting: true,
+  },
+}
 
 function customerName(customer?: Customer | null) {
   if (!customer) return 'Unknown customer'
@@ -60,6 +127,7 @@ function isEarned(wallet: LoyaltyWallet) {
 
 export default function LoyaltyManagementPage() {
   const [business, setBusiness] = useState<Business | null>(null)
+  const [features, setFeatures] = useState<FeatureState>(defaultFeatureState)
   const [customers, setCustomers] = useState<Customer[]>([])
   const [wallets, setWallets] = useState<LoyaltyWithCustomer[]>([])
   const [loading, setLoading] = useState(true)
@@ -86,9 +154,18 @@ export default function LoyaltyManagementPage() {
     if (userError) throw userError
     if (!user) throw new Error('You need to be logged in.')
 
+    const { data: ownerBusinesses, error: ownerError } = await supabase
+      .from('businesses')
+      .select('id,business_name,slug,plan,status,lifetime_access')
+      .eq('owner_id', user.id)
+      .order('created_at', { ascending: false })
+      .limit(1)
+
+    if (!ownerError && ownerBusinesses?.[0]) return ownerBusinesses[0] as Business
+
     const { data: ownedBusinesses, error: businessError } = await supabase
       .from('businesses')
-      .select('id,business_name,slug')
+      .select('id,business_name,slug,plan,status,lifetime_access')
       .eq('user_id', user.id)
       .order('created_at', { ascending: false })
       .limit(1)
@@ -107,7 +184,7 @@ export default function LoyaltyManagementPage() {
     if (staffRows?.[0]?.business_id) {
       const { data: staffBusinesses, error: staffBusinessError } = await supabase
         .from('businesses')
-        .select('id,business_name,slug')
+        .select('id,business_name,slug,plan,status,lifetime_access')
         .eq('id', staffRows[0].business_id)
         .limit(1)
 
@@ -120,6 +197,60 @@ export default function LoyaltyManagementPage() {
     throw new Error('No business found for this user.')
   }
 
+  async function loadFeatureState(foundBusiness: Business) {
+    const plan = String(foundBusiness.plan || 'starter').toLowerCase()
+    const baseFeatures = foundBusiness.lifetime_access
+      ? planFeatures.enterprise
+      : planFeatures[plan] || defaultFeatureState
+
+    const nextFeatures: FeatureState = {
+      ...baseFeatures,
+    }
+
+    const { data } = await supabase
+      .from('business_features')
+      .select('*')
+      .eq('business_id', foundBusiness.id)
+
+    const rows = ((data || []) as BusinessFeature[])
+
+    rows.forEach((row) => {
+      const key = row.feature_key || row.feature || row.key || ''
+      const enabled =
+        row.enabled === true ||
+        row.is_enabled === true ||
+        row.active === true ||
+        row.status === 'active' ||
+        row.status === 'enabled'
+
+      const disabled =
+        row.enabled === false ||
+        row.is_enabled === false ||
+        row.active === false ||
+        row.status === 'disabled' ||
+        row.status === 'inactive'
+
+      if (key === LOYALTY_FEATURE_KEY) {
+        nextFeatures.loyalty = enabled || (!disabled && nextFeatures.loyalty)
+      }
+
+      if (key === LOYALTY_REWARDS_FEATURE_KEY) {
+        nextFeatures.rewards = enabled || (!disabled && nextFeatures.rewards)
+      }
+
+      if (key === LOYALTY_REDEMPTION_FEATURE_KEY) {
+        nextFeatures.redemption = enabled || (!disabled && nextFeatures.redemption)
+      }
+
+      if (key === LOYALTY_REPORTING_FEATURE_KEY) {
+        nextFeatures.reporting = enabled || (!disabled && nextFeatures.reporting)
+      }
+    })
+
+    setFeatures(nextFeatures)
+    return nextFeatures
+  }
+
   async function loadData() {
     setLoading(true)
     setMessage('')
@@ -127,6 +258,8 @@ export default function LoyaltyManagementPage() {
     try {
       const foundBusiness = await getBusinessForUser()
       setBusiness(foundBusiness)
+
+      await loadFeatureState(foundBusiness)
 
       const [customerResult, loyaltyResult] = await Promise.all([
         supabase
@@ -163,10 +296,18 @@ export default function LoyaltyManagementPage() {
     setLoading(false)
   }
 
+  function requireFeature(enabled: boolean, featureName: string) {
+    if (enabled) return true
+    setMessage(`${featureName} is not included on this plan. Upgrade the business plan to unlock it.`)
+    return false
+  }
+
   async function createWallet() {
     if (!business) return
 
     setMessage('')
+
+    if (!requireFeature(features.rewards, 'Loyalty wallet creation')) return
 
     if (!customerId) {
       setMessage('Choose a customer.')
@@ -238,6 +379,10 @@ export default function LoyaltyManagementPage() {
   }
 
   async function updateVisits(wallet: LoyaltyWithCustomer, direction: 'add' | 'remove') {
+    setMessage('')
+
+    if (!requireFeature(features.rewards, 'Loyalty visit tracking')) return
+
     const current = Number(wallet.visits_completed || 0)
     const next = direction === 'add' ? current + 1 : Math.max(0, current - 1)
 
@@ -255,6 +400,7 @@ export default function LoyaltyManagementPage() {
         status: nextStatus,
       })
       .eq('id', wallet.id)
+      .eq('business_id', wallet.business_id)
 
     if (error) {
       setMessage(error.message)
@@ -273,10 +419,14 @@ export default function LoyaltyManagementPage() {
   async function updateStatus(wallet: LoyaltyWithCustomer, status: string) {
     setMessage('')
 
+    if (status === 'redeemed' && !requireFeature(features.redemption, 'Loyalty redemption')) return
+    if (status !== 'redeemed' && !requireFeature(features.rewards, 'Loyalty wallet management')) return
+
     const { error } = await supabase
       .from('customer_loyalty')
       .update({ status })
       .eq('id', wallet.id)
+      .eq('business_id', wallet.business_id)
 
     if (error) {
       setMessage(error.message)
@@ -291,12 +441,14 @@ export default function LoyaltyManagementPage() {
   }
 
   async function deleteWallet(wallet: LoyaltyWithCustomer) {
+    if (!requireFeature(features.rewards, 'Loyalty wallet management')) return
     if (!confirm('Delete this loyalty wallet?')) return
 
     const { error } = await supabase
       .from('customer_loyalty')
       .delete()
       .eq('id', wallet.id)
+      .eq('business_id', wallet.business_id)
 
     if (error) {
       setMessage(error.message)
@@ -333,26 +485,61 @@ export default function LoyaltyManagementPage() {
     const active = wallets.filter((wallet) => wallet.status === 'active')
     const earned = wallets.filter((wallet) => isEarned(wallet) && wallet.status !== 'redeemed' && wallet.status !== 'cancelled')
     const redeemed = wallets.filter((wallet) => wallet.status === 'redeemed')
+    const cancelled = wallets.filter((wallet) => wallet.status === 'cancelled')
     const totalRequired = active.reduce((sum, wallet) => sum + Number(wallet.visits_required || 0), 0)
     const totalCompleted = active.reduce((sum, wallet) => sum + Number(wallet.visits_completed || 0), 0)
 
     return {
+      total: wallets.length,
       active: active.length,
       earned: earned.length,
       redeemed: redeemed.length,
+      cancelled: cancelled.length,
       completionRate: totalRequired > 0 ? Math.round((totalCompleted / totalRequired) * 100) : 0,
     }
   }, [wallets])
 
+  const currentPlan = useMemo(() => {
+    return String(business?.plan || 'starter').toUpperCase()
+  }, [business?.plan])
+
   if (loading) {
     return <div className="text-white">Loading loyalty...</div>
+  }
+
+  if (!features.loyalty) {
+    return (
+      <div>
+        <section className="mb-10">
+          <p className="mb-2 text-slate-400">Pack 7 commercial gating</p>
+          <h1 className="mb-2 text-4xl font-bold">Loyalty</h1>
+          <p className="max-w-3xl text-slate-500">
+            Loyalty wallets are not included on the current {currentPlan} plan.
+            {business?.business_name ? ` Connected to ${business.business_name}.` : ''}
+          </p>
+        </section>
+
+        {message && (
+          <div className="mb-6 rounded-2xl border border-cyan-300/20 bg-cyan-300/10 p-4 text-cyan-100">
+            {message}
+          </div>
+        )}
+
+        <LockedFeatureCard
+          title="Loyalty is locked"
+          description="Upgrade this business to unlock visit-based loyalty wallets, reward tracking, redemption and loyalty reporting."
+          feature="Loyalty"
+          plan={currentPlan}
+        />
+      </div>
+    )
   }
 
   return (
     <div>
       <section className="mb-10 flex flex-col gap-6 lg:flex-row lg:items-end lg:justify-between">
         <div>
-          <p className="mb-2 text-slate-400">Customer Engagement</p>
+          <p className="mb-2 text-slate-400">Pack 7 commercial gating</p>
           <h1 className="mb-2 text-4xl font-bold">Loyalty</h1>
           <p className="max-w-3xl text-slate-500">
             Create and manage visit-based loyalty wallets for customers.
@@ -360,13 +547,22 @@ export default function LoyaltyManagementPage() {
           </p>
         </div>
 
-        <button
-          type="button"
-          onClick={loadData}
-          className="rounded-xl bg-white px-5 py-3 font-bold text-slate-950"
-        >
-          Refresh
-        </button>
+        <div className="flex flex-col gap-3 sm:flex-row">
+          <div className="rounded-xl border border-slate-800 bg-slate-900 px-5 py-3">
+            <p className="text-xs font-black uppercase tracking-[0.2em] text-slate-500">
+              Current plan
+            </p>
+            <p className="mt-1 text-xl font-black text-white">{currentPlan}</p>
+          </div>
+
+          <button
+            type="button"
+            onClick={loadData}
+            className="rounded-xl bg-white px-5 py-3 font-bold text-slate-950"
+          >
+            Refresh
+          </button>
+        </div>
       </section>
 
       {message && (
@@ -375,21 +571,62 @@ export default function LoyaltyManagementPage() {
         </div>
       )}
 
-      <section className="mb-8 grid gap-6 md:grid-cols-4">
-        <StatCard label="Active wallets" value={stats.active} />
-        <StatCard label="Rewards earned" value={stats.earned} />
-        <StatCard label="Rewards redeemed" value={stats.redeemed} />
-        <StatCard label="Completion rate" value={`${stats.completionRate}%`} />
+      <section className="mb-8 grid gap-4 md:grid-cols-4">
+        <FeatureStatusCard
+          title="Loyalty"
+          enabled={features.loyalty}
+          description="View and manage the loyalty module."
+        />
+        <FeatureStatusCard
+          title="Rewards"
+          enabled={features.rewards}
+          description="Create wallets and update visit progress."
+        />
+        <FeatureStatusCard
+          title="Redemption"
+          enabled={features.redemption}
+          description="Redeem earned loyalty rewards."
+        />
+        <FeatureStatusCard
+          title="Reporting"
+          enabled={features.reporting}
+          description="View loyalty performance metrics."
+        />
       </section>
+
+      {features.reporting && (
+        <section className="mb-8 grid gap-6 md:grid-cols-5">
+          <StatCard label="Total wallets" value={stats.total} />
+          <StatCard label="Active wallets" value={stats.active} />
+          <StatCard label="Rewards earned" value={stats.earned} />
+          <StatCard label="Rewards redeemed" value={stats.redeemed} />
+          <StatCard label="Completion rate" value={`${stats.completionRate}%`} />
+        </section>
+      )}
+
+      {!features.reporting && (
+        <div className="mb-8 rounded-2xl border border-amber-500/20 bg-amber-500/10 p-4 text-amber-200">
+          Loyalty reporting is locked on this plan. Wallet management remains available where enabled.
+        </div>
+      )}
 
       <section className="mb-8 grid gap-8 xl:grid-cols-[0.85fr_1.15fr]">
         <section className="rounded-2xl border border-slate-800 bg-slate-900 p-6">
-          <h2 className="mb-2 text-2xl font-bold">Create loyalty wallet</h2>
-          <p className="mb-6 text-slate-400">
-            Assign a reward target to a customer. Progress appears in their customer portal.
-          </p>
+          <div className="mb-6 flex items-start justify-between gap-4">
+            <div>
+              <h2 className="mb-2 text-2xl font-bold">Create loyalty wallet</h2>
+              <p className="text-slate-400">
+                Assign a reward target to a customer. Progress appears in their customer portal.
+              </p>
+            </div>
+            {!features.rewards && <SmallLockedBadge />}
+          </div>
 
-          <div className="space-y-4">
+          {!features.rewards && (
+            <LockedInline message="Loyalty wallet creation is not included on this plan." />
+          )}
+
+          <div className={`space-y-4 ${!features.rewards ? 'pointer-events-none opacity-40' : ''}`}>
             <label className="block">
               <span className="mb-2 block text-sm font-bold text-slate-400">Customer</span>
               <select
@@ -443,8 +680,8 @@ export default function LoyaltyManagementPage() {
             <button
               type="button"
               onClick={createWallet}
-              disabled={saving}
-              className="w-full rounded-xl bg-white px-5 py-3 font-bold text-slate-950 disabled:opacity-50"
+              disabled={saving || !features.rewards}
+              className="w-full rounded-xl bg-white px-5 py-3 font-bold text-slate-950 disabled:cursor-not-allowed disabled:opacity-50"
             >
               {saving ? 'Creating...' : 'Create loyalty wallet'}
             </button>
@@ -478,6 +715,8 @@ export default function LoyaltyManagementPage() {
               <LoyaltyCard
                 key={wallet.id}
                 wallet={wallet}
+                redemptionEnabled={features.redemption}
+                rewardsEnabled={features.rewards}
                 onAddVisit={() => updateVisits(wallet, 'add')}
                 onRemoveVisit={() => updateVisits(wallet, 'remove')}
                 onRedeem={() => updateStatus(wallet, 'redeemed')}
@@ -512,6 +751,8 @@ function StatCard({
 
 function LoyaltyCard({
   wallet,
+  redemptionEnabled,
+  rewardsEnabled,
   onAddVisit,
   onRemoveVisit,
   onRedeem,
@@ -520,6 +761,8 @@ function LoyaltyCard({
   onDelete,
 }: {
   wallet: LoyaltyWithCustomer
+  redemptionEnabled: boolean
+  rewardsEnabled: boolean
   onAddVisit: () => void
   onRemoveVisit: () => void
   onRedeem: () => void
@@ -559,7 +802,8 @@ function LoyaltyCard({
             <button
               type="button"
               onClick={onRemoveVisit}
-              className="rounded-xl border border-white/10 px-4 py-3 text-sm font-bold text-slate-300 hover:bg-white/10"
+              disabled={!rewardsEnabled}
+              className="rounded-xl border border-white/10 px-4 py-3 text-sm font-bold text-slate-300 hover:bg-white/10 disabled:cursor-not-allowed disabled:opacity-50"
             >
               - Visit
             </button>
@@ -567,7 +811,8 @@ function LoyaltyCard({
             <button
               type="button"
               onClick={onAddVisit}
-              className="rounded-xl border border-white/10 px-4 py-3 text-sm font-bold text-slate-300 hover:bg-white/10"
+              disabled={!rewardsEnabled}
+              className="rounded-xl border border-white/10 px-4 py-3 text-sm font-bold text-slate-300 hover:bg-white/10 disabled:cursor-not-allowed disabled:opacity-50"
             >
               + Visit
             </button>
@@ -577,7 +822,8 @@ function LoyaltyCard({
             <button
               type="button"
               onClick={onReactivate}
-              className="rounded-xl bg-emerald-500/10 px-4 py-3 text-sm font-bold text-emerald-300 hover:bg-emerald-500/20"
+              disabled={!rewardsEnabled}
+              className="rounded-xl bg-emerald-500/10 px-4 py-3 text-sm font-bold text-emerald-300 hover:bg-emerald-500/20 disabled:cursor-not-allowed disabled:opacity-50"
             >
               Reactivate
             </button>
@@ -585,7 +831,8 @@ function LoyaltyCard({
             <button
               type="button"
               onClick={onRedeem}
-              className="rounded-xl bg-emerald-500/10 px-4 py-3 text-sm font-bold text-emerald-300 hover:bg-emerald-500/20"
+              disabled={!redemptionEnabled}
+              className="rounded-xl bg-emerald-500/10 px-4 py-3 text-sm font-bold text-emerald-300 hover:bg-emerald-500/20 disabled:cursor-not-allowed disabled:opacity-50"
             >
               Redeem reward
             </button>
@@ -594,7 +841,8 @@ function LoyaltyCard({
           <button
             type="button"
             onClick={onCancel}
-            className="rounded-xl bg-amber-500/10 px-4 py-3 text-sm font-bold text-amber-300 hover:bg-amber-500/20"
+            disabled={!rewardsEnabled}
+            className="rounded-xl bg-amber-500/10 px-4 py-3 text-sm font-bold text-amber-300 hover:bg-amber-500/20 disabled:cursor-not-allowed disabled:opacity-50"
           >
             Cancel
           </button>
@@ -602,7 +850,8 @@ function LoyaltyCard({
           <button
             type="button"
             onClick={onDelete}
-            className="rounded-xl bg-red-500/10 px-4 py-3 text-sm font-bold text-red-300 hover:bg-red-500/20"
+            disabled={!rewardsEnabled}
+            className="rounded-xl bg-red-500/10 px-4 py-3 text-sm font-bold text-red-300 hover:bg-red-500/20 disabled:cursor-not-allowed disabled:opacity-50"
           >
             Delete
           </button>
@@ -633,6 +882,83 @@ function StatusPill({ value }: { value: string }) {
       }`}
     >
       {value}
+    </span>
+  )
+}
+
+function FeatureStatusCard({
+  title,
+  enabled,
+  description,
+}: {
+  title: string
+  enabled: boolean
+  description: string
+}) {
+  return (
+    <div className="rounded-2xl border border-slate-800 bg-slate-900 p-5">
+      <div className="mb-3 flex items-center justify-between gap-4">
+        <h3 className="font-black text-white">{title}</h3>
+        <span
+          className={
+            enabled
+              ? 'rounded-full bg-emerald-500/10 px-3 py-1 text-xs font-black text-emerald-300'
+              : 'rounded-full bg-red-500/10 px-3 py-1 text-xs font-black text-red-300'
+          }
+        >
+          {enabled ? 'Unlocked' : 'Locked'}
+        </span>
+      </div>
+      <p className="text-sm text-slate-400">{description}</p>
+    </div>
+  )
+}
+
+function LockedFeatureCard({
+  title,
+  description,
+  feature,
+  plan,
+}: {
+  title: string
+  description: string
+  feature: string
+  plan: string
+}) {
+  return (
+    <div className="max-w-3xl rounded-3xl border border-amber-500/20 bg-amber-500/10 p-8">
+      <p className="mb-3 text-xs font-black uppercase tracking-[0.22em] text-amber-300">
+        Upgrade required
+      </p>
+      <h2 className="text-3xl font-black text-white">{title}</h2>
+      <p className="mt-3 text-slate-300">{description}</p>
+      <div className="mt-6 grid gap-3 rounded-2xl border border-white/10 bg-black/20 p-5 text-sm text-slate-300">
+        <p>
+          <span className="font-black text-white">Feature:</span> {feature}
+        </p>
+        <p>
+          <span className="font-black text-white">Current plan:</span> {plan}
+        </p>
+        <p>
+          <span className="font-black text-white">Action:</span> Enable this feature from platform admin feature controls or move the business to a loyalty-enabled plan.
+        </p>
+      </div>
+    </div>
+  )
+}
+
+function LockedInline({ message }: { message: string }) {
+  return (
+    <div className="mb-5 rounded-xl border border-amber-500/20 bg-amber-500/10 p-4 text-sm font-semibold text-amber-200">
+      {message}
+    </div>
+  )
+}
+
+function SmallLockedBadge() {
+  return (
+    <span className="shrink-0 rounded-full border border-amber-500/20 bg-amber-500/10 px-3 py-1 text-xs font-black text-amber-200">
+      Locked
     </span>
   )
 }

@@ -1,3 +1,4 @@
+// Pack 6 Commercial Gating replacement based on uploaded file
 'use client'
 
 import { useEffect, useMemo, useState } from 'react'
