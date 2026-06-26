@@ -9,6 +9,13 @@ type Business = {
   slug: string | null
   plan: string | null
   lifetime_access: boolean | null
+  marketplace_enabled?: boolean | null
+  competitor_protection?: boolean | null
+  industry?: string | null
+  business_description?: string | null
+  email?: string | null
+  phone?: string | null
+  website?: string | null
 }
 
 type Category = {
@@ -27,6 +34,20 @@ type Listing = {
   short_description: string | null
   description: string | null
   image_url: string | null
+  hero_image_url?: string | null
+  tagline?: string | null
+  seo_title?: string | null
+  seo_description?: string | null
+  instagram_url?: string | null
+  facebook_url?: string | null
+  tiktok_url?: string | null
+  industry?: string | null
+  location_city?: string | null
+  location_county?: string | null
+  location_postcode?: string | null
+  listing_score?: number | null
+  profile_views_count?: number | null
+  featured?: boolean | null
   price_from: number | null
   price_label: string | null
   location_label: string | null
@@ -103,6 +124,34 @@ function money(value: number | string | null | undefined) {
   return `£${Number(value || 0).toFixed(2)}`
 }
 
+
+function calculateListingScore(input: {
+  title: string
+  shortDescription: string
+  description: string
+  imageUrl: string
+  heroImageUrl: string
+  categoryId: string
+  locationLabel: string
+  locationCity: string
+  contactEmail: string
+  contactPhone: string
+  websiteUrl: string
+}) {
+  let score = 20
+
+  if (input.title.trim()) score += 10
+  if (input.shortDescription.trim()) score += 10
+  if (input.description.trim()) score += 10
+  if (input.imageUrl.trim()) score += 10
+  if (input.heroImageUrl.trim()) score += 10
+  if (input.categoryId.trim()) score += 10
+  if (input.locationLabel.trim() || input.locationCity.trim()) score += 10
+  if (input.contactEmail.trim() || input.contactPhone.trim() || input.websiteUrl.trim()) score += 10
+
+  return Math.min(score, 100)
+}
+
 export default function MarketplaceManagementPage() {
   const [business, setBusiness] = useState<Business | null>(null)
   const [features, setFeatures] = useState<FeatureState>(defaultFeatureState)
@@ -118,6 +167,17 @@ export default function MarketplaceManagementPage() {
   const [shortDescription, setShortDescription] = useState('')
   const [description, setDescription] = useState('')
   const [imageUrl, setImageUrl] = useState('')
+  const [heroImageUrl, setHeroImageUrl] = useState('')
+  const [tagline, setTagline] = useState('')
+  const [industry, setIndustry] = useState('')
+  const [locationCity, setLocationCity] = useState('')
+  const [locationCounty, setLocationCounty] = useState('')
+  const [locationPostcode, setLocationPostcode] = useState('')
+  const [seoTitle, setSeoTitle] = useState('')
+  const [seoDescription, setSeoDescription] = useState('')
+  const [instagramUrl, setInstagramUrl] = useState('')
+  const [facebookUrl, setFacebookUrl] = useState('')
+  const [tiktokUrl, setTiktokUrl] = useState('')
   const [priceFrom, setPriceFrom] = useState('')
   const [priceLabel, setPriceLabel] = useState('')
   const [locationLabel, setLocationLabel] = useState('')
@@ -141,7 +201,7 @@ export default function MarketplaceManagementPage() {
 
     const { data: ownedBusinesses, error: businessError } = await supabase
       .from('businesses')
-      .select('id,business_name,slug,plan,lifetime_access')
+      .select('id,business_name,slug,plan,lifetime_access,marketplace_enabled,competitor_protection,industry,business_description,email,phone,website')
       .eq('user_id', user.id)
       .order('created_at', { ascending: false })
       .limit(1)
@@ -160,7 +220,7 @@ export default function MarketplaceManagementPage() {
     if (staffRows?.[0]?.business_id) {
       const { data: staffBusinesses, error: staffBusinessError } = await supabase
         .from('businesses')
-        .select('id,business_name,slug,plan,lifetime_access')
+        .select('id,business_name,slug,plan,lifetime_access,marketplace_enabled,competitor_protection,industry,business_description,email,phone,website')
         .eq('id', staffRows[0].business_id)
         .limit(1)
 
@@ -274,6 +334,41 @@ export default function MarketplaceManagementPage() {
         short_description: shortDescription.trim() || null,
         description: description.trim() || null,
         image_url: imageUrl.trim() || null,
+        hero_image_url: heroImageUrl.trim() || null,
+        tagline: tagline.trim() || null,
+        industry: industry.trim() || business.industry || null,
+        location_city: locationCity.trim() || null,
+        location_county: locationCounty.trim() || null,
+        location_postcode: locationPostcode.trim() || null,
+        seo_title: seoTitle.trim() || null,
+        seo_description: seoDescription.trim() || null,
+        instagram_url: instagramUrl.trim() || null,
+        facebook_url: facebookUrl.trim() || null,
+        tiktok_url: tiktokUrl.trim() || null,
+        search_text: [
+          title.trim(),
+          tagline.trim(),
+          shortDescription.trim(),
+          description.trim(),
+          industry.trim() || business.industry || '',
+          locationLabel.trim(),
+          locationCity.trim(),
+          locationCounty.trim(),
+          locationPostcode.trim(),
+        ].filter(Boolean).join(' '),
+        listing_score: calculateListingScore({
+          title,
+          shortDescription,
+          description,
+          imageUrl,
+          heroImageUrl,
+          categoryId,
+          locationLabel,
+          locationCity,
+          contactEmail,
+          contactPhone,
+          websiteUrl,
+        }),
         price_from: priceFrom ? Number(priceFrom) : null,
         price_label: priceLabel.trim() || null,
         location_label: locationLabel.trim() || null,
@@ -301,6 +396,17 @@ export default function MarketplaceManagementPage() {
     setShortDescription('')
     setDescription('')
     setImageUrl('')
+    setHeroImageUrl('')
+    setTagline('')
+    setIndustry('')
+    setLocationCity('')
+    setLocationCounty('')
+    setLocationPostcode('')
+    setSeoTitle('')
+    setSeoDescription('')
+    setInstagramUrl('')
+    setFacebookUrl('')
+    setTiktokUrl('')
     setPriceFrom('')
     setPriceLabel('')
     setLocationLabel('')
@@ -348,6 +454,10 @@ export default function MarketplaceManagementPage() {
       approved: listings.filter((listing) => listing.approval_status === 'approved').length,
       pending: listings.filter((listing) => listing.approval_status === 'pending').length,
       active: listings.filter((listing) => listing.is_active).length,
+      profileViews: listings.reduce((sum, listing) => sum + Number(listing.profile_views_count || 0), 0),
+      averageScore: listings.length
+        ? Math.round(listings.reduce((sum, listing) => sum + Number(listing.listing_score || 0), 0) / listings.length)
+        : 0,
     }
   }, [listings])
 
@@ -411,6 +521,8 @@ export default function MarketplaceManagementPage() {
         <StatCard label="Approved" value={stats.approved} />
         <StatCard label="Pending" value={stats.pending} />
         <StatCard label="Active" value={stats.active} />
+        <StatCard label="Profile views" value={stats.profileViews} />
+        <StatCard label="Avg. score" value={`${stats.averageScore}/100`} />
       </section>
 
       <section className="grid gap-8 xl:grid-cols-[0.9fr_1.1fr]">
@@ -500,6 +612,70 @@ export default function MarketplaceManagementPage() {
               />
             </label>
 
+            <label className="block">
+              <span className="mb-2 block text-sm font-bold text-slate-400">Hero image URL</span>
+              <input
+                value={heroImageUrl}
+                onChange={(event) => setHeroImageUrl(event.target.value)}
+                placeholder="https://..."
+                className="w-full rounded-xl border border-slate-800 bg-slate-950 px-4 py-3 text-white outline-none placeholder:text-slate-600"
+              />
+            </label>
+
+            <label className="block">
+              <span className="mb-2 block text-sm font-bold text-slate-400">Tagline</span>
+              <input
+                value={tagline}
+                onChange={(event) => setTagline(event.target.value)}
+                placeholder="A short customer-facing headline"
+                className="w-full rounded-xl border border-slate-800 bg-slate-950 px-4 py-3 text-white outline-none placeholder:text-slate-600"
+              />
+            </label>
+
+            <div className="grid gap-4 md:grid-cols-2">
+              <label className="block">
+                <span className="mb-2 block text-sm font-bold text-slate-400">Industry</span>
+                <input
+                  value={industry}
+                  onChange={(event) => setIndustry(event.target.value)}
+                  placeholder={business?.industry || 'barber, gym, salon...'}
+                  className="w-full rounded-xl border border-slate-800 bg-slate-950 px-4 py-3 text-white outline-none placeholder:text-slate-600"
+                />
+              </label>
+
+              <label className="block">
+                <span className="mb-2 block text-sm font-bold text-slate-400">City</span>
+                <input
+                  value={locationCity}
+                  onChange={(event) => setLocationCity(event.target.value)}
+                  placeholder="Milton Keynes"
+                  className="w-full rounded-xl border border-slate-800 bg-slate-950 px-4 py-3 text-white outline-none placeholder:text-slate-600"
+                />
+              </label>
+            </div>
+
+            <div className="grid gap-4 md:grid-cols-2">
+              <label className="block">
+                <span className="mb-2 block text-sm font-bold text-slate-400">County</span>
+                <input
+                  value={locationCounty}
+                  onChange={(event) => setLocationCounty(event.target.value)}
+                  placeholder="Buckinghamshire"
+                  className="w-full rounded-xl border border-slate-800 bg-slate-950 px-4 py-3 text-white outline-none placeholder:text-slate-600"
+                />
+              </label>
+
+              <label className="block">
+                <span className="mb-2 block text-sm font-bold text-slate-400">Postcode</span>
+                <input
+                  value={locationPostcode}
+                  onChange={(event) => setLocationPostcode(event.target.value)}
+                  placeholder="MK..."
+                  className="w-full rounded-xl border border-slate-800 bg-slate-950 px-4 py-3 text-white outline-none placeholder:text-slate-600"
+                />
+              </label>
+            </div>
+
             <div className="grid gap-4 md:grid-cols-2">
               <label className="block">
                 <span className="mb-2 block text-sm font-bold text-slate-400">Price from</span>
@@ -555,6 +731,45 @@ export default function MarketplaceManagementPage() {
               placeholder="Website URL"
               className="w-full rounded-xl border border-slate-800 bg-slate-950 px-4 py-3 text-white outline-none placeholder:text-slate-600"
             />
+
+            <div className="grid gap-4 md:grid-cols-3">
+              <input
+                value={instagramUrl}
+                onChange={(event) => setInstagramUrl(event.target.value)}
+                placeholder="Instagram URL"
+                className="w-full rounded-xl border border-slate-800 bg-slate-950 px-4 py-3 text-white outline-none placeholder:text-slate-600"
+              />
+
+              <input
+                value={facebookUrl}
+                onChange={(event) => setFacebookUrl(event.target.value)}
+                placeholder="Facebook URL"
+                className="w-full rounded-xl border border-slate-800 bg-slate-950 px-4 py-3 text-white outline-none placeholder:text-slate-600"
+              />
+
+              <input
+                value={tiktokUrl}
+                onChange={(event) => setTiktokUrl(event.target.value)}
+                placeholder="TikTok URL"
+                className="w-full rounded-xl border border-slate-800 bg-slate-950 px-4 py-3 text-white outline-none placeholder:text-slate-600"
+              />
+            </div>
+
+            <div className="grid gap-4 md:grid-cols-2">
+              <input
+                value={seoTitle}
+                onChange={(event) => setSeoTitle(event.target.value)}
+                placeholder="SEO title"
+                className="w-full rounded-xl border border-slate-800 bg-slate-950 px-4 py-3 text-white outline-none placeholder:text-slate-600"
+              />
+
+              <input
+                value={seoDescription}
+                onChange={(event) => setSeoDescription(event.target.value)}
+                placeholder="SEO description"
+                className="w-full rounded-xl border border-slate-800 bg-slate-950 px-4 py-3 text-white outline-none placeholder:text-slate-600"
+              />
+            </div>
 
             <label className="flex items-center justify-between gap-4 rounded-xl border border-slate-800 bg-slate-950 p-4">
               <span className="font-bold text-slate-300">Featured listing</span>
@@ -646,11 +861,23 @@ function ListingCard({
           <div className="mt-4 grid gap-3 text-sm text-slate-500 md:grid-cols-3">
             <p>{listing.marketplace_categories?.name || 'No category'}</p>
             <p>{listing.price_label || 'Price'}: {money(listing.price_from)}</p>
-            <p>{listing.location_label || 'No location'}</p>
+            <p>{listing.location_city || listing.location_label || 'No location'}</p>
+            <p>Score: {listing.listing_score || 0}/100</p>
+            <p>Views: {listing.profile_views_count || 0}</p>
+            <p>{listing.industry || 'No industry'}</p>
           </div>
         </div>
 
         <div className="flex shrink-0 flex-col gap-2 lg:w-40">
+          <a
+            href={`/marketplace/${listing.slug}`}
+            target="_blank"
+            rel="noreferrer"
+            className="rounded-xl bg-white px-4 py-3 text-center text-sm font-bold text-slate-950"
+          >
+            Preview
+          </a>
+
           <button
             type="button"
             onClick={onToggle}
