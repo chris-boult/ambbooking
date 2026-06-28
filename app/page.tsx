@@ -1,73 +1,202 @@
 import Link from 'next/link'
 
-const features = [
-  'Online bookings',
-  'Payments & deposits',
-  'Customer CRM',
+const featureGroups = [
+  {
+    title: 'Booking engine',
+    items: [
+      'Online bookings',
+      'Public booking pages',
+      'Multi-service bookings',
+      'Staff selection',
+      'Date and time picker',
+      'Booking confirmations',
+      'Reschedule flow',
+      'Cancellation flow',
+      'Booking success pages',
+      'Booking conflict protection',
+      'Service durations',
+      'Deposits',
+      'Full payment',
+      'Pay later',
+      'Stripe Checkout',
+      'Stripe webhooks',
+    ],
+  },
+  {
+    title: 'Calendar and operations',
+    items: [
+      'Drag-and-drop calendar',
+      'Day view',
+      'Week view',
+      'Month view',
+      'Staff columns',
+      'Calendar zoom levels',
+      'Current time indicator',
+      'Time off',
+      'Availability rules',
+      'Staff schedules',
+      'Booking movement',
+      'Revenue view',
+      'Occupancy view',
+    ],
+  },
+  {
+    title: 'Customers and CRM',
+    items: [
+      'Customer records',
+      'Customer notes',
+      'Booking history',
+      'Customer portal',
+      'Customer engagement centre',
+      'Loyalty tools',
+      'Referral tracking',
+      'Review history',
+      'Customer emails',
+      'Customer notifications',
+    ],
+  },
+  {
+    title: 'Revenue tools',
+    items: [
+      'Membership plans',
+      'Membership benefits',
+      'Membership usage ledger',
+      'Membership session tracking',
+      'Packages',
+      'Package purchases',
+      'Package session use',
+      'Gift vouchers',
+      'Voucher purchases',
+      'Voucher redemption',
+      'Money dashboard',
+      'Revenue reports',
+      'Stripe subscription flow',
+    ],
+  },
+  {
+    title: 'Marketing and retention',
+    items: [
+      'Email campaigns',
+      'SMS marketing area',
+      'Booking reminders',
+      'Review requests',
+      'Waiting list',
+      'Waiting list matching',
+      'Notifications',
+      'Push notifications',
+      'In-app notification centre',
+      'Notification preferences',
+      'Event-driven notifications',
+    ],
+  },
+  {
+    title: 'Marketplace and reputation',
+    items: [
+      'Marketplace listings',
+      'Public business profiles',
+      'Featured listings',
+      'Marketplace categories',
+      'Marketplace search',
+      'Competitor protection',
+      'Industry relationship rules',
+      'Reviews',
+      'Review replies',
+      'Trust signals',
+      'Reputation engine',
+    ],
+  },
+  {
+    title: 'White label and SaaS',
+    items: [
+      'Business branding',
+      'Logo support',
+      'Brand colours',
+      'Brand engine',
+      'White-label mode',
+      'Hide AMB branding',
+      'Custom domains',
+      'Domain health checks',
+      'Email branding',
+      'PWA support',
+      'Future native app ready',
+    ],
+  },
+  {
+    title: 'Platform admin',
+    items: [
+      'Master admin centre',
+      'Business command centre',
+      'Create businesses',
+      'Manage businesses',
+      'Feature flags',
+      'Plan gating',
+      'Subscription overrides',
+      'Launch readiness',
+      'Platform health',
+      'Audit logs',
+      'Support tickets',
+      'Impersonation logging',
+    ],
+  },
+  {
+    title: 'Partner and commercial tools',
+    items: [
+      'Partner portal',
+      'Partner sign-up',
+      'Partner dashboard',
+      'Referral tracking',
+      'Commission engine',
+      'Adjustable commissions',
+      'Payout centre',
+      'Partner assets',
+      'Agency-ready structure',
+      'Commercial SaaS plans',
+    ],
+  },
+]
+
+const highlights = [
+  'Bookings',
+  'Payments',
+  'CRM',
   'Calendar',
   'Memberships',
   'Packages',
   'Gift vouchers',
   'Waiting list',
   'Reviews',
-  'Marketing tools',
   'Marketplace',
+  'Push notifications',
   'White label',
-]
-
-const platformCards = [
-  {
-    title: 'Online bookings',
-    text: 'Let customers book services, choose staff, select times and complete the journey without back-and-forth messages.',
-  },
-  {
-    title: 'Payments and deposits',
-    text: 'Take deposits, full payments, packages, vouchers and memberships through a connected booking flow.',
-  },
-  {
-    title: 'Customer CRM',
-    text: 'Keep customer profiles, booking history, notes, memberships, packages, vouchers and engagement in one place.',
-  },
-  {
-    title: 'Smart calendar',
-    text: 'Manage daily schedules, team availability, reschedules, cancellations, time off and service capacity.',
-  },
-  {
-    title: 'Recurring revenue',
-    text: 'Sell memberships, packages and vouchers to create stronger customer retention and more predictable income.',
-  },
-  {
-    title: 'Marketplace ready',
-    text: 'Give businesses another route to be discovered, collect enquiries and turn interest into bookings.',
-  },
+  'Partner centre',
+  'Admin centre',
+  'Feature gating',
+  'PWA',
 ]
 
 const plans = [
   {
     name: 'Starter',
     price: '£19',
-    description: 'For solo operators getting started.',
-    items: ['Online bookings', 'Customer CRM', 'Basic reports', 'Email reminders'],
+    text: 'For solo operators who need online bookings, CRM and simple payments.',
   },
   {
     name: 'Growth',
     price: '£39',
-    description: 'For growing service businesses.',
-    items: ['Everything in Starter', 'Memberships', 'Gift vouchers', 'Waiting list', 'Advanced reports'],
+    text: 'For growing businesses that need memberships, vouchers, waiting list and reporting.',
     featured: true,
   },
   {
     name: 'Pro',
     price: '£79',
-    description: 'For teams and serious operators.',
-    items: ['Everything in Growth', 'White label tools', 'Marketplace features', 'Priority support'],
+    text: 'For serious operators that need white-label tools, marketplace features and advanced control.',
   },
 ]
 
 export default function Home() {
   return (
     <main className="min-h-screen overflow-hidden bg-[#020617] text-white">
-      <div className="pointer-events-none fixed inset-0 bg-[radial-gradient(circle_at_top_left,#06b6d433_0%,transparent_32%),radial-gradient(circle_at_bottom_right,#8b5cf633_0%,transparent_34%)]" />
+      <div className="pointer-events-none fixed inset-0 bg-[radial-gradient(circle_at_top_left,#06b6d433_0%,transparent_30%),radial-gradient(circle_at_bottom_right,#8b5cf633_0%,transparent_34%)]" />
 
       <header className="relative z-20 border-b border-white/10 bg-black/30 backdrop-blur-2xl">
         <div className="mx-auto flex max-w-7xl items-center justify-between px-6 py-5">
@@ -76,8 +205,7 @@ export default function Home() {
           </Link>
 
           <nav className="hidden items-center gap-8 text-sm font-bold text-slate-400 lg:flex">
-            <a href="#platform" className="hover:text-white">Platform</a>
-            <a href="#marketplace" className="hover:text-white">Marketplace</a>
+            <a href="#features" className="hover:text-white">Features</a>
             <a href="#white-label" className="hover:text-white">White label</a>
             <a href="#pricing" className="hover:text-white">Pricing</a>
             <Link href="/login" className="hover:text-white">Login</Link>
@@ -92,23 +220,21 @@ export default function Home() {
         </div>
       </header>
 
-      <section className="relative z-10 mx-auto grid max-w-7xl items-center gap-14 px-6 py-20 lg:grid-cols-[1.05fr_0.95fr] lg:py-28">
-        <div>
+      <section className="relative z-10 mx-auto max-w-7xl px-6 py-20 lg:py-28">
+        <div className="max-w-5xl">
           <div className="mb-6 inline-flex rounded-full border border-cyan-300/20 bg-cyan-300/10 px-5 py-3 text-sm font-black text-cyan-200">
-            All-in-one booking and business platform
+            Built for service businesses
           </div>
 
-          <h1 className="max-w-5xl text-5xl font-black tracking-tight md:text-7xl">
-            Run your business.
-            <span className="block bg-gradient-to-r from-cyan-300 via-blue-400 to-violet-400 bg-clip-text text-transparent">
-              Grow without the chaos.
-            </span>
+          <h1 className="text-5xl font-black tracking-tight md:text-7xl">
+            The complete operating system for modern service businesses.
           </h1>
 
-          <p className="mt-8 max-w-2xl text-xl leading-8 text-slate-300">
-            AMB Booking brings bookings, payments, CRM, memberships, vouchers,
-            reviews, reminders, marketplace tools and white-label branding into
-            one platform for service businesses.
+          <p className="mt-8 max-w-3xl text-xl leading-8 text-slate-300">
+            AMB Booking brings bookings, payments, calendar management, CRM,
+            memberships, vouchers, waiting lists, reviews, marketing, marketplace
+            discovery, notifications, reporting and white-label tools into one
+            connected platform.
           </p>
 
           <div className="mt-10 flex flex-wrap gap-4">
@@ -126,158 +252,152 @@ export default function Home() {
               Book a demo
             </Link>
           </div>
-
-          <div className="mt-8 flex flex-wrap gap-5 text-sm font-bold text-slate-400">
-            <span>✓ No credit card required</span>
-            <span>✓ Setup in minutes</span>
-            <span>✓ White-label ready</span>
-          </div>
         </div>
 
-        <div className="rounded-[2rem] border border-white/10 bg-white/[0.04] p-4 shadow-2xl shadow-cyan-500/10">
-          <div className="overflow-hidden rounded-[1.5rem] border border-white/10 bg-slate-950">
-            <div className="flex items-center justify-between border-b border-white/10 px-6 py-5">
-              <div>
-                <p className="text-xs font-black uppercase tracking-[0.3em] text-slate-500">
-                  Dashboard
-                </p>
-                <h2 className="mt-1 text-2xl font-black">Today at a glance</h2>
-              </div>
-
-              <div className="rounded-full bg-cyan-300 px-4 py-2 text-sm font-black text-slate-950">
-                Live
-              </div>
-            </div>
-
-            <div className="grid gap-4 p-6 sm:grid-cols-2">
-              {[
-                ['Bookings today', '18'],
-                ['Revenue', '£642'],
-                ['New customers', '7'],
-                ['Notifications', '12'],
-              ].map(([label, value]) => (
-                <div key={label} className="rounded-2xl border border-white/10 bg-white/[0.04] p-5">
-                  <p className="text-sm text-slate-500">{label}</p>
-                  <p className="mt-3 text-3xl font-black">{value}</p>
-                </div>
-              ))}
-            </div>
-
-            <div className="mx-6 mb-6 rounded-2xl border border-cyan-300/20 bg-cyan-300/10 p-5">
-              <p className="text-sm font-black text-cyan-200">Smart opportunity</p>
-              <p className="mt-2 leading-7 text-slate-300">
-                You have a gap tomorrow afternoon. Fill it from your waiting list
-                or send a rebooking prompt.
-              </p>
-            </div>
-
-            <div className="grid gap-3 border-t border-white/10 p-6">
-              {[
-                'Haircut booked for 10:30',
-                'Gift voucher purchased',
-                'Membership session used',
-                'Review request scheduled',
-              ].map((item) => (
-                <div key={item} className="rounded-xl bg-white/[0.04] px-4 py-3 text-sm text-slate-300">
-                  {item}
-                </div>
-              ))}
-            </div>
-          </div>
-        </div>
-      </section>
-
-      <section className="relative z-10 mx-auto max-w-7xl px-6 pb-16">
-        <div className="rounded-3xl border border-white/10 bg-white/[0.04] p-4">
-          <div className="grid gap-3 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-6">
-            {features.map((feature) => (
-              <div
-                key={feature}
-                className="rounded-2xl border border-white/10 bg-slate-950/60 px-4 py-4 text-center text-sm font-bold text-slate-300"
-              >
-                {feature}
-              </div>
-            ))}
-          </div>
-        </div>
-      </section>
-
-      <section id="platform" className="relative z-10 mx-auto max-w-7xl px-6 py-20">
-        <div className="max-w-3xl">
-          <p className="mb-4 text-sm font-black uppercase tracking-[0.3em] text-cyan-300">
-            Built for service businesses
-          </p>
-          <h2 className="text-4xl font-black md:text-6xl">
-            Everything you need, all in one powerful platform.
-          </h2>
-          <p className="mt-6 text-lg leading-8 text-slate-400">
-            Replace disconnected tools with one system that manages bookings,
-            customers, payments, teams, marketing and customer retention.
-          </p>
-        </div>
-
-        <div className="mt-12 grid gap-6 md:grid-cols-2 lg:grid-cols-3">
-          {platformCards.map((card) => (
+        <div className="mt-14 grid gap-4 rounded-[2rem] border border-white/10 bg-white/[0.04] p-4 md:grid-cols-4">
+          {highlights.map((item) => (
             <div
-              key={card.title}
-              className="rounded-3xl border border-white/10 bg-white/[0.04] p-8 transition hover:border-cyan-300/30 hover:bg-white/[0.07]"
+              key={item}
+              className="rounded-2xl border border-white/10 bg-slate-950/70 px-4 py-4 text-sm font-bold text-slate-300"
             >
-              <h3 className="text-2xl font-black">{card.title}</h3>
-              <p className="mt-4 leading-7 text-slate-400">{card.text}</p>
+              {item}
             </div>
           ))}
         </div>
       </section>
 
-      <section id="marketplace" className="relative z-10 mx-auto grid max-w-7xl gap-8 px-6 py-20 lg:grid-cols-2">
-        <div className="rounded-[2rem] border border-white/10 bg-slate-950/70 p-8">
-          <div className="mb-6 rounded-2xl border border-white/10 bg-white/[0.04] p-4">
-            <p className="text-sm font-black text-cyan-300">Marketplace preview</p>
-            <div className="mt-4 grid gap-3">
-              {['Barber', 'Beauty salon', 'Fitness coach'].map((item) => (
-                <div key={item} className="rounded-xl bg-white/[0.04] p-4">
-                  <div className="flex items-center justify-between">
-                    <span className="font-bold">{item}</span>
-                    <span className="rounded-full bg-cyan-300/10 px-3 py-1 text-xs font-black text-cyan-200">
-                      Book now
-                    </span>
-                  </div>
+      <section className="relative z-10 mx-auto max-w-7xl px-6 pb-20">
+        <div className="rounded-[2rem] border border-white/10 bg-slate-950/80 p-6 shadow-2xl shadow-cyan-500/10">
+          <div className="grid gap-6 lg:grid-cols-[260px_1fr]">
+            <aside className="rounded-[1.5rem] border border-white/10 bg-black/40 p-5">
+              <div className="mb-8">
+                <div className="text-xl font-black">AMB Booking</div>
+                <div className="mt-2 text-xs uppercase tracking-[0.35em] text-slate-600">
+                  Platform
+                </div>
+              </div>
+
+              {['Dashboard', 'Calendar', 'Bookings', 'Customers', 'Memberships', 'Marketplace', 'Reports'].map((item, index) => (
+                <div
+                  key={item}
+                  className={`mb-2 rounded-xl px-4 py-3 text-sm font-bold ${
+                    index === 0
+                      ? 'bg-cyan-300/10 text-cyan-200'
+                      : 'text-slate-500'
+                  }`}
+                >
+                  {item}
                 </div>
               ))}
+            </aside>
+
+            <div className="rounded-[1.5rem] border border-white/10 bg-white/[0.03] p-6">
+              <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
+                <div>
+                  <div className="text-sm text-slate-500">Today</div>
+                  <h2 className="text-3xl font-black">Business dashboard</h2>
+                </div>
+
+                <div className="rounded-full bg-cyan-300 px-4 py-2 text-sm font-black text-slate-950">
+                  Live platform
+                </div>
+              </div>
+
+              <div className="mt-8 grid gap-4 md:grid-cols-4">
+                {[
+                  ['Bookings', '18'],
+                  ['Revenue', '£642'],
+                  ['Customers', '7'],
+                  ['Alerts', '12'],
+                ].map(([label, value]) => (
+                  <div key={label} className="rounded-2xl border border-white/10 bg-slate-950 p-5">
+                    <p className="text-sm text-slate-500">{label}</p>
+                    <p className="mt-3 text-3xl font-black">{value}</p>
+                  </div>
+                ))}
+              </div>
+
+              <div className="mt-6 grid gap-4 lg:grid-cols-2">
+                <div className="rounded-2xl border border-cyan-300/20 bg-cyan-300/10 p-5">
+                  <p className="font-black text-cyan-200">Notification centre</p>
+                  <p className="mt-2 text-sm leading-6 text-slate-300">
+                    New booking confirmed, membership session used, review
+                    request scheduled and waiting list opportunity detected.
+                  </p>
+                </div>
+
+                <div className="rounded-2xl border border-violet-300/20 bg-violet-300/10 p-5">
+                  <p className="font-black text-violet-200">White-label ready</p>
+                  <p className="mt-2 text-sm leading-6 text-slate-300">
+                    Logos, colours, custom domains, branded emails and future
+                    native app experiences can all be powered by tenant branding.
+                  </p>
+                </div>
+              </div>
             </div>
           </div>
         </div>
+      </section>
 
-        <div className="flex flex-col justify-center">
+      <section id="features" className="relative z-10 mx-auto max-w-7xl px-6 py-20">
+        <div className="max-w-4xl">
           <p className="mb-4 text-sm font-black uppercase tracking-[0.3em] text-cyan-300">
-            Be found. Win more. Grow faster.
+            Full platform features
           </p>
+
           <h2 className="text-4xl font-black md:text-6xl">
-            Marketplace discovery built into your booking platform.
+            Everything we have built, in one connected system.
           </h2>
+
           <p className="mt-6 text-lg leading-8 text-slate-400">
-            Give businesses another route to attract new customers, showcase
-            reviews, promote services and turn local interest into bookings.
+            AMB Booking is more than a calendar. It is a multi-tenant SaaS
+            platform for businesses that want bookings, customer management,
+            payments, retention and growth tools in one place.
           </p>
+        </div>
+
+        <div className="mt-12 grid gap-6 lg:grid-cols-3">
+          {featureGroups.map((group) => (
+            <div
+              key={group.title}
+              className="rounded-3xl border border-white/10 bg-white/[0.04] p-6"
+            >
+              <h3 className="text-2xl font-black">{group.title}</h3>
+
+              <div className="mt-5 grid gap-2">
+                {group.items.map((item) => (
+                  <div
+                    key={item}
+                    className="rounded-xl border border-white/10 bg-slate-950/70 px-4 py-3 text-sm font-bold text-slate-300"
+                  >
+                    ✓ {item}
+                  </div>
+                ))}
+              </div>
+            </div>
+          ))}
         </div>
       </section>
 
       <section id="white-label" className="relative z-10 mx-auto max-w-7xl px-6 py-20">
         <div className="rounded-[2rem] border border-white/10 bg-gradient-to-br from-cyan-300/10 via-white/[0.04] to-violet-500/10 p-10 md:p-14">
           <p className="mb-4 text-sm font-black uppercase tracking-[0.3em] text-cyan-300">
-            White-label ready
-          </p>
-          <h2 className="max-w-4xl text-4xl font-black md:text-6xl">
-            Your brand. Your colours. Your customer experience.
-          </h2>
-          <p className="mt-6 max-w-3xl text-lg leading-8 text-slate-300">
-            Use AMB Booking as your own branded platform with customised booking
-            pages, dashboards, emails, notifications, customer portals and future
-            mobile app experiences.
+            White-label and agency ready
           </p>
 
-          <div className="mt-10 grid gap-4 md:grid-cols-3">
-            {['Custom branding', 'Custom domains', 'Branded customer journey'].map((item) => (
+          <h2 className="max-w-4xl text-4xl font-black md:text-6xl">
+            One platform. Multiple brands. Endless verticals.
+          </h2>
+
+          <p className="mt-6 max-w-3xl text-lg leading-8 text-slate-300">
+            AMB Booking is built with multi-tenant architecture, business
+            branding, custom domains, feature gating, partner management and
+            white-label tools so it can support individual businesses, agencies
+            and future branded mobile app experiences.
+          </p>
+
+          <div className="mt-10 grid gap-4 md:grid-cols-4">
+            {['Business branding', 'Custom domains', 'Email branding', 'Partner-ready'].map((item) => (
               <div key={item} className="rounded-2xl border border-white/10 bg-black/30 p-5 font-bold">
                 {item}
               </div>
@@ -289,13 +409,13 @@ export default function Home() {
       <section id="pricing" className="relative z-10 mx-auto max-w-7xl px-6 py-20">
         <div className="mb-12 text-center">
           <p className="mb-4 text-sm font-black uppercase tracking-[0.3em] text-cyan-300">
-            Simple pricing
+            Pricing
           </p>
           <h2 className="text-4xl font-black md:text-6xl">
-            Choose the plan that fits your business.
+            Simple plans for different stages of growth.
           </h2>
           <p className="mt-5 text-slate-400">
-            All plans include a 7-day free trial. No credit card required.
+            All plans include a 7-day free trial.
           </p>
         </div>
 
@@ -316,18 +436,11 @@ export default function Home() {
               )}
 
               <h3 className="text-2xl font-black">{plan.name}</h3>
-              <p className="mt-2 text-slate-400">{plan.description}</p>
-
-              <p className="mt-6 text-5xl font-black">
+              <p className="mt-5 text-5xl font-black">
                 {plan.price}
                 <span className="text-base font-bold text-slate-500">/mo</span>
               </p>
-
-              <ul className="mt-8 space-y-3 text-sm text-slate-300">
-                {plan.items.map((item) => (
-                  <li key={item}>✓ {item}</li>
-                ))}
-              </ul>
+              <p className="mt-5 leading-7 text-slate-400">{plan.text}</p>
 
               <Link
                 href="/signup"
@@ -347,11 +460,12 @@ export default function Home() {
       <section className="relative z-10 mx-auto max-w-7xl px-6 py-20">
         <div className="rounded-[2rem] border border-white/10 bg-white/[0.04] p-10 text-center md:p-16">
           <h2 className="text-4xl font-black md:text-6xl">
-            Ready to grow your service business?
+            Ready to launch your service business platform?
           </h2>
+
           <p className="mx-auto mt-6 max-w-2xl text-lg leading-8 text-slate-400">
-            Launch a better booking experience, manage customers properly and
-            bring your business tools into one place.
+            Give customers a better way to book, pay, return, review and stay
+            connected with your business.
           </p>
 
           <div className="mt-10 flex flex-wrap justify-center gap-4">
