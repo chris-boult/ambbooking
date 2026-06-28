@@ -14,22 +14,7 @@ const geistMono = Geist_Mono({
 
 export const metadata: Metadata = {
   title: "AMB Booking",
-  description: "Book appointments, manage memberships, loyalty, vouchers and wallet passes.",
-
-  manifest: "/manifest.json",
-
-  themeColor: "#020617",
-
-  appleWebApp: {
-    capable: true,
-    statusBarStyle: "black-translucent",
-    title: "AMB Booking",
-  },
-
-  icons: {
-    icon: "/favicon.ico",
-    apple: "/favicon.ico",
-  },
+  description: "Booking, CRM and business management platform for service businesses.",
 };
 
 export default function RootLayout({
@@ -38,11 +23,8 @@ export default function RootLayout({
   children: React.ReactNode;
 }>) {
   return (
-    <html
-      lang="en"
-      className={`${geistSans.variable} ${geistMono.variable} h-full antialiased`}
-    >
-      <body className="min-h-full flex flex-col bg-[#020617] text-white">
+    <html lang="en">
+      <body className={`${geistSans.variable} ${geistMono.variable} antialiased`}>
         {children}
       </body>
     </html>
