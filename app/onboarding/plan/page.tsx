@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useState } from 'react'
+import { Suspense, useEffect, useState } from 'react'
 import Image from 'next/image'
 import Link from 'next/link'
 import { useRouter, useSearchParams } from 'next/navigation'
@@ -110,7 +110,7 @@ const plans: Plan[] = [
   },
 ]
 
-export default function OnboardingPlanPage() {
+function OnboardingPlanContent() {
   const router = useRouter()
   const searchParams = useSearchParams()
 
@@ -529,5 +529,19 @@ export default function OnboardingPlanPage() {
         </div>
       </section>
     </main>
+  )
+}
+
+export default function OnboardingPlanPage() {
+  return (
+    <Suspense
+      fallback={
+        <main className="flex min-h-screen items-center justify-center bg-[#020617] text-white">
+          Loading plans...
+        </main>
+      }
+    >
+      <OnboardingPlanContent />
+    </Suspense>
   )
 }
