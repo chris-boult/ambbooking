@@ -413,19 +413,33 @@ export default function StaffPage() {
 
   async function deleteTeamMember(memberId: string) {
     const confirmed = window.confirm(
-      'Delete this team member? This may affect existing bookings and cannot be undone.'
+      'Delete this team member? If they are linked to bookings, AMB Booking will deactivate them instead so historic records are preserved.'
     )
 
     if (!confirmed) return
 
-    const { error } = await supabase.from('team_members').delete().eq('id', memberId)
+    const { error: deleteError } = await supabase
+      .from('team_members')
+      .delete()
+      .eq('id', memberId)
 
-    if (error) {
-      setMessage(error.message)
+    if (!deleteError) {
+      setMessage('Team member deleted.')
+      await loadStaffManagement()
       return
     }
 
-    setMessage('Team member deleted.')
+    const { error: deactivateError } = await supabase
+      .from('team_members')
+      .update({ is_active: false })
+      .eq('id', memberId)
+
+    if (deactivateError) {
+      setMessage(deactivateError.message || deleteError.message)
+      return
+    }
+
+    setMessage('This team member has linked records, so they were deactivated instead of deleted.')
     await loadStaffManagement()
   }
 
@@ -665,37 +679,45 @@ export default function StaffPage() {
 
   return (
     <RoleGuard allowedRoles={['owner', 'manager']}>
-      <main className="min-h-screen space-y-8 bg-slate-950 p-6 text-white md:p-8">
-        <div className="flex flex-col gap-5 md:flex-row md:items-end md:justify-between">
-          <div>
-            <p className="text-sm font-bold uppercase tracking-[0.25em] text-slate-500">
-              Staff management
-            </p>
+      <main className="space-y-8">
+        <section className="overflow-hidden rounded-[3rem] border border-white/10 bg-[#07111f] p-8 shadow-[0_60px_200px_rgba(0,0,0,.45)]">
+          <div className="flex flex-col gap-8 xl:flex-row xl:items-end xl:justify-between">
+            <div>
+              <div className="mb-6 inline-flex items-center gap-3 rounded-full border border-cyan-400/20 bg-cyan-400/10 px-5 py-2 text-xs font-black uppercase tracking-[0.28em] text-cyan-300">
+                Staff management
+              </div>
 
-            <h1 className="mt-2 text-4xl font-black">Staff</h1>
+              <h1 className="max-w-5xl text-5xl font-black leading-[1.02] tracking-[-0.055em] md:text-6xl">
+                Manage your people, permissions and availability.
+              </h1>
 
-            <p className="mt-3 max-w-2xl text-slate-400">
-              Manage staff profiles, social links, dashboard access, permissions, working hours
-              and which services each team member can perform.
-            </p>
+              <p className="mt-6 max-w-3xl text-lg leading-8 text-slate-400">
+                Build rich staff profiles, control dashboard access, assign services, set working hours and decide who appears on the public booking journey.
+              </p>
+            </div>
+
+            <div className="w-full xl:max-w-md">
+              <label className="mb-2 block text-sm font-black text-slate-300">
+                Search staff
+              </label>
+              <input
+                value={search}
+                onChange={(e) => setSearch(e.target.value)}
+                placeholder="Search by name, role, email, phone or speciality..."
+                className="w-full rounded-2xl border border-white/10 bg-slate-950 px-5 py-4 text-white outline-none placeholder:text-slate-600 focus:border-cyan-300"
+              />
+            </div>
           </div>
-
-          <input
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
-            placeholder="Search staff..."
-            className="rounded-2xl border border-white/10 bg-black/20 px-4 py-4 text-white outline-none placeholder:text-slate-600"
-          />
-        </div>
+        </section>
 
         {message && (
-          <div className="rounded-2xl border border-white/10 bg-white/[0.04] p-4 text-slate-300">
+          <div className="rounded-2xl border border-cyan-400/20 bg-cyan-400/10 px-5 py-4 text-sm font-bold text-cyan-100">
             {message}
           </div>
         )}
 
         {loading && (
-          <div className="rounded-3xl border border-white/10 bg-white/[0.04] p-6 text-slate-300">
+          <div className="rounded-[2rem] border border-white/10 bg-[#07111f] p-8 text-center font-black text-slate-300">
             Loading staff...
           </div>
         )}
@@ -713,7 +735,7 @@ export default function StaffPage() {
             </section>
 
             <div className="grid gap-8 xl:grid-cols-[0.9fr_1.1fr]">
-              <section className="rounded-3xl border border-white/10 bg-white/[0.04] p-6 md:p-8">
+              <section className="overflow-hidden rounded-[3rem] border border-white/10 bg-[#07111f] p-8 shadow-[0_60px_200px_rgba(0,0,0,.42)]">
                 <h2 className="text-2xl font-black">
                   {editingTeamMemberId ? 'Edit team member' : 'Add team member'}
                 </h2>
@@ -726,14 +748,14 @@ export default function StaffPage() {
 
                 <form onSubmit={saveTeamMember} className="mt-6 space-y-4">
                   <input
-                    className="w-full rounded-2xl border border-white/10 bg-black/20 px-4 py-4 text-white outline-none placeholder:text-slate-600"
+                    className="w-full rounded-2xl border border-white/10 bg-slate-950 px-5 py-4 text-white outline-none placeholder:text-slate-600 focus:border-cyan-300"
                     placeholder="Full name"
                     value={fullName}
                     onChange={(e) => setFullName(e.target.value)}
                   />
 
                   <input
-                    className="w-full rounded-2xl border border-white/10 bg-black/20 px-4 py-4 text-white outline-none placeholder:text-slate-600"
+                    className="w-full rounded-2xl border border-white/10 bg-slate-950 px-5 py-4 text-white outline-none placeholder:text-slate-600 focus:border-cyan-300"
                     placeholder="Role, e.g. Senior Barber"
                     value={teamRole}
                     onChange={(e) => setTeamRole(e.target.value)}
@@ -741,14 +763,14 @@ export default function StaffPage() {
 
                   <div className="grid gap-4 md:grid-cols-2">
                     <input
-                      className="w-full rounded-2xl border border-white/10 bg-black/20 px-4 py-4 text-white outline-none placeholder:text-slate-600"
+                      className="w-full rounded-2xl border border-white/10 bg-slate-950 px-5 py-4 text-white outline-none placeholder:text-slate-600 focus:border-cyan-300"
                       placeholder="Email"
                       value={teamEmail}
                       onChange={(e) => setTeamEmail(e.target.value)}
                     />
 
                     <input
-                      className="w-full rounded-2xl border border-white/10 bg-black/20 px-4 py-4 text-white outline-none placeholder:text-slate-600"
+                      className="w-full rounded-2xl border border-white/10 bg-slate-950 px-5 py-4 text-white outline-none placeholder:text-slate-600 focus:border-cyan-300"
                       placeholder="Phone"
                       value={teamPhone}
                       onChange={(e) => setTeamPhone(e.target.value)}
@@ -756,7 +778,7 @@ export default function StaffPage() {
                   </div>
 
                   <textarea
-                    className="min-h-24 w-full rounded-2xl border border-white/10 bg-black/20 px-4 py-4 text-white outline-none placeholder:text-slate-600"
+                    className="min-h-24 w-full rounded-2xl border border-white/10 bg-slate-950 px-5 py-4 text-white outline-none placeholder:text-slate-600 focus:border-cyan-300"
                     placeholder="Short bio or notes"
                     value={teamBio}
                     onChange={(e) => setTeamBio(e.target.value)}
@@ -768,7 +790,7 @@ export default function StaffPage() {
                     </p>
 
                     <input
-                      className="mb-4 w-full rounded-2xl border border-white/10 bg-black/20 px-4 py-4 text-white outline-none placeholder:text-slate-600"
+                      className="mb-4 w-full rounded-2xl border border-white/10 bg-slate-950 px-5 py-4 text-white outline-none placeholder:text-slate-600 focus:border-cyan-300"
                       placeholder="Profile image URL"
                       value={profileImageUrl}
                       onChange={(e) => setProfileImageUrl(e.target.value)}
@@ -776,7 +798,7 @@ export default function StaffPage() {
 
                     <div className="grid gap-4 md:grid-cols-2">
                       <input
-                        className="rounded-2xl border border-white/10 bg-black/20 px-4 py-4 text-white outline-none placeholder:text-slate-600"
+                        className="rounded-2xl border border-white/10 bg-slate-950 px-5 py-4 text-white outline-none placeholder:text-slate-600 focus:border-cyan-300"
                         placeholder="Years experience"
                         type="number"
                         value={yearsExperience}
@@ -784,7 +806,7 @@ export default function StaffPage() {
                       />
 
                       <input
-                        className="rounded-2xl border border-white/10 bg-black/20 px-4 py-4 text-white outline-none placeholder:text-slate-600"
+                        className="rounded-2xl border border-white/10 bg-slate-950 px-5 py-4 text-white outline-none placeholder:text-slate-600 focus:border-cyan-300"
                         placeholder="Display order"
                         type="number"
                         value={displayOrder}
@@ -793,7 +815,7 @@ export default function StaffPage() {
                     </div>
 
                     <textarea
-                      className="mt-4 min-h-24 w-full rounded-2xl border border-white/10 bg-black/20 px-4 py-4 text-white outline-none placeholder:text-slate-600"
+                      className="mt-4 min-h-24 w-full rounded-2xl border border-white/10 bg-slate-950 px-5 py-4 text-white outline-none placeholder:text-slate-600 focus:border-cyan-300"
                       placeholder="Specialities, e.g. Skin fades, beard sculpting, colour correction"
                       value={specialties}
                       onChange={(e) => setSpecialties(e.target.value)}
@@ -816,35 +838,35 @@ export default function StaffPage() {
 
                     <div className="grid gap-4 md:grid-cols-2">
                       <input
-                        className="rounded-2xl border border-white/10 bg-black/20 px-4 py-4 text-white outline-none placeholder:text-slate-600"
+                        className="rounded-2xl border border-white/10 bg-slate-950 px-5 py-4 text-white outline-none placeholder:text-slate-600 focus:border-cyan-300"
                         placeholder="Instagram URL"
                         value={instagramUrl}
                         onChange={(e) => setInstagramUrl(e.target.value)}
                       />
 
                       <input
-                        className="rounded-2xl border border-white/10 bg-black/20 px-4 py-4 text-white outline-none placeholder:text-slate-600"
+                        className="rounded-2xl border border-white/10 bg-slate-950 px-5 py-4 text-white outline-none placeholder:text-slate-600 focus:border-cyan-300"
                         placeholder="Facebook URL"
                         value={facebookUrl}
                         onChange={(e) => setFacebookUrl(e.target.value)}
                       />
 
                       <input
-                        className="rounded-2xl border border-white/10 bg-black/20 px-4 py-4 text-white outline-none placeholder:text-slate-600"
+                        className="rounded-2xl border border-white/10 bg-slate-950 px-5 py-4 text-white outline-none placeholder:text-slate-600 focus:border-cyan-300"
                         placeholder="TikTok URL"
                         value={tiktokUrl}
                         onChange={(e) => setTiktokUrl(e.target.value)}
                       />
 
                       <input
-                        className="rounded-2xl border border-white/10 bg-black/20 px-4 py-4 text-white outline-none placeholder:text-slate-600"
+                        className="rounded-2xl border border-white/10 bg-slate-950 px-5 py-4 text-white outline-none placeholder:text-slate-600 focus:border-cyan-300"
                         placeholder="LinkedIn URL"
                         value={linkedinUrl}
                         onChange={(e) => setLinkedinUrl(e.target.value)}
                       />
 
                       <input
-                        className="md:col-span-2 rounded-2xl border border-white/10 bg-black/20 px-4 py-4 text-white outline-none placeholder:text-slate-600"
+                        className="md:col-span-2 rounded-2xl border border-white/10 bg-slate-950 px-5 py-4 text-white outline-none placeholder:text-slate-600 focus:border-cyan-300"
                         placeholder="Website URL"
                         value={websiteUrl}
                         onChange={(e) => setWebsiteUrl(e.target.value)}
@@ -898,7 +920,7 @@ export default function StaffPage() {
                 </form>
               </section>
 
-              <section className="rounded-3xl border border-white/10 bg-white/[0.04] p-6 md:p-8">
+              <section className="overflow-hidden rounded-[3rem] border border-white/10 bg-[#07111f] p-8 shadow-[0_60px_200px_rgba(0,0,0,.42)]">
                 <h2 className="text-2xl font-black">Add dashboard access</h2>
 
                 <p className="mt-2 text-slate-400">
@@ -907,7 +929,7 @@ export default function StaffPage() {
 
                 <div className="mt-6 space-y-4">
                   <select
-                    className="w-full rounded-2xl border border-white/10 bg-black/20 px-4 py-4 text-white outline-none"
+                    className="w-full rounded-2xl border border-white/10 bg-slate-950 px-5 py-4 text-white outline-none focus:border-cyan-300"
                     value={teamMemberId}
                     onChange={(e) => setTeamMemberId(e.target.value)}
                   >
@@ -921,14 +943,14 @@ export default function StaffPage() {
                   </select>
 
                   <input
-                    className="w-full rounded-2xl border border-white/10 bg-black/20 px-4 py-4 text-white outline-none placeholder:text-slate-600"
+                    className="w-full rounded-2xl border border-white/10 bg-slate-950 px-5 py-4 text-white outline-none placeholder:text-slate-600 focus:border-cyan-300"
                     placeholder="Login email"
                     value={email}
                     onChange={(e) => setEmail(e.target.value)}
                   />
 
                   <select
-                    className="w-full rounded-2xl border border-white/10 bg-black/20 px-4 py-4 text-white outline-none"
+                    className="w-full rounded-2xl border border-white/10 bg-slate-950 px-5 py-4 text-white outline-none focus:border-cyan-300"
                     value={role}
                     onChange={(e) => setRole(e.target.value)}
                   >
@@ -949,7 +971,7 @@ export default function StaffPage() {
               </section>
             </div>
 
-            <section className="rounded-3xl border border-white/10 bg-white/[0.04] p-6 md:p-8">
+            <section className="overflow-hidden rounded-[3rem] border border-white/10 bg-[#07111f] p-8 shadow-[0_60px_200px_rgba(0,0,0,.42)]">
               <div className="mb-6 flex flex-col gap-3 md:flex-row md:items-end md:justify-between">
                 <div>
                   <h2 className="text-2xl font-black">Team members</h2>
@@ -1195,7 +1217,7 @@ export default function StaffPage() {
               </div>
             </section>
 
-            <section className="rounded-3xl border border-white/10 bg-white/[0.04] p-6 md:p-8">
+            <section className="overflow-hidden rounded-[3rem] border border-white/10 bg-[#07111f] p-8 shadow-[0_60px_200px_rgba(0,0,0,.42)]">
               <div className="mb-6 flex items-start justify-between gap-4">
                 <div>
                   <h2 className="text-2xl font-black">Dashboard users</h2>
@@ -1265,17 +1287,17 @@ export default function StaffPage() {
 
 function StatCard({ label, value }: { label: string; value: string | number }) {
   return (
-    <div className="rounded-3xl border border-white/10 bg-white/[0.04] p-6">
-      <p className="text-sm font-bold text-slate-500">{label}</p>
-      <p className="mt-2 text-3xl font-black text-white">{value}</p>
+    <div className="rounded-[2rem] border border-white/10 bg-[#07111f] p-6 shadow-[0_40px_140px_rgba(0,0,0,.32)]">
+      <p className="text-xs font-black uppercase tracking-[0.22em] text-slate-500">{label}</p>
+      <p className="mt-3 text-4xl font-black tracking-[-0.05em] text-white">{value}</p>
     </div>
   )
 }
 
 function MiniStat({ label, value }: { label: string; value: string | number }) {
   return (
-    <div className="rounded-2xl border border-white/10 bg-white/[0.04] p-4">
-      <p className="text-xs font-bold uppercase tracking-[0.18em] text-slate-500">{label}</p>
+    <div className="rounded-2xl border border-white/10 bg-white/[0.035] p-4">
+      <p className="text-xs font-black uppercase tracking-[0.18em] text-slate-500">{label}</p>
       <p className="mt-2 text-xl font-black text-white">{value}</p>
     </div>
   )

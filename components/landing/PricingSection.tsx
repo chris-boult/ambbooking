@@ -26,7 +26,7 @@ const plans = [
       'Online booking page',
       'Calendar management',
       'Customer CRM',
-      'Money Centre',
+      'Online payments',
     ],
     also: [
       'Team members',
@@ -46,7 +46,7 @@ const plans = [
     highlight: true,
     included: [
       'Everything in Starter',
-      'Deposits and online payments',
+      'Unlimited Staff Members',
       'Gift vouchers',
       'Packages',
     ],

@@ -64,6 +64,22 @@ type CustomerWithStats = Customer & {
   notesList: Note[]
 }
 
+type CsvCustomerImportRow = {
+  first_name: string
+  last_name: string | null
+  email: string | null
+  phone: string | null
+  notes: string | null
+  vip: boolean
+  marketing_opt_in: boolean
+  customer_source: string | null
+  tags: string[]
+  birthday: string | null
+  no_show_count: number
+  outstanding_balance: number
+}
+
+
 export default function CustomersPage() {
   const [customers, setCustomers] = useState<CustomerWithStats[]>([])
   const [teamMembers, setTeamMembers] = useState<TeamMember[]>([])
@@ -76,6 +92,10 @@ export default function CustomersPage() {
   const [searchTerm, setSearchTerm] = useState('')
   const [showArchived, setShowArchived] = useState(false)
   const [showAddCustomer, setShowAddCustomer] = useState(false)
+  const [showImportCustomers, setShowImportCustomers] = useState(false)
+  const [importFileName, setImportFileName] = useState('')
+  const [importPreview, setImportPreview] = useState<CsvCustomerImportRow[]>([])
+  const [importingCsv, setImportingCsv] = useState(false)
 
   const [newFirstName, setNewFirstName] = useState('')
   const [newLastName, setNewLastName] = useState('')
@@ -509,6 +529,211 @@ export default function CustomersPage() {
     loadData()
   }
 
+  function parseCsvLine(line: string) {
+    const values: string[] = []
+    let current = ''
+    let insideQuotes = false
+
+    for (let index = 0; index < line.length; index += 1) {
+      const char = line[index]
+      const nextChar = line[index + 1]
+
+      if (char === '"' && nextChar === '"') {
+        current += '"'
+        index += 1
+      } else if (char === '"') {
+        insideQuotes = !insideQuotes
+      } else if (char === ',' && !insideQuotes) {
+        values.push(current.trim())
+        current = ''
+      } else {
+        current += char
+      }
+    }
+
+    values.push(current.trim())
+    return values
+  }
+
+  function normaliseCsvHeader(value: string) {
+    return value
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, '_')
+      .replace(/^_+|_+$/g, '')
+  }
+
+  function getCsvValue(row: Record<string, string>, keys: string[]) {
+    for (const key of keys) {
+      const value = row[key]
+
+      if (value !== undefined && value !== null && String(value).trim() !== '') {
+        return String(value).trim()
+      }
+    }
+
+    return ''
+  }
+
+  function toBoolean(value: string, fallback = false) {
+    if (!value) return fallback
+
+    const normalised = value.toLowerCase().trim()
+
+    return [
+      'yes',
+      'y',
+      'true',
+      '1',
+      'opt in',
+      'opt_in',
+      'opted in',
+      'opted_in',
+      'subscribed',
+    ].includes(normalised)
+  }
+
+  function parseCustomerCsv(csv: string): CsvCustomerImportRow[] {
+    const lines = csv
+      .split(/\r?\n/)
+      .map((line) => line.trim())
+      .filter(Boolean)
+
+    if (lines.length < 2) return []
+
+    const headers = parseCsvLine(lines[0]).map(normaliseCsvHeader)
+
+    return lines
+      .slice(1)
+      .map((line) => {
+        const values = parseCsvLine(line)
+        const row = headers.reduce<Record<string, string>>((result, header, index) => {
+          result[header] = values[index] || ''
+          return result
+        }, {})
+
+        const fullName = getCsvValue(row, ['name', 'full_name', 'customer_name'])
+        const firstNameFromCsv = getCsvValue(row, ['first_name', 'firstname', 'forename'])
+        const lastNameFromCsv = getCsvValue(row, ['last_name', 'lastname', 'surname'])
+
+        const splitName = fullName.split(' ').filter(Boolean)
+        const firstName = firstNameFromCsv || splitName[0] || ''
+        const lastName =
+          lastNameFromCsv ||
+          (splitName.length > 1 ? splitName.slice(1).join(' ') : '')
+
+        const rawTags = getCsvValue(row, ['tags', 'tag', 'labels'])
+        const rawBirthday = getCsvValue(row, ['birthday', 'date_of_birth', 'dob'])
+        const rawNoShows = getCsvValue(row, ['no_show_count', 'no_shows', 'noshow_count'])
+        const rawOutstanding = getCsvValue(row, [
+          'outstanding_balance',
+          'balance',
+          'amount_due',
+        ])
+
+        return {
+          first_name: firstName,
+          last_name: lastName || null,
+          email: getCsvValue(row, ['email', 'email_address']) || null,
+          phone:
+            getCsvValue(row, [
+              'phone',
+              'phone_number',
+              'mobile',
+              'mobile_number',
+              'telephone',
+            ]) || null,
+          notes: getCsvValue(row, ['notes', 'note', 'customer_notes']) || null,
+          vip: toBoolean(getCsvValue(row, ['vip', 'is_vip']), false),
+          marketing_opt_in: toBoolean(
+            getCsvValue(row, [
+              'marketing_opt_in',
+              'marketing',
+              'email_marketing',
+              'sms_marketing',
+            ]),
+            true
+          ),
+          customer_source:
+            getCsvValue(row, ['source', 'customer_source', 'lead_source']) || null,
+          tags: rawTags
+            ? rawTags
+                .split(/[|,]/)
+                .map((tag) => tag.trim())
+                .filter(Boolean)
+            : [],
+          birthday: rawBirthday || null,
+          no_show_count: Number(rawNoShows || 0),
+          outstanding_balance: Number(rawOutstanding || 0),
+        }
+      })
+      .filter((row) => row.first_name.trim())
+  }
+
+  async function handleCustomerCsvUpload(event: React.ChangeEvent<HTMLInputElement>) {
+    const file = event.target.files?.[0]
+    if (!file) return
+
+    setImportFileName(file.name)
+    setMessage('')
+
+    const text = await file.text()
+    const rows = parseCustomerCsv(text)
+
+    setImportPreview(rows)
+
+    if (rows.length === 0) {
+      setMessage(
+        'No valid customers found in the CSV. Make sure it has a header row and at least a name column.'
+      )
+    }
+  }
+
+  async function importCustomersCsv() {
+    if (!businessId) {
+      setMessage('Business not loaded.')
+      return
+    }
+
+    if (importPreview.length === 0) {
+      setMessage('Upload a CSV before importing.')
+      return
+    }
+
+    setImportingCsv(true)
+
+    const { error } = await supabase.from('customers').insert(
+      importPreview.map((customer) => ({
+        business_id: businessId,
+        first_name: customer.first_name.trim(),
+        last_name: customer.last_name,
+        email: customer.email,
+        phone: customer.phone,
+        notes: customer.notes,
+        vip: customer.vip,
+        marketing_opt_in: customer.marketing_opt_in,
+        customer_source: customer.customer_source || 'CSV import',
+        tags: customer.tags,
+        birthday: customer.birthday,
+        no_show_count: customer.no_show_count,
+        outstanding_balance: customer.outstanding_balance,
+        archived: false,
+      }))
+    )
+
+    setImportingCsv(false)
+
+    if (error) {
+      setMessage(error.message)
+      return
+    }
+
+    setMessage(`${importPreview.length} customers imported successfully.`)
+    setShowImportCustomers(false)
+    setImportFileName('')
+    setImportPreview([])
+    loadData()
+  }
+
   function exportCustomersCsv() {
     const rows = filteredCustomers.map((customer) => ({
       first_name: customer.first_name || '',
@@ -581,17 +806,34 @@ export default function CustomersPage() {
         <div className="flex flex-wrap gap-3">
           <button
             type="button"
-            onClick={() => setShowAddCustomer((value) => !value)}
-            className="bg-white text-slate-950 font-bold px-5 py-3 rounded-xl"
+            onClick={() => {
+              setShowAddCustomer((value) => !value)
+              setShowImportCustomers(false)
+            }}
+            className="group inline-flex items-center justify-center gap-3 rounded-2xl bg-cyan-400 px-6 py-4 text-sm font-black text-slate-950 shadow-[0_0_70px_rgba(34,211,238,.3)] transition hover:-translate-y-1 hover:bg-cyan-300"
           >
-            {showAddCustomer ? 'Close add form' : 'Add customer'}
+            <span className="text-lg leading-none">+</span>
+            {showAddCustomer ? 'Close form' : 'Add customer'}
+          </button>
+
+          <button
+            type="button"
+            onClick={() => {
+              setShowImportCustomers((value) => !value)
+              setShowAddCustomer(false)
+            }}
+            className="group inline-flex items-center justify-center gap-3 rounded-2xl border border-cyan-400/20 bg-cyan-400/10 px-6 py-4 text-sm font-black text-cyan-100 shadow-[0_0_50px_rgba(34,211,238,.12)] transition hover:-translate-y-1 hover:border-cyan-300/40 hover:bg-cyan-400/15"
+          >
+            <span className="text-base leading-none">⇧</span>
+            Import CSV
           </button>
 
           <button
             type="button"
             onClick={exportCustomersCsv}
-            className="bg-slate-800 hover:bg-slate-700 font-bold px-5 py-3 rounded-xl"
+            className="group inline-flex items-center justify-center gap-3 rounded-2xl border border-white/10 bg-white/[0.045] px-6 py-4 text-sm font-black text-white transition hover:-translate-y-1 hover:bg-white/[0.09]"
           >
+            <span className="text-base leading-none">⇩</span>
             Export CSV
           </button>
         </div>
@@ -601,6 +843,121 @@ export default function CustomersPage() {
         <div className="bg-slate-900 border border-slate-800 rounded-2xl p-4 mb-8 text-slate-300">
           {message}
         </div>
+      )}
+
+      {showImportCustomers && (
+        <section className="mb-10 overflow-hidden rounded-[2.5rem] border border-cyan-400/20 bg-[#07111f] p-8 shadow-[0_60px_200px_rgba(0,0,0,.45)]">
+          <div className="mb-8 flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
+            <div>
+              <p className="mb-3 text-xs font-black uppercase tracking-[0.32em] text-cyan-300">
+                Customer import
+              </p>
+
+              <h2 className="text-3xl font-black tracking-[-0.04em]">
+                Bring your existing customers into AMB Booking.
+              </h2>
+
+              <p className="mt-3 max-w-3xl leading-7 text-slate-400">
+                Upload a CSV from your old booking system, spreadsheet, Mailchimp list or CRM. Supported columns include name, first name, last name, email, phone, notes, source, tags, birthday, VIP, marketing opt-in, no-shows and outstanding balance.
+              </p>
+            </div>
+
+            <button
+              type="button"
+              onClick={() => {
+                setShowImportCustomers(false)
+                setImportFileName('')
+                setImportPreview([])
+              }}
+              className="rounded-2xl border border-white/10 bg-white/[0.04] px-5 py-3 text-sm font-black text-white transition hover:bg-white/[0.08]"
+            >
+              Close import
+            </button>
+          </div>
+
+          <label className="block cursor-pointer rounded-[2rem] border border-dashed border-cyan-400/40 bg-cyan-400/10 p-8 text-center transition hover:bg-cyan-400/15">
+            <input
+              type="file"
+              accept=".csv,text/csv"
+              onChange={handleCustomerCsvUpload}
+              className="hidden"
+            />
+
+            <div className="mx-auto mb-4 flex h-16 w-16 items-center justify-center rounded-3xl bg-cyan-400 text-sm font-black text-slate-950 shadow-[0_0_60px_rgba(34,211,238,.35)]">
+              CSV
+            </div>
+
+            <h3 className="text-2xl font-black">
+              Choose customer CSV
+            </h3>
+
+            <p className="mt-2 text-sm text-slate-400">
+              {importFileName || 'Click here to upload a CSV file.'}
+            </p>
+          </label>
+
+          {importPreview.length > 0 && (
+            <div className="mt-8">
+              <div className="mb-5 flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
+                <div>
+                  <h3 className="text-2xl font-black">
+                    Import preview
+                  </h3>
+
+                  <p className="mt-1 text-sm text-slate-400">
+                    {importPreview.length} customers ready to import.
+                  </p>
+                </div>
+
+                <button
+                  type="button"
+                  onClick={importCustomersCsv}
+                  disabled={importingCsv}
+                  className="rounded-2xl bg-cyan-400 px-6 py-4 text-sm font-black text-slate-950 transition hover:-translate-y-1 hover:bg-cyan-300 disabled:cursor-not-allowed disabled:opacity-60"
+                >
+                  {importingCsv ? 'Importing customers...' : `Import ${importPreview.length} customers`}
+                </button>
+              </div>
+
+              <div className="max-h-[360px] overflow-auto rounded-2xl border border-white/10 bg-slate-950">
+                <table className="w-full text-left text-sm">
+                  <thead className="sticky top-0 bg-slate-950 text-slate-400">
+                    <tr>
+                      <th className="p-4">Name</th>
+                      <th className="p-4">Email</th>
+                      <th className="p-4">Phone</th>
+                      <th className="p-4">Source</th>
+                      <th className="p-4">Tags</th>
+                    </tr>
+                  </thead>
+
+                  <tbody>
+                    {importPreview.slice(0, 50).map((customer, index) => (
+                      <tr
+                        key={`${customer.email || customer.phone || customer.first_name}-${index}`}
+                        className="border-t border-white/10"
+                      >
+                        <td className="p-4 font-bold text-white">
+                          {customer.first_name} {customer.last_name}
+                        </td>
+                        <td className="p-4 text-slate-400">{customer.email || '-'}</td>
+                        <td className="p-4 text-slate-400">{customer.phone || '-'}</td>
+                        <td className="p-4 text-slate-400">{customer.customer_source || '-'}</td>
+                        <td className="p-4 text-slate-400">{customer.tags.join(', ') || '-'}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+
+              {importPreview.length > 50 && (
+                <p className="mt-3 text-sm text-slate-500">
+                  Showing first 50 rows only. All {importPreview.length} rows will be imported.
+                </p>
+              )}
+            </div>
+          )}
+        </section>
       )}
 
       {showAddCustomer && (
@@ -990,49 +1347,46 @@ export default function CustomersPage() {
                   </div>
 
                   <div className="flex flex-wrap gap-3">
-                    <button
+                    <ProfileActionButton onClick={() => startEditing(selectedCustomer)}>
+                      Edit
+                    </ProfileActionButton>
+
+                    <ProfileActionButton
                       onClick={() => toggleVip(selectedCustomer)}
-                      className="bg-slate-700 hover:bg-slate-600 px-4 py-2 rounded-lg font-semibold"
+                      variant="vip"
                     >
                       {selectedCustomer.vip ? 'Remove VIP' : 'Mark VIP'}
-                    </button>
+                    </ProfileActionButton>
 
-                    <button
+                    <ProfileActionButton
                       onClick={() => toggleMarketing(selectedCustomer)}
-                      className="bg-slate-700 hover:bg-slate-600 px-4 py-2 rounded-lg font-semibold"
+                      variant="marketing"
                     >
-                      Toggle marketing
-                    </button>
-
-                    <button
-                      onClick={() => startEditing(selectedCustomer)}
-                      className="bg-slate-700 hover:bg-slate-600 px-4 py-2 rounded-lg font-semibold"
-                    >
-                      Edit
-                    </button>
+                      {selectedCustomer.marketing_opt_in === false ? 'Opt in' : 'Opt out'}
+                    </ProfileActionButton>
 
                     {selectedCustomer.archived ? (
-                      <button
+                      <ProfileActionButton
                         onClick={() => restoreCustomer(selectedCustomer)}
-                        className="bg-emerald-600 hover:bg-emerald-700 px-4 py-2 rounded-lg font-semibold"
+                        variant="restore"
                       >
                         Restore
-                      </button>
+                      </ProfileActionButton>
                     ) : (
-                      <button
+                      <ProfileActionButton
                         onClick={() => archiveCustomer(selectedCustomer)}
-                        className="bg-orange-600 hover:bg-orange-700 px-4 py-2 rounded-lg font-semibold"
+                        variant="archive"
                       >
                         Archive
-                      </button>
+                      </ProfileActionButton>
                     )}
 
-                    <button
+                    <ProfileActionButton
                       onClick={() => deleteCustomer(selectedCustomer)}
-                      className="bg-red-600 hover:bg-red-700 px-4 py-2 rounded-lg font-semibold"
+                      variant="danger"
                     >
                       Delete
-                    </button>
+                    </ProfileActionButton>
                   </div>
                 </div>
 
@@ -1318,6 +1672,35 @@ export default function CustomersPage() {
         </div>
       </div>
     </div>
+  )
+}
+
+function ProfileActionButton({
+  children,
+  onClick,
+  variant = 'default',
+}: {
+  children: React.ReactNode
+  onClick: () => void
+  variant?: 'default' | 'vip' | 'marketing' | 'restore' | 'archive' | 'danger'
+}) {
+  const classes = {
+    default: 'border-white/10 bg-white/[0.045] text-white hover:bg-white/[0.09]',
+    vip: 'border-yellow-400/25 bg-yellow-400/10 text-yellow-200 hover:bg-yellow-400/15',
+    marketing: 'border-cyan-400/25 bg-cyan-400/10 text-cyan-200 hover:bg-cyan-400/15',
+    restore: 'border-emerald-400/25 bg-emerald-400/10 text-emerald-200 hover:bg-emerald-400/15',
+    archive: 'border-orange-400/25 bg-orange-400/10 text-orange-200 hover:bg-orange-400/15',
+    danger: 'border-red-400/25 bg-red-400/10 text-red-200 hover:bg-red-400/15',
+  }
+
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className={`rounded-2xl border px-4 py-2.5 text-sm font-black transition hover:-translate-y-0.5 ${classes[variant]}`}
+    >
+      {children}
+    </button>
   )
 }
 

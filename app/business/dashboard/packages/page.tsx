@@ -469,21 +469,29 @@ export default function PackagesPage() {
   }, [business?.plan])
 
   if (loading) {
-    return <div className="p-8 text-white">Loading packages...</div>
+    return (
+      <main className="flex min-h-[60vh] items-center justify-center text-white">
+        <div className="rounded-[2rem] border border-white/10 bg-[#07111f] px-8 py-6 font-black text-slate-300 shadow-[0_50px_180px_rgba(0,0,0,.45)]">
+          Loading packages...
+        </div>
+      </main>
+    )
   }
 
   if (!features.packages) {
     return (
-      <div className="p-8 text-white">
-        <div className="mb-8">
-          <p className="mb-3 text-xs font-black uppercase tracking-[0.22em] text-slate-500">
-            Commercial gating
+      <main className="space-y-8 text-white">
+        <section className="overflow-hidden rounded-[3rem] border border-white/10 bg-[#07111f] p-8 shadow-[0_60px_200px_rgba(0,0,0,.45)]">
+          <p className="mb-6 inline-flex rounded-full border border-amber-400/20 bg-amber-400/10 px-5 py-2 text-xs font-black uppercase tracking-[0.28em] text-amber-300">
+            Upgrade required
           </p>
-          <h1 className="text-4xl font-bold mb-2">Packages</h1>
-          <p className="max-w-3xl text-slate-400">
+          <h1 className="max-w-4xl text-5xl font-black leading-[1.02] tracking-[-0.055em] md:text-6xl">
+            Packages are not included on this plan.
+          </h1>
+          <p className="mt-6 max-w-3xl text-lg leading-8 text-slate-400">
             Prepaid package selling and package balance tracking are not included on the current {currentPlan} plan.
           </p>
-        </div>
+        </section>
 
         <LockedFeatureCard
           title="Packages are locked"
@@ -491,33 +499,39 @@ export default function PackagesPage() {
           feature="Packages"
           plan={currentPlan}
         />
-      </div>
+      </main>
     )
   }
 
   return (
-    <div className="p-8 text-white">
-      <div className="mb-8 flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
-        <div>
-          <p className="mb-3 text-xs font-black uppercase tracking-[0.22em] text-slate-500">
-            Pack 4 commercial gating
-          </p>
-          <h1 className="text-4xl font-bold mb-2">Packages</h1>
-          <p className="text-slate-400">
-            Create prepaid session bundles, assign them to customers and track remaining sessions.
-          </p>
-        </div>
+    <main className="space-y-8 text-white">
+      <section className="overflow-hidden rounded-[3rem] border border-white/10 bg-[#07111f] p-8 shadow-[0_60px_200px_rgba(0,0,0,.45)]">
+        <div className="flex flex-col gap-8 xl:flex-row xl:items-end xl:justify-between">
+          <div>
+            <div className="mb-6 inline-flex items-center gap-3 rounded-full border border-cyan-400/20 bg-cyan-400/10 px-5 py-2 text-xs font-black uppercase tracking-[0.28em] text-cyan-300">
+              Package centre
+            </div>
 
-        <div className="rounded-2xl border border-white/10 bg-slate-900 px-5 py-4">
-          <p className="text-xs font-black uppercase tracking-[0.2em] text-slate-500">
-            Current plan
-          </p>
-          <p className="mt-1 text-2xl font-black">{currentPlan}</p>
+            <h1 className="max-w-5xl text-5xl font-black leading-[1.02] tracking-[-0.055em] md:text-6xl">
+              Sell prepaid packages and track every session.
+            </h1>
+
+            <p className="mt-6 max-w-3xl text-lg leading-8 text-slate-400">
+              Create prepaid session bundles, assign packages to customers, monitor balances and consume sessions from one polished commercial dashboard.
+            </p>
+          </div>
+
+          <div className="rounded-[2rem] border border-white/10 bg-white/[0.04] px-6 py-5">
+            <p className="text-xs font-black uppercase tracking-[0.22em] text-slate-500">
+              Current plan
+            </p>
+            <p className="mt-2 text-3xl font-black text-white">{currentPlan}</p>
+          </div>
         </div>
-      </div>
+      </section>
 
       {message && (
-        <div className="mb-6 bg-slate-900 border border-slate-800 rounded-xl p-4 text-slate-300">
+        <div className="rounded-2xl border border-cyan-400/20 bg-cyan-400/10 px-5 py-4 text-sm font-bold text-cyan-100">
           {message}
         </div>
       )}
@@ -548,7 +562,7 @@ export default function PackagesPage() {
       </div>
 
       <div className="grid xl:grid-cols-2 gap-8 mb-8">
-        <div className="bg-slate-900 border border-slate-800 rounded-2xl p-6">
+        <div className="overflow-hidden rounded-[3rem] border border-white/10 bg-[#07111f] p-8 shadow-[0_60px_200px_rgba(0,0,0,.42)]">
           <div className="mb-6 flex items-start justify-between gap-4">
             <div>
               <h2 className="text-2xl font-bold mb-2">Create a package type</h2>
@@ -572,7 +586,7 @@ export default function PackagesPage() {
                 value={packageName}
                 onChange={(event) => setPackageName(event.target.value)}
                 placeholder="Example: 5 Haircuts"
-                className="w-full bg-slate-950 border border-slate-700 rounded-lg p-3 text-white"
+                className="w-full rounded-2xl border border-white/10 bg-slate-950 px-5 py-4 text-white outline-none focus:border-cyan-300"
               />
             </div>
 
@@ -584,7 +598,7 @@ export default function PackagesPage() {
                 value={packageDescription}
                 onChange={(event) => setPackageDescription(event.target.value)}
                 placeholder="Example: Customer receives 5 standard haircut appointments."
-                className="w-full bg-slate-950 border border-slate-700 rounded-lg p-3 text-white min-h-28"
+                className="min-h-28 w-full rounded-2xl border border-white/10 bg-slate-950 px-5 py-4 text-white outline-none focus:border-cyan-300"
               />
             </div>
 
@@ -599,7 +613,7 @@ export default function PackagesPage() {
                   placeholder="Example: 5"
                   type="number"
                   min="1"
-                  className="w-full bg-slate-950 border border-slate-700 rounded-lg p-3 text-white"
+                  className="w-full rounded-2xl border border-white/10 bg-slate-950 px-5 py-4 text-white outline-none focus:border-cyan-300"
                 />
               </div>
 
@@ -613,7 +627,7 @@ export default function PackagesPage() {
                   placeholder="Example: 100"
                   type="number"
                   min="1"
-                  className="w-full bg-slate-950 border border-slate-700 rounded-lg p-3 text-white"
+                  className="w-full rounded-2xl border border-white/10 bg-slate-950 px-5 py-4 text-white outline-none focus:border-cyan-300"
                 />
               </div>
             </div>
@@ -621,7 +635,7 @@ export default function PackagesPage() {
             <button
               type="button"
               onClick={createPackage}
-              className="bg-white text-slate-950 font-bold px-6 py-3 rounded-lg disabled:cursor-not-allowed disabled:opacity-50"
+              className="rounded-2xl bg-cyan-400 px-6 py-4 font-black text-slate-950 shadow-[0_0_70px_rgba(34,211,238,.25)] transition hover:-translate-y-1 hover:bg-cyan-300 disabled:cursor-not-allowed disabled:opacity-50"
               disabled={!features.packages}
             >
               Create package type
@@ -629,7 +643,7 @@ export default function PackagesPage() {
           </div>
         </div>
 
-        <div className="bg-slate-900 border border-slate-800 rounded-2xl p-6">
+        <div className="overflow-hidden rounded-[3rem] border border-white/10 bg-[#07111f] p-8 shadow-[0_60px_200px_rgba(0,0,0,.42)]">
           <div className="mb-6 flex items-start justify-between gap-4">
             <div>
               <h2 className="text-2xl font-bold mb-2">Assign package to customer</h2>
@@ -652,7 +666,7 @@ export default function PackagesPage() {
               <select
                 value={selectedCustomerId}
                 onChange={(event) => setSelectedCustomerId(event.target.value)}
-                className="w-full bg-slate-950 border border-slate-700 rounded-lg p-3 text-white"
+                className="w-full rounded-2xl border border-white/10 bg-slate-950 px-5 py-4 text-white outline-none focus:border-cyan-300"
               >
                 <option value="">Choose customer</option>
                 {customers.map((customer) => (
@@ -671,7 +685,7 @@ export default function PackagesPage() {
               <select
                 value={selectedPackageId}
                 onChange={(event) => setSelectedPackageId(event.target.value)}
-                className="w-full bg-slate-950 border border-slate-700 rounded-lg p-3 text-white"
+                className="w-full rounded-2xl border border-white/10 bg-slate-950 px-5 py-4 text-white outline-none focus:border-cyan-300"
               >
                 <option value="">Choose package type</option>
                 {packages
@@ -693,14 +707,14 @@ export default function PackagesPage() {
                 value={expiryDate}
                 onChange={(event) => setExpiryDate(event.target.value)}
                 type="date"
-                className="w-full bg-slate-950 border border-slate-700 rounded-lg p-3 text-white"
+                className="w-full rounded-2xl border border-white/10 bg-slate-950 px-5 py-4 text-white outline-none focus:border-cyan-300"
               />
             </div>
 
             <button
               type="button"
               onClick={assignPackageToCustomer}
-              className="bg-white text-slate-950 font-bold px-6 py-3 rounded-lg disabled:cursor-not-allowed disabled:opacity-50"
+              className="rounded-2xl bg-cyan-400 px-6 py-4 font-black text-slate-950 shadow-[0_0_70px_rgba(34,211,238,.25)] transition hover:-translate-y-1 hover:bg-cyan-300 disabled:cursor-not-allowed disabled:opacity-50"
               disabled={!features.packageAssignments}
             >
               Assign package to customer
@@ -709,7 +723,7 @@ export default function PackagesPage() {
         </div>
       </div>
 
-      <div className="bg-slate-900 border border-slate-800 rounded-2xl p-6 mb-8">
+      <div className="overflow-hidden rounded-[3rem] border border-white/10 bg-[#07111f] p-8 shadow-[0_60px_200px_rgba(0,0,0,.42)] mb-8">
         <h2 className="text-2xl font-bold mb-2">Package types</h2>
         <p className="text-slate-400 mb-6">
           These are the package products this business can sell.
@@ -723,7 +737,7 @@ export default function PackagesPage() {
           {packages.map((item) => (
             <div
               key={item.id}
-              className="bg-slate-950 border border-slate-800 rounded-xl p-5"
+              className="rounded-[2rem] border border-white/10 bg-slate-950 p-6 transition hover:-translate-y-1 hover:border-cyan-300/30"
             >
               <div className="flex items-start justify-between gap-3">
                 <h3 className="text-xl font-bold">{item.name}</h3>
@@ -760,7 +774,7 @@ export default function PackagesPage() {
               <button
                 type="button"
                 onClick={() => updatePackageStatus(item.id, !item.active)}
-                className="mt-4 bg-slate-700 hover:bg-slate-600 px-4 py-2 rounded-lg font-semibold disabled:cursor-not-allowed disabled:opacity-50"
+                className="mt-4 rounded-2xl border border-white/10 bg-white/[0.04] px-4 py-2.5 text-sm font-black text-white transition hover:-translate-y-0.5 hover:bg-white/[0.09] disabled:cursor-not-allowed disabled:opacity-50"
                 disabled={!features.packages}
               >
                 {item.active ? 'Deactivate package type' : 'Reactivate package type'}
@@ -777,7 +791,7 @@ export default function PackagesPage() {
         </p>
 
         {customerPackages.length === 0 && (
-          <div className="bg-slate-900 border border-slate-800 rounded-xl p-6 text-slate-400">
+          <div className="rounded-[2rem] border border-white/10 bg-[#07111f] p-8 shadow-[0_40px_140px_rgba(0,0,0,.35)] text-slate-400">
             No customer packages assigned yet.
           </div>
         )}
@@ -794,7 +808,7 @@ export default function PackagesPage() {
             return (
               <div
                 key={item.id}
-                className="bg-slate-900 border border-slate-800 rounded-xl p-6"
+                className="rounded-[2rem] border border-white/10 bg-[#07111f] p-8 shadow-[0_40px_140px_rgba(0,0,0,.35)]"
               >
                 <div className="flex flex-col lg:flex-row lg:items-start lg:justify-between gap-4">
                   <div className="min-w-0 flex-1">
@@ -863,7 +877,7 @@ export default function PackagesPage() {
                         <button
                           type="button"
                           onClick={() => useSession(item)}
-                          className="bg-emerald-600 hover:bg-emerald-700 px-4 py-2 rounded-lg font-semibold disabled:cursor-not-allowed disabled:opacity-50"
+                          className="rounded-2xl border border-emerald-400/20 bg-emerald-400/10 px-4 py-2.5 text-sm font-black text-emerald-200 transition hover:-translate-y-0.5 hover:bg-emerald-400/20 disabled:cursor-not-allowed disabled:opacity-50"
                           disabled={!features.packageUsage}
                         >
                           Use one session
@@ -872,7 +886,7 @@ export default function PackagesPage() {
                         <button
                           type="button"
                           onClick={() => cancelCustomerPackage(item.id)}
-                          className="bg-red-600 hover:bg-red-700 px-4 py-2 rounded-lg font-semibold disabled:cursor-not-allowed disabled:opacity-50"
+                          className="rounded-2xl border border-red-400/20 bg-red-400/10 px-4 py-2.5 text-sm font-black text-red-200 transition hover:-translate-y-0.5 hover:bg-red-400/20 disabled:cursor-not-allowed disabled:opacity-50"
                           disabled={!features.packageAssignments}
                         >
                           Cancel customer package
@@ -892,15 +906,15 @@ export default function PackagesPage() {
           })}
         </div>
       </div>
-    </div>
+    </main>
   )
 }
 
 function StatCard({ title, value }: { title: string; value: string }) {
   return (
-    <div className="bg-slate-900 border border-slate-800 rounded-xl p-5">
-      <p className="text-slate-400 text-sm mb-2">{title}</p>
-      <p className="text-3xl font-bold">{value}</p>
+    <div className="rounded-[2rem] border border-white/10 bg-[#07111f] p-6 shadow-[0_40px_140px_rgba(0,0,0,.32)]">
+      <p className="text-xs font-black uppercase tracking-[0.22em] text-slate-500">{title}</p>
+      <p className="mt-3 text-4xl font-black tracking-[-0.05em] text-white">{value}</p>
     </div>
   )
 }
@@ -915,7 +929,7 @@ function FeatureStatusCard({
   description: string
 }) {
   return (
-    <div className="rounded-2xl border border-slate-800 bg-slate-900 p-5">
+    <div className="rounded-[2rem] border border-white/10 bg-[#07111f] p-6 shadow-[0_40px_140px_rgba(0,0,0,.32)]">
       <div className="mb-3 flex items-center justify-between gap-4">
         <h3 className="font-black">{title}</h3>
         <span

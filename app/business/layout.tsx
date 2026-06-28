@@ -7,6 +7,14 @@ import { BrandProvider, resolveBrand, useBrand, type BrandConfig } from '@/lib/b
 
 type UserRole = 'owner' | 'manager' | 'staff' | null
 
+type NavRole = 'owner' | 'manager' | 'staff'
+
+type NavItem = {
+  name: string
+  href: string
+  roles: NavRole[]
+}
+
 type BusinessBrandRow = {
   id?: string
   business_name?: string | null
@@ -133,9 +141,9 @@ function DashboardShell({
 }) {
   const brand = useBrand()
 
-  const navItems = useMemo(() => {
-    const allItems = [
-      { name: 'Overview', href: '/business', roles: ['owner', 'manager', 'staff'] },
+  const navItems = useMemo<NavItem[]>(() => {
+    const allItems: NavItem[] = [
+      { name: 'Overview', href: '/business/dashboard', roles: ['owner', 'manager', 'staff'] },
       { name: 'Calendar', href: '/business/dashboard/calendar', roles: ['owner', 'manager', 'staff'] },
       { name: 'Bookings', href: '/business/dashboard/bookings', roles: ['owner', 'manager', 'staff'] },
       { name: 'Customers', href: '/business/dashboard/customers', roles: ['owner', 'manager', 'staff'] },
@@ -150,11 +158,16 @@ function DashboardShell({
       { name: 'Email Campaigns', href: '/business/dashboard/marketing/email', roles: ['owner', 'manager'] },
       { name: 'Reports', href: '/business/dashboard/reports', roles: ['owner', 'manager'] },
       { name: 'Money', href: '/business/dashboard/money', roles: ['owner', 'manager'] },
+      { name: 'Support', href: '/business/dashboard/support', roles: ['owner', 'manager', 'staff'] },
       { name: 'Settings', href: '/business/dashboard/settings', roles: ['owner'] },
     ]
 
-    return allItems.filter((item) => role && item.roles.includes(role))
+    const resolvedRole: NavRole = role ?? 'owner'
+
+    return allItems.filter((item) => item.roles.includes(resolvedRole))
   }, [role])
+
+  const logoUrl = brand.logoUrl || ''
 
   return (
     <div
@@ -176,12 +189,12 @@ function DashboardShell({
 
       <div className="relative z-10 flex min-h-screen">
         <aside className="hidden lg:flex w-64 shrink-0 flex-col border-r border-white/10 bg-black/50 backdrop-blur-2xl px-6 py-7">
-          <Link href="/business" className="mb-10 block">
+          <Link href="/business/dashboard" className="mb-10 block">
             <div className="rounded-2xl border border-white/10 bg-black p-4">
-              {brand.logoUrl ? (
+              {logoUrl ? (
                 <img
-                  src={brand.logoUrl}
-                  alt={brand.businessName}
+                  src={logoUrl}
+                  alt={brand.businessName || brand.platformName || 'Business'}
                   className="block w-full max-w-[170px] h-auto"
                 />
               ) : (
@@ -196,7 +209,7 @@ function DashboardShell({
             </div>
           </Link>
 
-          <nav className="space-y-1">
+          <nav className="space-y-1 overflow-y-auto pr-1">
             {loadingRole && (
               <div className="px-4 py-3 text-sm text-slate-500">
                 Loading menu...
@@ -217,7 +230,7 @@ function DashboardShell({
 
           <div className="mt-auto rounded-3xl border border-white/10 bg-white/[0.04] p-5">
             <div className="text-[10px] uppercase tracking-[0.3em] text-slate-500 mb-3">
-              {role ? `${role} access` : 'No role found'}
+              {role ? `${role} access` : 'owner access'}
             </div>
 
             <div className="text-lg font-bold">Growth Plan</div>
@@ -226,7 +239,7 @@ function DashboardShell({
               Your booking system is live.
             </p>
 
-            {role === 'owner' && (
+            {(role || 'owner') === 'owner' && (
               <Link
                 href="/onboarding/plan"
                 className="mt-5 block rounded-xl px-4 py-3 text-center text-sm font-bold text-white"
@@ -255,7 +268,7 @@ function DashboardShell({
                 </div>
               </div>
 
-              {role === 'owner' && (
+              {(role || 'owner') === 'owner' && (
                 <Link
                   href="/business/dashboard/settings"
                   className="rounded-full border border-white/10 bg-white/[0.04] px-4 py-2 text-sm font-bold text-slate-300 hover:text-white"

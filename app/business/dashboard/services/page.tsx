@@ -33,6 +33,8 @@ type Service = {
   bundle_discount_value?: number | null
 }
 
+const HIDDEN_SERVICES_STORAGE_KEY = 'amb_hidden_service_ids'
+
 const emptyForm = {
   mode: 'standard' as ServiceMode,
   name: '',
@@ -60,14 +62,31 @@ export default function ServicesPage() {
   const [editingId, setEditingId] = useState<string | null>(null)
   const [message, setMessage] = useState('')
   const [loading, setLoading] = useState(false)
+  const [hiddenServiceIds, setHiddenServiceIds] = useState<string[]>([])
 
   useEffect(() => {
+    if (typeof window !== 'undefined') {
+      const stored = window.localStorage.getItem(HIDDEN_SERVICES_STORAGE_KEY)
+
+      if (stored) {
+        try {
+          setHiddenServiceIds(JSON.parse(stored))
+        } catch {
+          setHiddenServiceIds([])
+        }
+      }
+    }
+
     loadData()
   }, [])
 
   const activeServices = useMemo(
-    () => services.filter((service) => service.is_active !== false),
-    [services]
+    () =>
+      services.filter(
+        (service) =>
+          service.is_active !== false && !hiddenServiceIds.includes(service.id)
+      ),
+    [services, hiddenServiceIds]
   )
 
   const standardServices = useMemo(
@@ -88,6 +107,30 @@ export default function ServicesPage() {
   const categories = useMemo(() => {
     return Array.from(new Set(activeServices.map((s) => s.category).filter(Boolean) as string[])).sort()
   }, [activeServices])
+
+  function rememberHiddenService(serviceId: string) {
+    setHiddenServiceIds((current) => {
+      const next = Array.from(new Set([...current, serviceId]))
+
+      if (typeof window !== 'undefined') {
+        window.localStorage.setItem(HIDDEN_SERVICES_STORAGE_KEY, JSON.stringify(next))
+      }
+
+      return next
+    })
+  }
+
+  function forgetHiddenService(serviceId: string) {
+    setHiddenServiceIds((current) => {
+      const next = current.filter((id) => id !== serviceId)
+
+      if (typeof window !== 'undefined') {
+        window.localStorage.setItem(HIDDEN_SERVICES_STORAGE_KEY, JSON.stringify(next))
+      }
+
+      return next
+    })
+  }
 
   async function loadData() {
     setMessage('')
@@ -131,7 +174,7 @@ export default function ServicesPage() {
       return
     }
 
-    setServices((servicesData || []) as Service[])
+    setServices(((servicesData || []) as Service[]).filter((service) => service.is_active !== false))
   }
 
   function updateForm(key: keyof typeof emptyForm, value: any) {
@@ -263,6 +306,10 @@ export default function ServicesPage() {
       return
     }
 
+    if (editingId) {
+      forgetHiddenService(editingId)
+    }
+
     setMessage(editingId ? 'Service updated successfully.' : 'Service created successfully.')
     resetForm()
     await loadData()
@@ -279,6 +326,8 @@ export default function ServicesPage() {
 
     const previousServices = services
 
+    rememberHiddenService(serviceId)
+
     setServices((current) =>
       current.map((service) =>
         service.id === serviceId ? { ...service, is_active: false } : service
@@ -293,14 +342,74 @@ export default function ServicesPage() {
       .from('services')
       .update({ is_active: false })
       .eq('id', serviceId)
+      .eq('business_id', businessId)
 
     if (error) {
       setServices(previousServices)
-      setMessage(error.message)
+      setMessage(
+        `Service hidden from this device, but Supabase could not archive it: ${error.message}`
+      )
       return
     }
 
     setMessage('Service archived.')
+    await loadData()
+  }
+
+  async function deleteService(serviceId: string) {
+    setMessage('')
+
+    const service = services.find((item) => item.id === serviceId)
+    const serviceName = service?.name || 'this service'
+
+    const confirmed = window.confirm(
+      `Delete ${serviceName}? If this service has existing bookings, AMB Booking will archive it instead so historic bookings are preserved.`
+    )
+
+    if (!confirmed) return
+
+    const previousServices = services
+
+    rememberHiddenService(serviceId)
+    setServices((current) => current.filter((item) => item.id !== serviceId))
+
+    if (editingId === serviceId) {
+      resetForm()
+    }
+
+    const { error: deleteError } = await supabase
+      .from('services')
+      .delete()
+      .eq('id', serviceId)
+      .eq('business_id', businessId)
+
+    if (!deleteError) {
+      setMessage('Service deleted successfully.')
+      await loadData()
+      return
+    }
+
+    const { error: archiveError } = await supabase
+      .from('services')
+      .update({ is_active: false })
+      .eq('id', serviceId)
+      .eq('business_id', businessId)
+
+    if (archiveError) {
+      setServices(previousServices)
+      setMessage(
+        `Service hidden from this device, but Supabase could not delete or archive it: ${
+          archiveError.message || deleteError.message
+        }`
+      )
+      return
+    }
+
+    setMessage(
+      'Service has existing linked records, so it was archived instead of permanently deleted.'
+    )
+
+    await loadData()
   }
 
   function paymentLabel(type: PaymentType | null) {
@@ -558,10 +667,12 @@ export default function ServicesPage() {
           <div className="flex items-end justify-between gap-4">
             <div>
               <h2 className="text-2xl font-black">Your services</h2>
-              <p className="mt-2 text-slate-400">Grouped by service type.</p>
+              <p className="mt-2 text-slate-400">
+                Grouped by service type. Archived and deleted services are hidden from this list.
+              </p>
             </div>
             <span className="rounded-full bg-white/10 px-4 py-2 text-sm font-bold text-slate-300">
-              {activeServices.length} service{activeServices.length === 1 ? '' : 's'}
+              {activeServices.length} active service{activeServices.length === 1 ? '' : 's'}
             </span>
           </div>
 
@@ -571,6 +682,7 @@ export default function ServicesPage() {
             allServices={activeServices}
             onEdit={startEdit}
             onArchive={archiveService}
+            onDelete={deleteService}
             findServiceName={findServiceName}
             serviceModeLabel={serviceModeLabel}
             paymentLabel={paymentLabel}
@@ -583,6 +695,7 @@ export default function ServicesPage() {
             allServices={activeServices}
             onEdit={startEdit}
             onArchive={archiveService}
+            onDelete={deleteService}
             findServiceName={findServiceName}
             serviceModeLabel={serviceModeLabel}
             paymentLabel={paymentLabel}
@@ -595,6 +708,7 @@ export default function ServicesPage() {
             allServices={activeServices}
             onEdit={startEdit}
             onArchive={archiveService}
+            onDelete={deleteService}
             findServiceName={findServiceName}
             serviceModeLabel={serviceModeLabel}
             paymentLabel={paymentLabel}
@@ -647,6 +761,7 @@ function ServiceGroup({
   allServices,
   onEdit,
   onArchive,
+  onDelete,
   findServiceName,
   serviceModeLabel,
   paymentLabel,
@@ -657,6 +772,7 @@ function ServiceGroup({
   allServices: Service[]
   onEdit: (service: Service) => void
   onArchive: (id: string) => void
+  onDelete: (id: string) => void
   findServiceName: (id?: string | null) => string
   serviceModeLabel: (service: Service) => string
   paymentLabel: (type: PaymentType | null) => string
@@ -750,12 +866,29 @@ function ServiceGroup({
                   )}
                 </div>
 
-                <div className="flex gap-2">
-                  <button onClick={() => onEdit(service)} className="rounded-xl border border-white/10 px-4 py-2 text-sm font-bold text-white hover:bg-white/10">
+                <div className="flex flex-wrap gap-2">
+                  <button
+                    type="button"
+                    onClick={() => onEdit(service)}
+                    className="rounded-xl border border-white/10 px-4 py-2 text-sm font-bold text-white hover:bg-white/10"
+                  >
                     Edit
                   </button>
-                  <button onClick={() => onArchive(service.id)} className="rounded-xl bg-red-500/15 px-4 py-2 text-sm font-bold text-red-300 hover:bg-red-500/25">
+
+                  <button
+                    type="button"
+                    onClick={() => onArchive(service.id)}
+                    className="rounded-xl border border-orange-400/20 bg-orange-400/10 px-4 py-2 text-sm font-bold text-orange-200 hover:bg-orange-400/20"
+                  >
                     Archive
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => onDelete(service.id)}
+                    className="rounded-xl border border-red-400/20 bg-red-400/10 px-4 py-2 text-sm font-bold text-red-200 hover:bg-red-400/20"
+                  >
+                    Delete
                   </button>
                 </div>
               </div>
