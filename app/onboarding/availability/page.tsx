@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useMemo, useState } from 'react'
+import { Suspense, useEffect, useMemo, useState } from 'react'
 import Image from 'next/image'
 import Link from 'next/link'
 import { useRouter, useSearchParams } from 'next/navigation'
@@ -70,7 +70,7 @@ function normaliseAvailability(rows: AvailabilityRow[]) {
   })
 }
 
-export default function OnboardingAvailabilityPage() {
+function OnboardingAvailabilityContent() {
   const router = useRouter()
   const searchParams = useSearchParams()
 
@@ -630,5 +630,20 @@ export default function OnboardingAvailabilityPage() {
         </div>
       </section>
     </main>
+  )
+}
+
+
+export default function OnboardingAvailabilityPage() {
+  return (
+    <Suspense
+      fallback={
+        <main className="flex min-h-screen items-center justify-center bg-[#020617] text-white">
+          Loading availability...
+        </main>
+      }
+    >
+      <OnboardingAvailabilityContent />
+    </Suspense>
   )
 }
