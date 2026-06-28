@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useMemo, useState } from 'react'
+import { Suspense, useEffect, useMemo, useState } from 'react'
 import Image from 'next/image'
 import Link from 'next/link'
 import { useRouter, useSearchParams } from 'next/navigation'
@@ -37,7 +37,7 @@ type Service = {
 
 const STORAGE_KEY = 'amb_onboarding_business_id'
 
-export default function OnboardingServicesPage() {
+function OnboardingServicesContent() {
   const router = useRouter()
   const searchParams = useSearchParams()
 
@@ -557,5 +557,19 @@ export default function OnboardingServicesPage() {
         </div>
       </section>
     </main>
+  )
+}
+
+export default function OnboardingServicesPage() {
+  return (
+    <Suspense
+      fallback={
+        <main className="flex min-h-screen items-center justify-center bg-[#020617] text-white">
+          Loading services...
+        </main>
+      }
+    >
+      <OnboardingServicesContent />
+    </Suspense>
   )
 }
