@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useMemo, useState } from 'react'
+import { Suspense, useEffect, useMemo, useState } from 'react'
 import Image from 'next/image'
 import Link from 'next/link'
 import { useRouter, useSearchParams } from 'next/navigation'
@@ -24,7 +24,7 @@ const plans = [
 
 const REFERRAL_STORAGE_KEY = 'amb_referral_code'
 
-export default function SignupPage() {
+function SignupContent() {
   const router = useRouter()
   const searchParams = useSearchParams()
 
@@ -343,5 +343,19 @@ export default function SignupPage() {
         </motion.div>
       </section>
     </main>
+  )
+}
+
+export default function SignupPage() {
+  return (
+    <Suspense
+      fallback={
+        <main className="flex min-h-screen items-center justify-center bg-[#020617] text-white">
+          Loading signup...
+        </main>
+      }
+    >
+      <SignupContent />
+    </Suspense>
   )
 }
