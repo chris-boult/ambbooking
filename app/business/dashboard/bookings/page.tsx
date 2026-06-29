@@ -1,81 +1,16 @@
 'use client'
 
 import { useEffect, useMemo, useState } from 'react'
+import PageHeader from '@/components/ui/PageHeader'
 import { supabase } from '@/lib/supabase'
-
-type Booking = {
-  id: string
-  business_id: string
-  customer_id: string | null
-  service_id: string | null
-  team_member_id: string | null
-  booking_date: string
-  booking_time: string
-  status: string
-  customers:
-    | {
-        first_name: string
-        last_name: string | null
-        email: string | null
-      }[]
-    | null
-  services:
-    | {
-        name: string
-        price: number
-      }[]
-    | null
-  team_members:
-    | {
-        full_name: string
-      }[]
-    | null
-}
-
-type RawBooking = {
-  id: string
-  business_id: string
-  customer_id: string | null
-  service_id: string | null
-  team_member_id: string | null
-  booking_date: string
-  booking_time: string
-  status: string
-}
-
-type Customer = {
-  id: string
-  first_name: string
-  last_name: string | null
-  email: string | null
-}
-
-type Service = {
-  id: string
-  name: string
-  price: number
-}
-
-type TeamMember = {
-  id: string
-  full_name: string
-}
-
-type Availability = {
-  day_of_week: number
-  start_time: string | null
-  end_time: string | null
-  is_available: boolean
-}
-
-function uniqueValues(values: (string | null)[]) {
-  return Array.from(new Set(values.filter(Boolean))) as string[]
-}
+import { Availability, Booking, Customer, RawBooking, Service, TeamMember } from './types'
+import { formatBookingDate, uniqueValues } from './utils/bookingFormatting'
+import BookingSection from './components/BookingSection'
+import RescheduleModal from './components/RescheduleModal'
 
 export default function BookingsPage() {
   const [bookings, setBookings] = useState<Booking[]>([])
   const [loading, setLoading] = useState(true)
-
   const [rescheduleBooking, setRescheduleBooking] = useState<Booking | null>(null)
   const [newDate, setNewDate] = useState('')
   const [newTime, setNewTime] = useState('')
@@ -83,80 +18,45 @@ export default function BookingsPage() {
   const [bookedTimes, setBookedTimes] = useState<string[]>([])
   const [message, setMessage] = useState('')
 
-  const dateOptions = useMemo(() => {
-    return Array.from({ length: 14 }, (_, index) => {
-      const date = new Date()
-      date.setDate(date.getDate() + index)
-
-      return {
-        value: date.toISOString().split('T')[0],
-        day: date.toLocaleDateString('en-GB', { weekday: 'short' }),
-        date: date.toLocaleDateString('en-GB', { day: 'numeric' }),
-        month: date.toLocaleDateString('en-GB', { month: 'short' }),
-      }
-    })
-  }, [])
+  const dateOptions = useMemo(() => Array.from({ length: 14 }, (_, index) => {
+    const date = new Date()
+    date.setDate(date.getDate() + index)
+    return {
+      value: date.toISOString().split('T')[0],
+      day: date.toLocaleDateString('en-GB', { weekday: 'short' }),
+      date: date.toLocaleDateString('en-GB', { day: 'numeric' }),
+      month: date.toLocaleDateString('en-GB', { month: 'short' }),
+    }
+  }), [])
 
   const selectedDayOfWeek = newDate ? new Date(newDate).getDay() : null
 
   const timeSlots = useMemo(() => {
     const slots: string[] = []
-
-    if (!availability?.is_available) return slots
-    if (!availability.start_time || !availability.end_time) return slots
-
-    const start = availability.start_time.slice(0, 5)
-    const end = availability.end_time.slice(0, 5)
-
-    let [hour, minute] = start.split(':').map(Number)
-    const [endHour, endMinute] = end.split(':').map(Number)
-
+    if (!availability?.is_available || !availability.start_time || !availability.end_time) return slots
+    let [hour, minute] = availability.start_time.slice(0, 5).split(':').map(Number)
+    const [endHour, endMinute] = availability.end_time.slice(0, 5).split(':').map(Number)
     while (hour < endHour || (hour === endHour && minute < endMinute)) {
-      slots.push(
-        `${String(hour).padStart(2, '0')}:${String(minute).padStart(2, '0')}`
-      )
-
+      slots.push(`${String(hour).padStart(2, '0')}:${String(minute).padStart(2, '0')}`)
       minute += 30
-
-      if (minute >= 60) {
-        minute = 0
-        hour += 1
-      }
+      if (minute >= 60) { minute = 0; hour += 1 }
     }
-
     return slots
   }, [availability])
 
-  const availableTimeSlots = timeSlots.filter(
-    (slot) => !bookedTimes.includes(slot)
-  )
+  const availableTimeSlots = timeSlots.filter((slot) => !bookedTimes.includes(slot))
 
   async function loadBookings() {
     setLoading(true)
-
     const { data: bookingData, error: bookingError } = await supabase
       .from('bookings')
-      .select(`
-        id,
-        business_id,
-        customer_id,
-        service_id,
-        team_member_id,
-        booking_date,
-        booking_time,
-        status
-      `)
+      .select('id,business_id,customer_id,service_id,team_member_id,booking_date,booking_time,status')
       .order('booking_date', { ascending: true })
       .order('booking_time', { ascending: true })
 
-    if (bookingError || !bookingData) {
-      setBookings([])
-      setLoading(false)
-      return
-    }
+    if (bookingError || !bookingData) { setBookings([]); setLoading(false); return }
 
     const rawBookings = bookingData as RawBooking[]
-
     const customerIds = uniqueValues(rawBookings.map((booking) => booking.customer_id))
     const serviceIds = uniqueValues(rawBookings.map((booking) => booking.service_id))
     const teamMemberIds = uniqueValues(rawBookings.map((booking) => booking.team_member_id))
@@ -165,74 +65,35 @@ export default function BookingsPage() {
     let services: Service[] = []
     let teamMembers: TeamMember[] = []
 
-    if (customerIds.length > 0) {
-      const { data } = await supabase
-        .from('customers')
-        .select('id, first_name, last_name, email')
-        .in('id', customerIds)
-
+    if (customerIds.length) {
+      const { data } = await supabase.from('customers').select('id, first_name, last_name, email').in('id', customerIds)
       customers = (data as Customer[]) || []
     }
-
-    if (serviceIds.length > 0) {
-      const { data } = await supabase
-        .from('services')
-        .select('id, name, price')
-        .in('id', serviceIds)
-
+    if (serviceIds.length) {
+      const { data } = await supabase.from('services').select('id, name, price').in('id', serviceIds)
       services = (data as Service[]) || []
     }
-
-    if (teamMemberIds.length > 0) {
-      const { data } = await supabase
-        .from('team_members')
-        .select('id, full_name')
-        .in('id', teamMemberIds)
-
+    if (teamMemberIds.length) {
+      const { data } = await supabase.from('team_members').select('id, full_name').in('id', teamMemberIds)
       teamMembers = (data as TeamMember[]) || []
     }
 
-    const enrichedBookings: Booking[] = rawBookings.map((booking) => {
+    setBookings(rawBookings.map((booking) => {
       const customer = customers.find((item) => item.id === booking.customer_id)
       const service = services.find((item) => item.id === booking.service_id)
       const teamMember = teamMembers.find((item) => item.id === booking.team_member_id)
-
       return {
         ...booking,
-        customers: customer
-          ? [
-              {
-                first_name: customer.first_name,
-                last_name: customer.last_name,
-                email: customer.email,
-              },
-            ]
-          : null,
-        services: service
-          ? [
-              {
-                name: service.name,
-                price: service.price,
-              },
-            ]
-          : null,
-        team_members: teamMember
-          ? [
-              {
-                full_name: teamMember.full_name,
-              },
-            ]
-          : null,
+        customers: customer ? [{ first_name: customer.first_name, last_name: customer.last_name, email: customer.email }] : null,
+        services: service ? [{ name: service.name, price: service.price }] : null,
+        team_members: teamMember ? [{ full_name: teamMember.full_name }] : null,
       }
-    })
-
-    setBookings(enrichedBookings)
+    }))
     setLoading(false)
   }
 
   async function awardLoyaltyVisitForCompletedBooking(booking: Booking) {
     if (!booking.customer_id) return
-
     const { data: loyaltyWallet, error: loyaltyError } = await supabase
       .from('customer_loyalty')
       .select('id, visits_required, visits_completed, reward_label, status')
@@ -242,587 +103,106 @@ export default function BookingsPage() {
       .order('created_at', { ascending: false })
       .limit(1)
       .maybeSingle()
-
-    if (loyaltyError) {
-      console.error('Loyalty lookup failed:', loyaltyError)
-      return
-    }
-
-    if (!loyaltyWallet) return
-
-    const visitsRequired = Number(loyaltyWallet.visits_required || 0)
-    const currentVisits = Number(loyaltyWallet.visits_completed || 0)
-    const nextVisits = currentVisits + 1
-
+    if (loyaltyError || !loyaltyWallet) return
+    const nextVisits = Number(loyaltyWallet.visits_completed || 0) + 1
+    const isNowEarned = Number(loyaltyWallet.visits_required || 0) > 0 && nextVisits >= Number(loyaltyWallet.visits_required || 0)
     const wasAlreadyEarned = loyaltyWallet.status === 'earned'
-    const isNowEarned = visitsRequired > 0 && nextVisits >= visitsRequired
-
-    const nextStatus = isNowEarned ? 'earned' : 'active'
-
-    const { error: updateError } = await supabase
-      .from('customer_loyalty')
-      .update({
-        visits_completed: nextVisits,
-        status: nextStatus,
-      })
-      .eq('id', loyaltyWallet.id)
-
-    if (updateError) {
-      console.error('Loyalty update failed:', updateError)
-      return
-    }
-
+    const { error: updateError } = await supabase.from('customer_loyalty').update({ visits_completed: nextVisits, status: isNowEarned ? 'earned' : 'active' }).eq('id', loyaltyWallet.id)
+    if (updateError) return
     if (isNowEarned && !wasAlreadyEarned) {
       try {
         await fetch('/api/messaging/send-loyalty-reward-sms', {
           method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-          },
-          body: JSON.stringify({
-            businessId: booking.business_id,
-            customerId: booking.customer_id,
-            bookingId: booking.id,
-            loyaltyId: loyaltyWallet.id,
-            rewardLabel: loyaltyWallet.reward_label || 'your loyalty reward',
-          }),
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ businessId: booking.business_id, customerId: booking.customer_id, bookingId: booking.id, loyaltyId: loyaltyWallet.id, rewardLabel: loyaltyWallet.reward_label || 'your loyalty reward' }),
         })
-      } catch (error) {
-        console.error('Loyalty reward SMS failed:', error)
-      }
+      } catch (error) { console.error('Loyalty reward SMS failed:', error) }
     }
   }
 
   async function updateBookingStatus(id: string, status: string) {
     const booking = bookings.find((item) => item.id === id)
-    if (!booking) return
-
-    const confirmed = window.confirm(`Mark this booking as ${status}?`)
-    if (!confirmed) return
-
+    if (!booking || !window.confirm(`Mark this booking as ${status}?`)) return
     const { error } = await supabase.from('bookings').update({ status }).eq('id', id)
-
-    if (error) {
-      setMessage(error.message)
-      return
-    }
-
-    if (status === 'completed' && booking.status !== 'completed') {
-      await awardLoyaltyVisitForCompletedBooking(booking)
-    }
-
+    if (error) { setMessage(error.message); return }
+    if (status === 'completed' && booking.status !== 'completed') await awardLoyaltyVisitForCompletedBooking(booking)
     await loadBookings()
   }
 
   async function cancelBooking(id: string) {
     const booking = bookings.find((item) => item.id === id)
-    if (!booking) return
-
-    const confirmed = window.confirm(
-      'Are you sure you want to cancel this booking?'
-    )
-
-    if (!confirmed) return
-
+    if (!booking || !window.confirm('Are you sure you want to cancel this booking?')) return
     await supabase.from('bookings').update({ status: 'cancelled' }).eq('id', id)
-
-    // Trigger waiting list notifications
     try {
       await fetch('/api/process-waiting-list', {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          business_id: booking.business_id,
-          service_id: booking.service_id,
-          team_member_id: booking.team_member_id,
-          booking_date: booking.booking_date,
-          booking_time: booking.booking_time,
-        }),
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ business_id: booking.business_id, service_id: booking.service_id, team_member_id: booking.team_member_id, booking_date: booking.booking_date, booking_time: booking.booking_time }),
       })
-    } catch (error) {
-      console.error('Waiting list processing failed', error)
-    }
-
+    } catch (error) { console.error('Waiting list processing failed', error) }
     await fetch('/api/send-booking-update-email', {
       method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({
-        businessId: booking.business_id,
-        customerId: booking.customer_id,
-        bookingId: booking.id,
-        customerName: `${booking.customers?.[0]?.first_name || ''} ${
-          booking.customers?.[0]?.last_name || ''
-        }`,
-        customerEmail: booking.customers?.[0]?.email || '',
-        bookingDate: new Date(booking.booking_date).toLocaleDateString('en-GB', {
-          weekday: 'short',
-          day: 'numeric',
-          month: 'long',
-          year: 'numeric',
-        }),
-        bookingTime: booking.booking_time?.slice(0, 5),
-        serviceName: booking.services?.[0]?.name || 'Your appointment',
-        teamMemberName: booking.team_members?.[0]?.full_name || 'Your specialist',
-        action: 'cancelled',
-      }),
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ businessId: booking.business_id, customerId: booking.customer_id, bookingId: booking.id, customerName: `${booking.customers?.[0]?.first_name || ''} ${booking.customers?.[0]?.last_name || ''}`, customerEmail: booking.customers?.[0]?.email || '', bookingDate: formatBookingDate(booking.booking_date), bookingTime: booking.booking_time?.slice(0, 5), serviceName: booking.services?.[0]?.name || 'Your appointment', teamMemberName: booking.team_members?.[0]?.full_name || 'Your specialist', action: 'cancelled' }),
     })
-
     await loadBookings()
   }
 
   function openReschedule(booking: Booking) {
-    setRescheduleBooking(booking)
-    setNewDate(booking.booking_date)
-    setNewTime('')
-    setAvailability(null)
-    setBookedTimes([])
-    setMessage('')
+    setRescheduleBooking(booking); setNewDate(booking.booking_date); setNewTime(''); setAvailability(null); setBookedTimes([]); setMessage('')
   }
-
   function closeReschedule() {
-    setRescheduleBooking(null)
-    setNewDate('')
-    setNewTime('')
-    setAvailability(null)
-    setBookedTimes([])
-    setMessage('')
+    setRescheduleBooking(null); setNewDate(''); setNewTime(''); setAvailability(null); setBookedTimes([]); setMessage('')
   }
 
   async function saveReschedule() {
-    if (!rescheduleBooking || !newDate || !newTime) {
-      setMessage('Please choose a new date and time.')
-      return
-    }
-
-    if (bookedTimes.includes(newTime)) {
-      setMessage('That slot is no longer available.')
-      setNewTime('')
-      return
-    }
-
-    const { error } = await supabase
-      .from('bookings')
-      .update({
-        booking_date: newDate,
-        booking_time: newTime,
-        status: 'confirmed',
-      })
-      .eq('id', rescheduleBooking.id)
-
-    if (error) {
-      setMessage(error.message)
-      return
-    }
-
+    if (!rescheduleBooking || !newDate || !newTime) { setMessage('Please choose a new date and time.'); return }
+    if (bookedTimes.includes(newTime)) { setMessage('That slot is no longer available.'); setNewTime(''); return }
+    const { error } = await supabase.from('bookings').update({ booking_date: newDate, booking_time: newTime, status: 'confirmed' }).eq('id', rescheduleBooking.id)
+    if (error) { setMessage(error.message); return }
     await fetch('/api/send-booking-update-email', {
       method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({
-        businessId: rescheduleBooking.business_id,
-        customerId: rescheduleBooking.customer_id,
-        bookingId: rescheduleBooking.id,
-        customerName: `${rescheduleBooking.customers?.[0]?.first_name || ''} ${
-          rescheduleBooking.customers?.[0]?.last_name || ''
-        }`,
-        customerEmail: rescheduleBooking.customers?.[0]?.email || '',
-        bookingDate: new Date(newDate).toLocaleDateString('en-GB', {
-          weekday: 'short',
-          day: 'numeric',
-          month: 'long',
-          year: 'numeric',
-        }),
-        bookingTime: newTime,
-        serviceName: rescheduleBooking.services?.[0]?.name || 'Your appointment',
-        teamMemberName: rescheduleBooking.team_members?.[0]?.full_name || 'Your specialist',
-        action: 'rescheduled',
-      }),
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ businessId: rescheduleBooking.business_id, customerId: rescheduleBooking.customer_id, bookingId: rescheduleBooking.id, customerName: `${rescheduleBooking.customers?.[0]?.first_name || ''} ${rescheduleBooking.customers?.[0]?.last_name || ''}`, customerEmail: rescheduleBooking.customers?.[0]?.email || '', bookingDate: formatBookingDate(newDate), bookingTime: newTime, serviceName: rescheduleBooking.services?.[0]?.name || 'Your appointment', teamMemberName: rescheduleBooking.team_members?.[0]?.full_name || 'Your specialist', action: 'rescheduled' }),
     })
-
     closeReschedule()
     await loadBookings()
   }
 
-  useEffect(() => {
-    loadBookings()
-  }, [])
+  useEffect(() => { loadBookings() }, [])
 
   useEffect(() => {
     async function loadAvailabilityAndBookedTimes() {
-      if (!rescheduleBooking || !newDate || selectedDayOfWeek === null) {
-        setAvailability(null)
-        setBookedTimes([])
-        return
-      }
-
-      const { data: currentBooking } = await supabase
-        .from('bookings')
-        .select('business_id')
-        .eq('id', rescheduleBooking.id)
-        .single()
-
+      if (!rescheduleBooking || !newDate || selectedDayOfWeek === null) { setAvailability(null); setBookedTimes([]); return }
+      const { data: currentBooking } = await supabase.from('bookings').select('business_id').eq('id', rescheduleBooking.id).single()
       if (!currentBooking) return
-
-      const { data: availabilityData } = await supabase
-        .from('availability')
-        .select('day_of_week,start_time,end_time,is_available')
-        .eq('business_id', currentBooking.business_id)
-        .eq('team_member_id', rescheduleBooking.team_member_id)
-        .eq('day_of_week', selectedDayOfWeek)
-        .maybeSingle()
-
+      const { data: availabilityData } = await supabase.from('availability').select('day_of_week,start_time,end_time,is_available').eq('business_id', currentBooking.business_id).eq('team_member_id', rescheduleBooking.team_member_id).eq('day_of_week', selectedDayOfWeek).maybeSingle()
       setAvailability((availabilityData as Availability | null) || null)
-
-      const { data: bookingsData } = await supabase
-        .from('bookings')
-        .select('booking_time,id')
-        .eq('business_id', currentBooking.business_id)
-        .eq('team_member_id', rescheduleBooking.team_member_id)
-        .eq('booking_date', newDate)
-        .neq('id', rescheduleBooking.id)
-        .neq('status', 'cancelled')
-
-      const times =
-        (bookingsData as { booking_time: string }[] | null)?.map((booking) =>
-          booking.booking_time.slice(0, 5)
-        ) || []
-
-      setBookedTimes(times)
+      const { data: bookingsData } = await supabase.from('bookings').select('booking_time,id').eq('business_id', currentBooking.business_id).eq('team_member_id', rescheduleBooking.team_member_id).eq('booking_date', newDate).neq('id', rescheduleBooking.id).neq('status', 'cancelled')
+      setBookedTimes((bookingsData as { booking_time: string }[] | null)?.map((booking) => booking.booking_time.slice(0, 5)) || [])
     }
-
     loadAvailabilityAndBookedTimes()
   }, [rescheduleBooking, newDate, selectedDayOfWeek])
 
   const today = new Date().toISOString().split('T')[0]
+  const upcomingBookings = bookings.filter((booking) => booking.booking_date >= today && booking.status === 'confirmed')
+  const pastConfirmedBookings = bookings.filter((booking) => booking.booking_date < today && booking.status === 'confirmed')
+  const completedBookings = bookings.filter((booking) => booking.status === 'completed')
+  const noShowBookings = bookings.filter((booking) => booking.status === 'no_show')
+  const cancelledBookings = bookings.filter((booking) => booking.status === 'cancelled')
 
-  const upcomingBookings = bookings.filter(
-    (booking) => booking.booking_date >= today && booking.status === 'confirmed'
-  )
-
-  const pastConfirmedBookings = bookings.filter(
-    (booking) => booking.booking_date < today && booking.status === 'confirmed'
-  )
-
-  const completedBookings = bookings.filter(
-    (booking) => booking.status === 'completed'
-  )
-
-  const noShowBookings = bookings.filter(
-    (booking) => booking.status === 'no_show'
-  )
-
-  const cancelledBookings = bookings.filter(
-    (booking) => booking.status === 'cancelled'
-  )
-
-  if (loading) {
-    return <div className="p-8 text-white">Loading bookings...</div>
-  }
+  if (loading) return <div className="p-8 text-white">Loading bookings...</div>
 
   return (
     <div className="p-8 text-white">
-      <h1 className="text-4xl font-bold mb-8">Bookings</h1>
-
-      {message && (
-        <div className="mb-6 rounded-2xl border border-cyan-300/20 bg-cyan-300/10 p-4 text-cyan-100">
-          {message}
-        </div>
-      )}
-
-      <BookingSection
-        title="Upcoming Bookings"
-        bookings={upcomingBookings}
-        showActions
-        onCancel={cancelBooking}
-        onReschedule={openReschedule}
-        onComplete={(id) => updateBookingStatus(id, 'completed')}
-        onNoShow={(id) => updateBookingStatus(id, 'no_show')}
-      />
-
-      <BookingSection
-        title="Past Confirmed Bookings"
-        bookings={pastConfirmedBookings}
-        showActions
-        onCancel={cancelBooking}
-        onReschedule={openReschedule}
-        onComplete={(id) => updateBookingStatus(id, 'completed')}
-        onNoShow={(id) => updateBookingStatus(id, 'no_show')}
-      />
-
+      <PageHeader title="Bookings" />
+      {message && <div className="mb-6 rounded-2xl border border-cyan-300/20 bg-cyan-300/10 p-4 text-cyan-100">{message}</div>}
+      <BookingSection title="Upcoming Bookings" bookings={upcomingBookings} showActions onCancel={cancelBooking} onReschedule={openReschedule} onComplete={(id) => updateBookingStatus(id, 'completed')} onNoShow={(id) => updateBookingStatus(id, 'no_show')} />
+      <BookingSection title="Past Confirmed Bookings" bookings={pastConfirmedBookings} showActions onCancel={cancelBooking} onReschedule={openReschedule} onComplete={(id) => updateBookingStatus(id, 'completed')} onNoShow={(id) => updateBookingStatus(id, 'no_show')} />
       <BookingSection title="Completed Bookings" bookings={completedBookings} />
-
       <BookingSection title="No Shows" bookings={noShowBookings} />
-
       <BookingSection title="Cancelled Bookings" bookings={cancelledBookings} />
-
-      {rescheduleBooking && (
-        <div className="fixed inset-0 bg-black/70 flex items-center justify-center p-6 z-50">
-          <div className="bg-slate-900 border border-slate-800 rounded-2xl p-8 w-full max-w-2xl">
-            <h2 className="text-2xl font-bold mb-2">Reschedule booking</h2>
-
-            <p className="text-slate-400 mb-6">
-              Choose a new available slot for{' '}
-              {rescheduleBooking.customers?.[0]?.first_name}{' '}
-              {rescheduleBooking.customers?.[0]?.last_name}.
-            </p>
-
-            <div className="mb-6">
-              <p className="text-slate-400 mb-3">Choose a new date</p>
-
-              <div className="grid grid-cols-2 md:grid-cols-7 gap-3">
-                {dateOptions.map((option) => (
-                  <button
-                    key={option.value}
-                    type="button"
-                    onClick={() => {
-                      setNewDate(option.value)
-                      setNewTime('')
-                      setMessage('')
-                    }}
-                    className={`rounded-xl border p-4 text-center ${
-                      newDate === option.value
-                        ? 'bg-white text-slate-950 border-white'
-                        : 'bg-slate-800 border-slate-700 text-white'
-                    }`}
-                  >
-                    <span className="block text-sm">{option.day}</span>
-                    <span className="block text-2xl font-bold">
-                      {option.date}
-                    </span>
-                    <span className="block text-sm">{option.month}</span>
-                  </button>
-                ))}
-              </div>
-            </div>
-
-            {newDate && (
-              <div className="mb-6">
-                <p className="text-slate-400 mb-3">Choose a new time</p>
-
-                {availability === null && (
-                  <p className="text-slate-500">
-                    No availability has been set for this day.
-                  </p>
-                )}
-
-                {availability && !availability.is_available && (
-                  <p className="text-slate-500">
-                    This team member is not available on this day.
-                  </p>
-                )}
-
-                {availability && availability.is_available && (
-                  <>
-                    <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-                      {availableTimeSlots.map((slot) => (
-                        <button
-                          key={slot}
-                          type="button"
-                          onClick={() => {
-                            setNewTime(slot)
-                            setMessage('')
-                          }}
-                          className={`p-3 rounded-lg border ${
-                            newTime === slot
-                              ? 'bg-white text-slate-950 border-white'
-                              : 'bg-slate-800 border-slate-700 text-white'
-                          }`}
-                        >
-                          {slot}
-                        </button>
-                      ))}
-                    </div>
-
-                    {availableTimeSlots.length === 0 && (
-                      <p className="text-slate-500 mt-3">
-                        No available slots for this date.
-                      </p>
-                    )}
-                  </>
-                )}
-              </div>
-            )}
-
-            {message && <p className="text-slate-300 mb-4">{message}</p>}
-
-            <div className="flex gap-3">
-              <button
-                type="button"
-                onClick={saveReschedule}
-                className="flex-1 bg-white text-slate-950 font-bold p-3 rounded-lg"
-              >
-                Save changes
-              </button>
-
-              <button
-                type="button"
-                onClick={closeReschedule}
-                className="flex-1 bg-slate-700 hover:bg-slate-600 font-bold p-3 rounded-lg"
-              >
-                Close
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-    </div>
-  )
-}
-
-function BookingSection({
-  title,
-  bookings,
-  showActions = false,
-  onCancel,
-  onReschedule,
-  onComplete,
-  onNoShow,
-}: {
-  title: string
-  bookings: Booking[]
-  showActions?: boolean
-  onCancel?: (id: string) => void
-  onReschedule?: (booking: Booking) => void
-  onComplete?: (id: string) => void
-  onNoShow?: (id: string) => void
-}) {
-  return (
-    <div className="mb-12">
-      <h2 className="text-2xl font-bold mb-4">{title}</h2>
-
-      {bookings.length === 0 && (
-        <div className="bg-slate-900 border border-slate-800 rounded-xl p-6 text-slate-400">
-          No bookings found.
-        </div>
-      )}
-
-      <div className="space-y-4">
-        {bookings.map((booking) => {
-          const formattedDate = new Date(
-            booking.booking_date
-          ).toLocaleDateString('en-GB', {
-            weekday: 'short',
-            day: 'numeric',
-            month: 'long',
-            year: 'numeric',
-          })
-
-          const formattedTime = booking.booking_time?.slice(0, 5)
-
-          return (
-            <div
-              key={booking.id}
-              className="bg-slate-900 border border-slate-800 rounded-xl p-6"
-            >
-              <div className="flex justify-between items-start gap-4">
-                <div>
-                  <h3 className="text-xl font-bold">
-                    {booking.customers?.[0]?.first_name}{' '}
-                    {booking.customers?.[0]?.last_name}
-                  </h3>
-
-                  <p className="text-slate-400">
-                    {booking.customers?.[0]?.email}
-                  </p>
-
-                  <div className="mt-4 grid gap-2 text-sm text-slate-300">
-                    <p>
-                      <span className="text-slate-500">Service:</span>{' '}
-                      {booking.services?.[0]?.name || 'Unknown'}
-                    </p>
-
-                    <p>
-                      <span className="text-slate-500">Value:</span>{' '}
-                      £{booking.services?.[0]?.price || 0}
-                    </p>
-
-                    <p>
-                      <span className="text-slate-500">Team member:</span>{' '}
-                      {booking.team_members?.[0]?.full_name || 'Unknown'}
-                    </p>
-
-                    <p>
-                      <span className="text-slate-500">Date:</span>{' '}
-                      {formattedDate}
-                    </p>
-
-                    <p>
-                      <span className="text-slate-500">Time:</span>{' '}
-                      {formattedTime}
-                    </p>
-
-                    <p>
-                      <span className="text-slate-500">Status:</span>{' '}
-                      <span
-                        className={
-                          booking.status === 'cancelled'
-                            ? 'text-red-400'
-                            : booking.status === 'completed'
-                              ? 'text-emerald-400'
-                              : booking.status === 'no_show'
-                                ? 'text-orange-400'
-                                : 'text-sky-400'
-                        }
-                      >
-                        {booking.status}
-                      </span>
-                    </p>
-                  </div>
-                </div>
-
-                {showActions && (
-                  <div className="flex flex-wrap gap-2 justify-end">
-                    {onComplete && (
-                      <button
-                        type="button"
-                        onClick={() => onComplete(booking.id)}
-                        className="bg-emerald-600 hover:bg-emerald-700 px-4 py-2 rounded-lg font-semibold"
-                      >
-                        Complete
-                      </button>
-                    )}
-
-                    {onNoShow && (
-                      <button
-                        type="button"
-                        onClick={() => onNoShow(booking.id)}
-                        className="bg-orange-600 hover:bg-orange-700 px-4 py-2 rounded-lg font-semibold"
-                      >
-                        No show
-                      </button>
-                    )}
-
-                    {onReschedule && (
-                      <button
-                        type="button"
-                        onClick={() => onReschedule(booking)}
-                        className="bg-slate-700 hover:bg-slate-600 px-4 py-2 rounded-lg font-semibold"
-                      >
-                        Reschedule
-                      </button>
-                    )}
-
-                    {onCancel && (
-                      <button
-                        type="button"
-                        onClick={() => onCancel(booking.id)}
-                        className="bg-red-600 hover:bg-red-700 px-4 py-2 rounded-lg font-semibold"
-                      >
-                        Cancel
-                      </button>
-                    )}
-                  </div>
-                )}
-              </div>
-            </div>
-          )
-        })}
-      </div>
+      {rescheduleBooking && <RescheduleModal booking={rescheduleBooking} dateOptions={dateOptions} newDate={newDate} newTime={newTime} availability={availability} availableTimeSlots={availableTimeSlots} message={message} setNewDate={setNewDate} setNewTime={setNewTime} clearMessage={() => setMessage('')} onSave={saveReschedule} onClose={closeReschedule} />}
     </div>
   )
 }

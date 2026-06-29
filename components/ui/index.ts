@@ -18,7 +18,7 @@ export { default as EmptyState } from './EmptyState'
 export { default as Loading } from './Loading'
 export { default as Skeleton } from './Skeleton'
 export { default as StatCard } from './StatCard'
-export { default as Toast } from './Toast'
+export { default as Toast } from './toast'
 
 export { default as DataTable } from './DataTable'
 export { default as Pagination } from './Pagination'
