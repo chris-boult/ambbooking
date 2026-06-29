@@ -92,7 +92,7 @@ function SignupContent() {
             partner_code: finalReferralCode,
             affiliate_code: finalReferralCode,
           },
-          emailRedirectTo: `${window.location.origin}/onboarding`,
+          emailRedirectTo: `${process.env.NEXT_PUBLIC_APP_URL || 'https://www.amb-booking.co.uk'}/onboarding`,
         },
       })
 
