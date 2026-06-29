@@ -45,7 +45,8 @@ function getBaseUrl(request: Request) {
   const origin = request.headers.get('origin')
   if (origin) return origin
   if (process.env.NEXT_PUBLIC_SITE_URL) return process.env.NEXT_PUBLIC_SITE_URL
-  return 'http://localhost:3000'
+  if (process.env.NEXT_PUBLIC_APP_URL) return process.env.NEXT_PUBLIC_APP_URL
+  return 'https://www.amb-booking.co.uk'
 }
 
 function moneyToPence(amount: number) {
@@ -329,9 +330,6 @@ export async function POST(request: Request) {
 
     const amountToChargeInPence = moneyToPence(amountToCharge)
 
-    // AMB Booking platform fee: 5%
-    const platformFeeInPence = Math.round(amountToChargeInPence * 0.05)
-
     const session = await stripe.checkout.sessions.create({
       mode: 'payment',
       customer_email: customer?.email || undefined,
@@ -352,7 +350,6 @@ export async function POST(request: Request) {
         },
       ],
       payment_intent_data: {
-        application_fee_amount: platformFeeInPence,
         transfer_data: {
           destination: business.stripe_connect_account_id,
         },
@@ -367,7 +364,6 @@ export async function POST(request: Request) {
         amount_to_charge: String(amountToCharge),
         amount_due: String(amountDue),
         customer_name: customerName,
-        platform_fee: String(platformFeeInPence),
       },
       success_url: `${baseUrl}/booking-success?session_id={CHECKOUT_SESSION_ID}`,
       cancel_url: `${baseUrl}/booking-cancelled?booking_id=${booking.id}`,
@@ -402,7 +398,6 @@ export async function POST(request: Request) {
       checkoutSessionId: session.id,
       amountToCharge,
       amountDue,
-      platformFeeInPence,
     })
   } catch (error) {
     const message =
