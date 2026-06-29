@@ -35,6 +35,12 @@ type Customer = {
   email: string | null
 }
 
+type Business = {
+  id: string
+  stripe_connect_account_id: string | null
+  stripe_connect_charges_enabled: boolean | null
+}
+
 function getBaseUrl(request: Request) {
   const origin = request.headers.get('origin')
   if (origin) return origin
@@ -112,6 +118,40 @@ export async function POST(request: Request) {
     }
 
     const booking = bookingData as Booking
+
+    const { data: businessData, error: businessError } = await supabase
+      .from('businesses')
+      .select(`
+        id,
+        stripe_connect_account_id,
+        stripe_connect_charges_enabled
+      `)
+      .eq('id', booking.business_id)
+      .single()
+
+    if (businessError || !businessData) {
+      return NextResponse.json(
+        {
+          success: false,
+          step: 'fetch_business',
+          error: businessError?.message || 'Business not found',
+        },
+        { status: 404 }
+      )
+    }
+
+    const business = businessData as Business
+
+    if (!business.stripe_connect_account_id || !business.stripe_connect_charges_enabled) {
+      return NextResponse.json(
+        {
+          success: false,
+          step: 'stripe_connect_not_ready',
+          error: 'This business has not completed Stripe Connect setup yet.',
+        },
+        { status: 400 }
+      )
+    }
 
     const { data: bookingServicesData, error: bookingServicesError } =
       await supabase
@@ -287,6 +327,11 @@ export async function POST(request: Request) {
       ? `${customer.first_name || ''} ${customer.last_name || ''}`.trim()
       : ''
 
+    const amountToChargeInPence = moneyToPence(amountToCharge)
+
+    // AMB Booking platform fee: 5%
+    const platformFeeInPence = Math.round(amountToChargeInPence * 0.05)
+
     const session = await stripe.checkout.sessions.create({
       mode: 'payment',
       customer_email: customer?.email || undefined,
@@ -295,7 +340,7 @@ export async function POST(request: Request) {
           quantity: 1,
           price_data: {
             currency: 'gbp',
-            unit_amount: moneyToPence(amountToCharge),
+            unit_amount: amountToChargeInPence,
             product_data: {
               name: paymentLabel,
               description: `${formatDate(booking.booking_date)} at ${booking.booking_time?.slice(
@@ -306,6 +351,12 @@ export async function POST(request: Request) {
           },
         },
       ],
+      payment_intent_data: {
+        application_fee_amount: platformFeeInPence,
+        transfer_data: {
+          destination: business.stripe_connect_account_id,
+        },
+      },
       metadata: {
         booking_id: booking.id,
         business_id: booking.business_id,
@@ -316,6 +367,7 @@ export async function POST(request: Request) {
         amount_to_charge: String(amountToCharge),
         amount_due: String(amountDue),
         customer_name: customerName,
+        platform_fee: String(platformFeeInPence),
       },
       success_url: `${baseUrl}/booking-success?session_id={CHECKOUT_SESSION_ID}`,
       cancel_url: `${baseUrl}/booking-cancelled?booking_id=${booking.id}`,
@@ -350,6 +402,7 @@ export async function POST(request: Request) {
       checkoutSessionId: session.id,
       amountToCharge,
       amountDue,
+      platformFeeInPence,
     })
   } catch (error) {
     const message =

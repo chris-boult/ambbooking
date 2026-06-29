@@ -12,9 +12,9 @@ const supabase = createClient(
 )
 
 const priceMap: Record<string, string | undefined> = {
-  starter: process.env.STRIPE_STARTER_PRICE_ID,
-  growth: process.env.STRIPE_GROWTH_PRICE_ID,
-  pro: process.env.STRIPE_PRO_PRICE_ID,
+  starter: process.env.STRIPE_PRICE_STARTER,
+  growth: process.env.STRIPE_PRICE_GROWTH,
+  pro: process.env.STRIPE_PRICE_PRO,
 }
 
 export async function POST(req: Request) {
@@ -29,11 +29,12 @@ export async function POST(req: Request) {
       )
     }
 
-    const priceId = priceMap[plan]
+    const normalisedPlan = String(plan).toLowerCase()
+    const priceId = priceMap[normalisedPlan]
 
     if (!priceId) {
       return NextResponse.json(
-        { error: 'Invalid plan selected' },
+        { error: 'Invalid plan selected or missing Stripe price ID' },
         { status: 400 }
       )
     }
@@ -51,9 +52,14 @@ export async function POST(req: Request) {
       )
     }
 
+    const appUrl =
+      process.env.NEXT_PUBLIC_APP_URL ||
+      process.env.NEXT_PUBLIC_SITE_URL ||
+      'http://localhost:3000'
+
     if (business.is_internal) {
       return NextResponse.json({
-        url: `${process.env.NEXT_PUBLIC_APP_URL}/business`,
+        url: `${appUrl}/business`,
       })
     }
 
@@ -70,21 +76,21 @@ export async function POST(req: Request) {
         trial_period_days: 7,
         metadata: {
           business_id: business.id,
-          plan,
+          plan: normalisedPlan,
         },
       },
       metadata: {
         business_id: business.id,
-        plan,
+        plan: normalisedPlan,
       },
-      success_url: `${process.env.NEXT_PUBLIC_APP_URL}/business?subscription=success`,
-      cancel_url: `${process.env.NEXT_PUBLIC_APP_URL}/onboarding/plan?subscription=cancelled`,
+      success_url: `${appUrl}/business?subscription=success`,
+      cancel_url: `${appUrl}/onboarding/plan?subscription=cancelled`,
     })
 
     await supabase
       .from('businesses')
       .update({
-        plan,
+        plan: normalisedPlan,
         subscription_status: 'trial',
       })
       .eq('id', business.id)
@@ -96,9 +102,6 @@ export async function POST(req: Request) {
     const message =
       error instanceof Error ? error.message : 'Unknown subscription checkout error'
 
-    return NextResponse.json(
-      { error: message },
-      { status: 500 }
-    )
+    return NextResponse.json({ error: message }, { status: 500 })
   }
 }
