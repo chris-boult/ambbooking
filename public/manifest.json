@@ -1,17 +1,25 @@
 {
   "name": "AMB Booking",
   "short_name": "AMB Booking",
-  "description": "Book appointments, manage memberships, wallet passes and rewards.",
-  "start_url": "/",
+  "description": "Booking, CRM and business management for service businesses.",
+  "start_url": "/business/dashboard",
+  "scope": "/",
   "display": "standalone",
   "background_color": "#020617",
   "theme_color": "#020617",
-  "orientation": "portrait",
+  "orientation": "portrait-primary",
   "icons": [
     {
-      "src": "/favicon.ico",
-      "sizes": "48x48",
-      "type": "image/x-icon"
+      "src": "/icons/icon-192x192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any maskable"
+    },
+    {
+      "src": "/icons/icon-512x512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any maskable"
     }
   ]
 }

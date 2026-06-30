@@ -1,60 +1,49 @@
-import { NextRequest, NextResponse } from 'next/server'
+import { NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
 
-export async function POST(request: NextRequest) {
-  const body = await request.json()
-  const { subscription, businessId, userAgent, accessToken } = body
+export const runtime = 'nodejs'
 
-  if (!subscription?.endpoint) {
-    return NextResponse.json({ error: 'Missing push subscription.' }, { status: 400 })
-  }
+const supabaseAdmin = createClient(
+  process.env.NEXT_PUBLIC_SUPABASE_URL!,
+  process.env.SUPABASE_SERVICE_ROLE_KEY!
+)
 
-  if (!accessToken) {
-    return NextResponse.json({ error: 'Missing access token.' }, { status: 401 })
-  }
+export async function POST(req: Request) {
+  try {
+    const body = await req.json()
+    const { businessId, userId, subscription, userAgent } = body
 
-  const supabase = createClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
-    {
-      global: {
-        headers: {
-          Authorization: `Bearer ${accessToken}`,
-        },
-      },
+    if (!businessId || !userId || !subscription?.endpoint) {
+      return NextResponse.json({ error: 'Missing required subscription data.' }, { status: 400 })
     }
-  )
 
-  const { data: userData, error: userError } = await supabase.auth.getUser(accessToken)
-  const user = userData.user
+    const p256dh = subscription.keys?.p256dh
+    const auth = subscription.keys?.auth
 
-  if (userError || !user) {
-    return NextResponse.json({ error: 'Unauthorised' }, { status: 401 })
+    if (!p256dh || !auth) {
+      return NextResponse.json({ error: 'Missing push encryption keys.' }, { status: 400 })
+    }
+
+    const { error } = await supabaseAdmin
+      .from('push_subscriptions')
+      .upsert(
+        {
+          business_id: businessId,
+          user_id: userId,
+          endpoint: subscription.endpoint,
+          p256dh,
+          auth,
+          user_agent: userAgent || null,
+          is_active: true,
+          updated_at: new Date().toISOString(),
+        },
+        { onConflict: 'endpoint' }
+      )
+
+    if (error) return NextResponse.json({ error: error.message }, { status: 500 })
+
+    return NextResponse.json({ ok: true })
+  } catch (error: any) {
+    return NextResponse.json({ error: error.message || 'Push subscribe failed.' }, { status: 500 })
   }
-
-  const keys = subscription.keys || {}
-
-  const { data, error } = await supabase
-    .from('push_subscriptions')
-    .upsert(
-      {
-        user_id: user.id,
-        business_id: businessId || null,
-        endpoint: subscription.endpoint,
-        p256dh: keys.p256dh,
-        auth: keys.auth,
-        user_agent: userAgent || null,
-        is_active: true,
-        updated_at: new Date().toISOString(),
-      },
-      { onConflict: 'endpoint' }
-    )
-    .select('*')
-    .single()
-
-  if (error) {
-    return NextResponse.json({ error: error.message }, { status: 500 })
-  }
-
-  return NextResponse.json({ subscription: data })
 }

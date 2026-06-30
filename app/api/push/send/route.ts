@@ -1,39 +1,40 @@
-import { NextRequest, NextResponse } from 'next/server'
+import { NextResponse } from 'next/server'
+import { createClient } from '@supabase/supabase-js'
 import webpush from 'web-push'
-import { supabase } from '@/lib/supabase'
 
-function configureWebPush() {
-  const publicKey = process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY
-  const privateKey = process.env.VAPID_PRIVATE_KEY
-  const subject = process.env.VAPID_SUBJECT || 'mailto:hello@example.com'
+export const runtime = 'nodejs'
+export const dynamic = 'force-dynamic'
 
-  if (!publicKey || !privateKey) {
-    throw new Error('Missing VAPID keys.')
-  }
-
-  webpush.setVapidDetails(subject, publicKey, privateKey)
-}
-
-export async function POST(request: NextRequest) {
+export async function POST(req: Request) {
   try {
-    configureWebPush()
+    const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL
+    const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY
+    const vapidPublicKey = process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY
+    const vapidPrivateKey = process.env.VAPID_PRIVATE_KEY
+    const vapidSubject = process.env.VAPID_SUBJECT || 'mailto:hello@amb-booking.co.uk'
 
-    const body = await request.json()
-    const { businessId, userId, title, message, url } = body
-
-    if (!title) {
-      return NextResponse.json({ error: 'Missing title.' }, { status: 400 })
+    if (!supabaseUrl || !serviceRoleKey || !vapidPublicKey || !vapidPrivateKey) {
+      return NextResponse.json(
+        { error: 'Missing push notification environment variables.' },
+        { status: 500 }
+      )
     }
 
-    let query = supabase
+    webpush.setVapidDetails(vapidSubject, vapidPublicKey, vapidPrivateKey)
+
+    const supabaseAdmin = createClient(supabaseUrl, serviceRoleKey)
+
+    const { businessId, title, body: messageBody, url = '/business/dashboard' } = await req.json()
+
+    if (!businessId || !title || !messageBody) {
+      return NextResponse.json({ error: 'Missing push payload.' }, { status: 400 })
+    }
+
+    const { data: subscriptions, error } = await supabaseAdmin
       .from('push_subscriptions')
-      .select('*')
+      .select('id, endpoint, p256dh, auth')
+      .eq('business_id', businessId)
       .eq('is_active', true)
-
-    if (businessId) query = query.eq('business_id', businessId)
-    if (userId) query = query.eq('user_id', userId)
-
-    const { data: subscriptions, error } = await query
 
     if (error) {
       return NextResponse.json({ error: error.message }, { status: 500 })
@@ -41,13 +42,15 @@ export async function POST(request: NextRequest) {
 
     const payload = JSON.stringify({
       title,
-      body: message || '',
-      url: url || '/',
+      body: messageBody,
+      url,
+      icon: '/icons/icon-192x192.png',
+      badge: '/icons/icon-192x192.png',
     })
 
     const results = await Promise.allSettled(
-      (subscriptions || []).map(async (sub: any) => {
-        await webpush.sendNotification(
+      (subscriptions || []).map((sub) =>
+        webpush.sendNotification(
           {
             endpoint: sub.endpoint,
             keys: {
@@ -57,30 +60,30 @@ export async function POST(request: NextRequest) {
           },
           payload
         )
-
-        await supabase.from('push_notification_logs').insert({
-          business_id: sub.business_id,
-          user_id: sub.user_id,
-          title,
-          body: message || null,
-          url: url || null,
-          status: 'sent',
-          sent_at: new Date().toISOString(),
-        })
-      })
+      )
     )
 
-    const sent = results.filter((result) => result.status === 'fulfilled').length
-    const failed = results.length - sent
+    const failedIds = results
+      .map((result, index) => ({ result, sub: subscriptions?.[index] }))
+      .filter(({ result }) => result.status === 'rejected')
+      .map(({ sub }) => sub?.id)
+      .filter(Boolean)
+
+    if (failedIds.length > 0) {
+      await supabaseAdmin
+        .from('push_subscriptions')
+        .update({ is_active: false, updated_at: new Date().toISOString() })
+        .in('id', failedIds)
+    }
 
     return NextResponse.json({
-      sent,
-      failed,
-      total: results.length,
+      ok: true,
+      attempted: subscriptions?.length || 0,
+      failed: failedIds.length,
     })
   } catch (error: any) {
     return NextResponse.json(
-      { error: error?.message || 'Could not send push notification.' },
+      { error: error.message || 'Push send failed.' },
       { status: 500 }
     )
   }
