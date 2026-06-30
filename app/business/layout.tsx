@@ -4,9 +4,9 @@ import Link from 'next/link'
 import { useEffect, useMemo, useState } from 'react'
 import { supabase } from '@/lib/supabase'
 import { BrandProvider, resolveBrand, useBrand, type BrandConfig } from '@/lib/branding'
+import NotificationBell from '@/components/notifications/NotificationBell'
 
 type UserRole = 'owner' | 'manager' | 'staff' | null
-
 type NavRole = 'owner' | 'manager' | 'staff'
 
 type NavItem = {
@@ -39,12 +39,14 @@ export default function DashboardLayout({
   children: React.ReactNode
 }) {
   const [role, setRole] = useState<UserRole>(null)
+  const [userId, setUserId] = useState<string | null>(null)
   const [loadingRole, setLoadingRole] = useState(true)
   const [brand, setBrand] = useState<BrandConfig | undefined>()
 
   useEffect(() => {
     async function loadRoleAndBrand() {
       const { data: userData } = await supabase.auth.getUser()
+      setUserId(userData.user?.id || null)
 
       if (!userData.user?.email) {
         setRole(null)
@@ -123,7 +125,7 @@ export default function DashboardLayout({
 
   return (
     <BrandProvider brand={brand}>
-      <DashboardShell role={role} loadingRole={loadingRole}>
+      <DashboardShell role={role} loadingRole={loadingRole} userId={userId}>
         {children}
       </DashboardShell>
     </BrandProvider>
@@ -134,14 +136,16 @@ function DashboardShell({
   children,
   role,
   loadingRole,
+  userId,
 }: {
   children: React.ReactNode
   role: UserRole
   loadingRole: boolean
+  userId: string | null
 }) {
   const brand = useBrand()
 
-  const navItems = useMemo<NavItem[]>(() => {
+  const navItems = useMemo<NavItem[]>((() => {
     const allItems: NavItem[] = [
       { name: 'Overview', href: '/business/dashboard', roles: ['owner', 'manager', 'staff'] },
       { name: 'Calendar', href: '/business/dashboard/calendar', roles: ['owner', 'manager', 'staff'] },
@@ -163,15 +167,14 @@ function DashboardShell({
     ]
 
     const resolvedRole: NavRole = role ?? 'owner'
-
     return allItems.filter((item) => item.roles.includes(resolvedRole))
-  }, [role])
+  }), [role])
 
   const logoUrl = brand.logoUrl || ''
 
   return (
     <div
-      className="min-h-screen bg-[#020617] text-white relative overflow-hidden"
+      className="relative min-h-screen overflow-hidden bg-[#020617] text-white"
       style={
         {
           '--brand-primary': brand.primaryColour,
@@ -181,21 +184,21 @@ function DashboardShell({
       }
     >
       <div
-        className="fixed inset-0 pointer-events-none"
+        className="pointer-events-none fixed inset-0"
         style={{
           background: `radial-gradient(circle at top left, ${brand.accentColour}33 0%, transparent 30%), radial-gradient(circle at bottom right, ${brand.primaryColour}33 0%, transparent 32%)`,
         }}
       />
 
       <div className="relative z-10 flex min-h-screen">
-        <aside className="hidden lg:flex w-64 shrink-0 flex-col border-r border-white/10 bg-black/50 backdrop-blur-2xl px-6 py-7">
+        <aside className="hidden w-64 shrink-0 flex-col border-r border-white/10 bg-black/50 px-6 py-7 backdrop-blur-2xl lg:flex">
           <Link href="/business/dashboard" className="mb-10 block">
             <div className="rounded-2xl border border-white/10 bg-black p-4">
               {logoUrl ? (
                 <img
                   src={logoUrl}
                   alt={brand.businessName || brand.platformName || 'Business'}
-                  className="block w-full max-w-[170px] h-auto"
+                  className="block h-auto w-full max-w-[170px]"
                 />
               ) : (
                 <div className="text-xl font-black tracking-tight">
@@ -229,7 +232,7 @@ function DashboardShell({
           </nav>
 
           <div className="mt-auto rounded-3xl border border-white/10 bg-white/[0.04] p-5">
-            <div className="text-[10px] uppercase tracking-[0.3em] text-slate-500 mb-3">
+            <div className="mb-3 text-[10px] uppercase tracking-[0.3em] text-slate-500">
               {role ? `${role} access` : 'owner access'}
             </div>
 
@@ -254,7 +257,7 @@ function DashboardShell({
         </aside>
 
         <div className="flex-1">
-          <header className="sticky top-0 z-20 border-b border-white/10 bg-[#020617]/80 backdrop-blur-2xl px-6 py-5 lg:px-10">
+          <header className="sticky top-0 z-20 border-b border-white/10 bg-[#020617]/80 px-6 py-5 backdrop-blur-2xl lg:px-10">
             <div className="flex items-center justify-between">
               <div>
                 <div className="text-[10px] uppercase tracking-[0.45em] text-slate-500">
@@ -268,14 +271,18 @@ function DashboardShell({
                 </div>
               </div>
 
-              {(role || 'owner') === 'owner' && (
-                <Link
-                  href="/business/dashboard/settings"
-                  className="rounded-full border border-white/10 bg-white/[0.04] px-4 py-2 text-sm font-bold text-slate-300 hover:text-white"
-                >
-                  Settings
-                </Link>
-              )}
+              <div className="flex items-center gap-3">
+                {userId && <NotificationBell userId={userId} />}
+
+                {(role || 'owner') === 'owner' && (
+                  <Link
+                    href="/business/dashboard/settings"
+                    className="rounded-full border border-white/10 bg-white/[0.04] px-4 py-2 text-sm font-bold text-slate-300 hover:text-white"
+                  >
+                    Settings
+                  </Link>
+                )}
+              </div>
             </div>
           </header>
 
