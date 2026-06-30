@@ -645,29 +645,52 @@ export async function POST(req: Request) {
     }
 
     if (event.type === 'invoice.payment_failed') {
-      const invoice = event.data.object as Stripe.Invoice
-      const subscriptionId = getInvoiceSubscriptionId(invoice)
+  const invoice = event.data.object as Stripe.Invoice
+  const subscriptionId = getInvoiceSubscriptionId(invoice)
 
-      if (subscriptionId) {
-        const { error } = await supabase
-          .from('businesses')
-          .update({
-            subscription_status: 'past_due',
-          })
-          .eq('stripe_subscription_id', subscriptionId)
+  if (subscriptionId) {
+    const { error } = await supabase
+      .from('businesses')
+      .update({
+        subscription_status: 'past_due',
+      })
+      .eq('stripe_subscription_id', subscriptionId)
 
-        if (error) throw error
+    if (error) throw error
 
-        const { error: membershipError } = await supabase
-          .from('customer_memberships')
-          .update({
-            status: 'past_due',
-          })
-          .eq('stripe_subscription_id', subscriptionId)
+    const { error: membershipError } = await supabase
+      .from('customer_memberships')
+      .update({
+        status: 'past_due',
+      })
+      .eq('stripe_subscription_id', subscriptionId)
 
-        if (membershipError) throw membershipError
-      }
+    if (membershipError) throw membershipError
+
+    const { data: business, error: businessLookupError } = await supabase
+      .from('businesses')
+      .select('id')
+      .eq('stripe_subscription_id', subscriptionId)
+      .maybeSingle()
+
+    if (businessLookupError) throw businessLookupError
+
+    if (business?.id) {
+      await publishEvent({
+        id: crypto.randomUUID(),
+        type: 'payment.failed',
+        businessId: business.id,
+        createdAt: new Date().toISOString(),
+        payload: {
+          subscriptionId,
+          invoiceId: invoice.id,
+          amount: Number(invoice.amount_due || 0) / 100,
+          reason: 'invoice_payment_failed',
+        },
+      })
     }
+  }
+}
 
     return NextResponse.json({ received: true })
   } catch (error: any) {
