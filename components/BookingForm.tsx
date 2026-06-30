@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { supabase } from "@/lib/supabase";
+import { triggerBookingPush } from "@/lib/push/triggerBookingPush";
 
 type Service = {
   id: string;
@@ -853,6 +854,12 @@ export default function BookingForm({
       setLoading(false);
       return;
     }
+
+    await triggerBookingPush({
+  businessId,
+  bookingId: bookingData.id,
+  eventType: "created",
+});
 
     if (useMembership && canUseMembership && activeMembership) {
       setLoading(false);
