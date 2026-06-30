@@ -2,23 +2,16 @@ import { subscribe } from '../subscribe'
 import { notify } from '@/lib/notifications/notify'
 
 subscribe('membership.renewed', async (event) => {
-  const payload = event.payload as any
-
   await notify({
     businessId: event.businessId,
-    customerId: event.customerId,
-
-    type: 'membership.renewed',
-
+    userId: event.userId,
+    type: 'membership',
+    priority: 'success',
     title: 'Membership updated',
-
-    message:
-      payload.sessionsRemaining != null
-        ? `Membership updated. ${payload.sessionsRemaining} sessions remaining.`
-        : 'Membership updated.',
-
+    message: 'A membership has been updated or renewed.',
     link: '/business/dashboard/memberships',
-
-    data: payload,
+    icon: '👥',
+    metadata: event.payload || {},
+    sendPush: true,
   })
 })

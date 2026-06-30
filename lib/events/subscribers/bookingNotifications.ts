@@ -7,20 +7,15 @@ subscribe('booking.created', async (event) => {
   await notify({
     businessId: event.businessId,
     userId: event.userId,
-    customerId: event.customerId,
-
-    type: 'booking.created',
-
+    type: 'booking_created',
+    priority: 'success',
     title: 'New booking',
-
     message: 'A new booking has been created.',
-
     link: bookingId
       ? `/business/dashboard/bookings?id=${bookingId}`
       : '/business/dashboard/bookings',
-
-    data: event.payload,
-
-    email: (event.payload as any)?.customerEmail,
+    icon: '📅',
+    metadata: event.payload || {},
+    sendPush: true,
   })
 })
