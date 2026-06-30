@@ -13,36 +13,29 @@ function getSupabaseAdmin() {
 
 export async function POST(req: Request) {
   try {
-    const { notificationId, userId, markAll = false } = await req.json()
+    const { notificationId, userId } = await req.json()
 
-    if (!userId) {
-      return NextResponse.json({ error: 'Missing user ID.' }, { status: 400 })
+    if (!notificationId || !userId) {
+      return NextResponse.json({ error: 'Missing archive payload.' }, { status: 400 })
     }
 
     const supabaseAdmin = getSupabaseAdmin()
 
-    let query = supabaseAdmin
+    const { error } = await supabaseAdmin
       .from('notifications')
-      .update({ is_read: true, read_at: new Date().toISOString() })
+      .update({
+        is_archived: true,
+        archived_at: new Date().toISOString(),
+      })
+      .eq('id', notificationId)
       .eq('user_id', userId)
-      .eq('is_archived', false)
-
-    if (!markAll) {
-      if (!notificationId) {
-        return NextResponse.json({ error: 'Missing notification ID.' }, { status: 400 })
-      }
-
-      query = query.eq('id', notificationId)
-    }
-
-    const { error } = await query
 
     if (error) return NextResponse.json({ error: error.message }, { status: 500 })
 
     return NextResponse.json({ ok: true })
   } catch (error: any) {
     return NextResponse.json(
-      { error: error.message || 'Could not mark notification read.' },
+      { error: error.message || 'Could not archive notification.' },
       { status: 500 }
     )
   }
