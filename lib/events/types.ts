@@ -3,10 +3,19 @@ export type PlatformEventType =
   | 'booking.updated'
   | 'booking.cancelled'
   | 'booking.completed'
+
+  | 'payment.received'
+  | 'payment.failed'
+  | 'payment.deposit_received'
+  | 'payment.refunded'
+
   | 'membership.created'
   | 'membership.renewed'
+
   | 'voucher.purchased'
+
   | 'marketplace.enquiry'
+
   | 'review.received'
 
 export interface PlatformEvent<T = Record<string, unknown>> {

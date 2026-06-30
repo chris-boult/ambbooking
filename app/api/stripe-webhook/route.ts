@@ -445,22 +445,25 @@ export async function POST(req: Request) {
   if (error) throw error
 
   await publishEvent({
-    id: crypto.randomUUID(),
-    type: 'booking.created',
-    businessId: booking.business_id,
-    customerId: booking.customer_id || undefined,
-    createdAt: new Date().toISOString(),
-    payload: {
-      bookingId: booking.id,
-      serviceId: booking.service_id,
-      bookingDate: booking.booking_date,
-      bookingTime: booking.booking_time,
-      paymentStatus: 'paid',
-      paymentType: session.metadata?.payment_type ?? 'full_payment',
-      totalPrice: booking.total_price,
-      stripeSessionId: session.id,
-    },
-  })
+  id: crypto.randomUUID(),
+  type: session.metadata?.payment_type === 'deposit'
+    ? 'payment.deposit_received'
+    : 'payment.received',
+  businessId: booking.business_id,
+  customerId: booking.customer_id || undefined,
+  createdAt: new Date().toISOString(),
+  payload: {
+    bookingId: booking.id,
+    serviceId: booking.service_id,
+    bookingDate: booking.booking_date,
+    bookingTime: booking.booking_time,
+    paymentStatus: 'paid',
+    paymentType: session.metadata?.payment_type ?? 'full_payment',
+    amount: Number(session.metadata?.amount_to_charge || booking.total_price || 0),
+    totalPrice: booking.total_price,
+    stripeSessionId: session.id,
+  },
+})
 }
 
       if (businessId && plan) {
