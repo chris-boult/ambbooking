@@ -672,7 +672,132 @@ export default function SettingsPage() {
         )}
 
         {!loading && activeTab === 'notifications' && (
-          <section className="bg-slate-900 border border-slate-800 rounded-2xl p-6"><h2 className="text-2xl font-bold mb-6">Notifications</h2><div className="grid md:grid-cols-2 gap-4"><NotificationToggle label="Booking confirmations" checked={notifications.booking_confirmations} onChange={(value) => updateNotificationValue('booking_confirmations', value)} /><NotificationToggle label="Cancellation emails" checked={notifications.cancellation_emails} onChange={(value) => updateNotificationValue('cancellation_emails', value)} /><NotificationToggle label="24 hour reminders" checked={notifications.reminder_24h} onChange={(value) => updateNotificationValue('reminder_24h', value)} /><NotificationToggle label="2 hour reminders" checked={notifications.reminder_2h} onChange={(value) => updateNotificationValue('reminder_2h', value)} /><NotificationToggle label="Review requests" checked={notifications.review_requests} onChange={(value) => updateNotificationValue('review_requests', value)} /><NotificationToggle label="New booking alerts" checked={notifications.new_booking_alerts} onChange={(value) => updateNotificationValue('new_booking_alerts', value)} /><NotificationToggle label="Push notifications" checked={notifications.push_notifications} onChange={(value) => updateNotificationValue('push_notifications', value)} /><NotificationToggle label="SMS notifications" checked={notifications.sms_notifications} onChange={(value) => updateNotificationValue('sms_notifications', value)} /></div><button type="button" onClick={saveNotificationSettings} disabled={savingNotifications || !business} className="mt-6 rounded-xl bg-white px-5 py-3 font-bold text-slate-950 disabled:opacity-50">{savingNotifications ? 'Saving...' : 'Save notification preferences'}</button></section>
+          <section className="space-y-6">
+            <div className="overflow-hidden rounded-[28px] border border-cyan-400/20 bg-gradient-to-br from-cyan-400/10 via-slate-900 to-slate-950">
+              <div className="p-6 md:p-8">
+                <div className="flex flex-col gap-6 lg:flex-row lg:items-end lg:justify-between">
+                  <div>
+                    <div className="mb-4 inline-flex rounded-full border border-cyan-400/20 bg-cyan-400/10 px-4 py-2 text-xs font-black uppercase tracking-[0.25em] text-cyan-300">
+                      Notification preferences
+                    </div>
+                    <h2 className="text-3xl font-black tracking-tight md:text-5xl">
+                      Control how your business receives alerts.
+                    </h2>
+                    <p className="mt-4 max-w-3xl text-slate-400">
+                      Choose which booking updates, customer communications and business alerts are sent by email, push or SMS.
+                    </p>
+                  </div>
+
+                  <div className="grid grid-cols-3 gap-3 text-center">
+                    <StatusPill label="Push" enabled={notifications.push_notifications} />
+                    <StatusPill label="Email" enabled={notifications.booking_confirmations || notifications.cancellation_emails || notifications.new_booking_alerts} />
+                    <StatusPill label="SMS" enabled={notifications.sms_notifications} />
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <div className="grid gap-6 xl:grid-cols-2">
+              <NotificationPreferenceCard
+                icon="📅"
+                title="Appointment notifications"
+                description="Keep customers and the business informed when bookings are confirmed, changed or approaching."
+              >
+                <NotificationToggle
+                  label="Booking confirmations"
+                  description="Send confirmation emails when customers make a booking."
+                  checked={notifications.booking_confirmations}
+                  onChange={(value) => updateNotificationValue('booking_confirmations', value)}
+                />
+                <NotificationToggle
+                  label="Cancellation emails"
+                  description="Send cancellation emails when appointments are cancelled."
+                  checked={notifications.cancellation_emails}
+                  onChange={(value) => updateNotificationValue('cancellation_emails', value)}
+                />
+                <NotificationToggle
+                  label="24 hour reminders"
+                  description="Remind customers the day before their appointment."
+                  checked={notifications.reminder_24h}
+                  onChange={(value) => updateNotificationValue('reminder_24h', value)}
+                />
+                <NotificationToggle
+                  label="2 hour reminders"
+                  description="Send a final reminder shortly before the appointment."
+                  checked={notifications.reminder_2h}
+                  onChange={(value) => updateNotificationValue('reminder_2h', value)}
+                />
+              </NotificationPreferenceCard>
+
+              <NotificationPreferenceCard
+                icon="🔔"
+                title="Business alerts"
+                description="Notify the business when important customer or booking activity happens."
+              >
+                <NotificationToggle
+                  label="New booking alerts"
+                  description="Alert the business when a customer books online."
+                  checked={notifications.new_booking_alerts}
+                  onChange={(value) => updateNotificationValue('new_booking_alerts', value)}
+                />
+                <NotificationToggle
+                  label="Review requests"
+                  description="Ask customers to leave a review after completed appointments."
+                  checked={notifications.review_requests}
+                  onChange={(value) => updateNotificationValue('review_requests', value)}
+                />
+                <NotificationToggle
+                  label="Push notifications"
+                  description="Send instant app-style notifications to subscribed devices."
+                  checked={notifications.push_notifications}
+                  onChange={(value) => updateNotificationValue('push_notifications', value)}
+                />
+                <NotificationToggle
+                  label="SMS notifications"
+                  description="Use SMS where enabled for customer reminders and key business alerts."
+                  checked={notifications.sms_notifications}
+                  onChange={(value) => updateNotificationValue('sms_notifications', value)}
+                />
+              </NotificationPreferenceCard>
+            </div>
+
+            <div className="grid gap-6 xl:grid-cols-3">
+              <NotificationComingSoonCard
+                icon="💬"
+                title="WhatsApp"
+                description="Send booking updates and reminders through WhatsApp Business."
+              />
+              <NotificationComingSoonCard
+                icon="📈"
+                title="Daily summary"
+                description="Receive a daily business briefing with bookings, revenue and actions."
+              />
+              <NotificationComingSoonCard
+                icon="🌙"
+                title="Quiet hours"
+                description="Pause non-critical alerts overnight and queue them for the morning."
+              />
+            </div>
+
+            <div className="sticky bottom-4 z-20 rounded-3xl border border-white/10 bg-slate-950/95 p-4 shadow-2xl backdrop-blur-xl">
+              <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
+                <div>
+                  <p className="font-black">Notification settings</p>
+                  <p className="mt-1 text-sm text-slate-500">
+                    Changes apply to this business and future automated notifications.
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  onClick={saveNotificationSettings}
+                  disabled={savingNotifications || !business}
+                  className="rounded-2xl bg-white px-6 py-3 font-black text-slate-950 transition hover:bg-cyan-300 disabled:opacity-50"
+                >
+                  {savingNotifications ? 'Saving...' : 'Save notification preferences'}
+                </button>
+              </div>
+            </div>
+          </section>
         )}
 
         {!loading && activeTab === 'advanced' && (
@@ -703,8 +828,106 @@ function IntegrationCard({ title, status, active }: { title: string; status: str
   return <div className="rounded-xl border border-slate-800 p-4"><p className="font-bold">{title}</p><p className={`mt-2 text-sm ${active ? 'text-emerald-400' : 'text-amber-300'}`}>{status}</p></div>
 }
 
-function NotificationToggle({ label, checked, onChange }: { label: string; checked: boolean; onChange: (value: boolean) => void }) {
-  return <label className="flex cursor-pointer items-center justify-between rounded-xl border border-slate-800 p-4"><span>{label}</span><input type="checkbox" checked={checked} onChange={(event) => onChange(event.target.checked)} className="h-5 w-5" /></label>
+function StatusPill({ label, enabled }: { label: string; enabled: boolean }) {
+  return (
+    <div className="rounded-2xl border border-white/10 bg-black/25 px-4 py-3">
+      <p className="text-[10px] font-black uppercase tracking-[0.2em] text-slate-500">{label}</p>
+      <p className={`mt-1 text-sm font-black ${enabled ? 'text-emerald-300' : 'text-slate-500'}`}>
+        {enabled ? 'Enabled' : 'Off'}
+      </p>
+    </div>
+  )
+}
+
+function NotificationPreferenceCard({
+  icon,
+  title,
+  description,
+  children,
+}: {
+  icon: string
+  title: string
+  description: string
+  children: React.ReactNode
+}) {
+  return (
+    <div className="rounded-[28px] border border-slate-800 bg-slate-900 p-6 shadow-2xl">
+      <div className="mb-6 flex gap-4">
+        <div className="flex h-14 w-14 shrink-0 items-center justify-center rounded-2xl bg-cyan-400/10 text-2xl">
+          {icon}
+        </div>
+        <div>
+          <h3 className="text-2xl font-black">{title}</h3>
+          <p className="mt-2 text-sm leading-6 text-slate-500">{description}</p>
+        </div>
+      </div>
+      <div className="space-y-3">{children}</div>
+    </div>
+  )
+}
+
+function NotificationComingSoonCard({
+  icon,
+  title,
+  description,
+}: {
+  icon: string
+  title: string
+  description: string
+}) {
+  return (
+    <div className="rounded-[24px] border border-dashed border-slate-800 bg-slate-900/60 p-5">
+      <div className="mb-4 flex items-center justify-between gap-3">
+        <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-white/[0.04] text-2xl">
+          {icon}
+        </div>
+        <span className="rounded-full border border-amber-400/20 bg-amber-400/10 px-3 py-1 text-xs font-black text-amber-300">
+          Coming soon
+        </span>
+      </div>
+      <p className="font-black">{title}</p>
+      <p className="mt-2 text-sm leading-6 text-slate-500">{description}</p>
+    </div>
+  )
+}
+
+function NotificationToggle({
+  label,
+  description,
+  checked,
+  onChange,
+}: {
+  label: string
+  description?: string
+  checked: boolean
+  onChange: (value: boolean) => void
+}) {
+  return (
+    <label className="flex cursor-pointer items-center justify-between gap-5 rounded-2xl border border-slate-800 bg-slate-950/40 p-4 transition hover:border-slate-700">
+      <span>
+        <span className="block font-black">{label}</span>
+        {description && <span className="mt-1 block text-sm leading-5 text-slate-500">{description}</span>}
+      </span>
+
+      <span
+        className={`relative h-8 w-14 shrink-0 rounded-full border transition ${
+          checked ? 'border-cyan-300/40 bg-cyan-400' : 'border-slate-700 bg-slate-800'
+        }`}
+      >
+        <input
+          type="checkbox"
+          checked={checked}
+          onChange={(event) => onChange(event.target.checked)}
+          className="sr-only"
+        />
+        <span
+          className={`absolute top-1 h-6 w-6 rounded-full bg-white shadow-lg transition ${
+            checked ? 'left-7' : 'left-1'
+          }`}
+        />
+      </span>
+    </label>
+  )
 }
 
 function ActionButton({ title, text, buttonLabel, disabled, onClick }: { title: string; text: string; buttonLabel: string; disabled?: boolean; onClick: () => void }) {
