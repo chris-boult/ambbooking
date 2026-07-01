@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
 import { Resend } from 'resend'
+import { publishEvent } from '@/lib/events'
 import {
   getEmailBranding,
   resolveEmailBranding,
@@ -143,17 +144,11 @@ async function sendReviewRequestSms({
   reviewUrl: string
 }) {
   if (!customer?.phone) {
-    return {
-      sent: false,
-      reason: 'Missing customer phone',
-    }
+    return { sent: false, reason: 'Missing customer phone' }
   }
 
   if (customer.sms_reminders === false) {
-    return {
-      sent: false,
-      reason: 'Customer has disabled SMS reminders',
-    }
+    return { sent: false, reason: 'Customer has disabled SMS reminders' }
   }
 
   const { data: settings, error: settingsError } = await supabase
@@ -163,26 +158,17 @@ async function sendReviewRequestSms({
     .maybeSingle()
 
   if (settingsError) {
-    return {
-      sent: false,
-      reason: settingsError.message,
-    }
+    return { sent: false, reason: settingsError.message }
   }
 
   const smsSettings = settings as SmsSettings | null
 
   if (!smsSettings?.is_enabled) {
-    return {
-      sent: false,
-      reason: 'SMS disabled',
-    }
+    return { sent: false, reason: 'SMS disabled' }
   }
 
   if (!smsSettings.account_sid || !smsSettings.auth_token || !smsSettings.from_number) {
-    return {
-      sent: false,
-      reason: 'Missing SMS provider settings',
-    }
+    return { sent: false, reason: 'Missing SMS provider settings' }
   }
 
   const message = buildReviewSmsMessage({
@@ -212,11 +198,7 @@ async function sendReviewRequestSms({
       provider_message_id: result?.sid || null,
     })
 
-    return {
-      sent: true,
-      reason: null,
-      data: result,
-    }
+    return { sent: true, reason: null, data: result }
   } catch (error) {
     const errorMessage = error instanceof Error ? error.message : 'SMS failed'
 
@@ -231,10 +213,7 @@ async function sendReviewRequestSms({
       error_message: errorMessage,
     })
 
-    return {
-      sent: false,
-      reason: errorMessage,
-    }
+    return { sent: false, reason: errorMessage }
   }
 }
 
@@ -279,12 +258,13 @@ async function sendReviewRequest({
         bookingTime: booking.booking_time,
         buttonText: 'Leave a review',
         branding,
-      }).replace('Leave a review</span>', `<a href="${reviewUrl}" style="color:#fff;text-decoration:none;">Leave a review</a></span>`),
+      }).replace(
+        'Leave a review</span>',
+        `<a href="${reviewUrl}" style="color:#fff;text-decoration:none;">Leave a review</a></span>`
+      ),
     })
 
     if (error) {
-      console.error('Review request email error:', error)
-
       emailResult = {
         sent: false,
         reason: error.message || 'Resend failed',
@@ -312,6 +292,26 @@ async function sendReviewRequest({
       .from('bookings')
       .update({ review_request_sent: true })
       .eq('id', booking.id)
+
+    await publishEvent({
+      id: crypto.randomUUID(),
+      type: 'review.requested',
+      businessId: booking.business_id,
+      customerId: booking.customer_id ?? undefined,
+      createdAt: new Date().toISOString(),
+      payload: {
+        bookingId: booking.id,
+        customerId: booking.customer_id,
+        customerName,
+        customerEmail: customer?.email || '',
+        serviceId: booking.service_id,
+        serviceName,
+        bookingDate: booking.booking_date,
+        bookingTime: booking.booking_time,
+        emailSent: emailResult.sent,
+        smsSent: smsResult.sent,
+      },
+    })
   }
 
   return {
@@ -363,9 +363,7 @@ export async function GET() {
       return appointmentDateTime <= fourHoursAgo
     })
 
-    const customerIds = uniqueValues(
-      bookings.map((booking) => booking.customer_id)
-    )
+    const customerIds = uniqueValues(bookings.map((booking) => booking.customer_id))
     const serviceIds = uniqueValues(bookings.map((booking) => booking.service_id))
 
     let customers: Customer[] = []
@@ -408,9 +406,7 @@ export async function GET() {
     for (const booking of bookings) {
       const result = await sendReviewRequest({
         booking,
-        customer: customers.find(
-          (customer) => customer.id === booking.customer_id
-        ),
+        customer: customers.find((customer) => customer.id === booking.customer_id),
         service: services.find((service) => service.id === booking.service_id),
       })
 
@@ -431,8 +427,6 @@ export async function GET() {
     })
   } catch (error) {
     const message = error instanceof Error ? error.message : 'Review request route failed'
-
-    console.error('Review request route error:', error)
 
     return NextResponse.json(
       { success: false, error: message },
