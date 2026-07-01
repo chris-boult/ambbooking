@@ -1,8 +1,7 @@
 import { subscribe } from '../subscribe'
 import { notify } from '@/lib/notifications/notify'
 
-const formatMoney = (value: unknown) =>
-  `£${Number(value || 0).toFixed(2)}`
+const formatMoney = (value: unknown) => `£${Number(value || 0).toFixed(2)}`
 
 subscribe('payment.received', async (event) => {
   const bookingId = (event.payload as any)?.bookingId
@@ -14,17 +13,14 @@ subscribe('payment.received', async (event) => {
     userId: event.userId,
     type: 'payment',
     priority: 'success',
-    title:
-      paymentType === 'deposit'
-        ? 'Deposit received'
-        : 'Payment received',
+    title: paymentType === 'deposit' ? 'Deposit received' : 'Payment received',
     message: amount
       ? `${formatMoney(amount)} has been received.`
-      : 'Payment received successfully.',
+      : 'A payment has been received.',
     link: bookingId
       ? `/business/dashboard/bookings?id=${bookingId}`
       : '/business/dashboard/money',
-    icon: '💳',
+    icon: paymentType === 'deposit' ? '💰' : '💳',
     metadata: event.payload ?? {},
     sendPush: true,
   })

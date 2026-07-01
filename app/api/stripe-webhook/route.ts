@@ -348,6 +348,21 @@ export async function POST(req: Request) {
           message,
         })
 
+       await publishEvent({
+  id: crypto.randomUUID(),
+  type: 'voucher.purchased',
+  businessId: business.id,
+  createdAt: new Date().toISOString(),
+  payload: {
+    voucherCode: code,
+    amount,
+    recipientName,
+    recipientEmail: recipientEmail.trim().toLowerCase(),
+    purchaserName,
+    stripeSessionId: session.id,
+  },
+})
+       
         console.log('Gift voucher created and email attempted:', code)
       }
 
@@ -421,6 +436,22 @@ export async function POST(req: Request) {
 
           if (customerPackageError) throw customerPackageError
         }
+
+        await publishEvent({
+          id: crypto.randomUUID(),
+          type: 'package.purchased',
+          businessId,
+          customerId,
+          createdAt: new Date().toISOString(),
+          payload: {
+            packageId,
+            customerId,
+            customerEmail: cleanEmail,
+            customerName: `${customerFirstName} ${customerLastName}`.trim(),
+            totalSessions,
+            stripeSessionId: session.id,
+          },
+        })
       }
 
       if (bookingId) {
@@ -496,6 +527,26 @@ export async function POST(req: Request) {
         if (monthlyAmount > 0) {
           await syncReferralMrrForBusiness(businessId, monthlyAmount)
         }
+
+        await publishEvent({
+          id: crypto.randomUUID(),
+          type: 'subscription.purchased',
+          businessId,
+          createdAt: new Date().toISOString(),
+          payload: {
+            plan,
+            monthlyAmount,
+            stripeCustomerId:
+              typeof session.customer === 'string'
+                ? session.customer
+                : null,
+            stripeSubscriptionId:
+              typeof session.subscription === 'string'
+                ? session.subscription
+                : null,
+            stripeSessionId: session.id,
+          },
+        })
       }
     }
 
@@ -542,6 +593,28 @@ export async function POST(req: Request) {
         .eq('stripe_subscription_id', subscription.id)
 
       if (membershipError) throw membershipError
+
+      if (businessId) {
+        await publishEvent({
+          id: crypto.randomUUID(),
+          type:
+            membershipStatus === 'past_due'
+              ? 'membership.past_due'
+              : membershipStatus === 'cancelled'
+                ? 'membership.cancelled'
+                : 'membership.updated',
+          businessId,
+          createdAt: new Date().toISOString(),
+          payload: {
+            subscriptionId: subscription.id,
+            status: membershipStatus,
+            stripeCustomerId:
+              typeof subscription.customer === 'string'
+                ? subscription.customer
+                : null,
+          },
+        })
+      }
     }
 
     if (event.type === 'customer.subscription.deleted') {
@@ -568,6 +641,22 @@ export async function POST(req: Request) {
         .eq('stripe_subscription_id', subscription.id)
 
       if (membershipError) throw membershipError
+
+      if (businessId) {
+        await publishEvent({
+          id: crypto.randomUUID(),
+          type: 'membership.cancelled',
+          businessId,
+          createdAt: new Date().toISOString(),
+          payload: {
+            subscriptionId: subscription.id,
+            stripeCustomerId:
+              typeof subscription.customer === 'string'
+                ? subscription.customer
+                : null,
+          },
+        })
+      }
     }
 
     if (event.type === 'invoice.payment_succeeded') {
@@ -640,6 +729,19 @@ export async function POST(req: Request) {
             source: `invoice.payment_succeeded:${invoice.id}`,
             amountOverride: amountPaid || Number(business.monthly_amount || 0),
           })
+
+          await publishEvent({
+            id: crypto.randomUUID(),
+            type: 'membership.renewed',
+            businessId: business.id,
+            createdAt: new Date().toISOString(),
+            payload: {
+              subscriptionId,
+              invoiceId: invoice.id,
+              amount: amountPaid || Number(business.monthly_amount || 0),
+              reason: 'invoice_payment_succeeded',
+            },
+          })
         }
       }
     }
@@ -679,6 +781,19 @@ export async function POST(req: Request) {
       await publishEvent({
         id: crypto.randomUUID(),
         type: 'payment.failed',
+        businessId: business.id,
+        createdAt: new Date().toISOString(),
+        payload: {
+          subscriptionId,
+          invoiceId: invoice.id,
+          amount: Number(invoice.amount_due || 0) / 100,
+          reason: 'invoice_payment_failed',
+        },
+      })
+
+      await publishEvent({
+        id: crypto.randomUUID(),
+        type: 'membership.past_due',
         businessId: business.id,
         createdAt: new Date().toISOString(),
         payload: {

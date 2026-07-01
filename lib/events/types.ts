@@ -10,9 +10,14 @@ export type PlatformEventType =
   | 'payment.refunded'
 
   | 'membership.created'
+  | 'membership.updated'
   | 'membership.renewed'
+  | 'membership.cancelled'
+  | 'membership.past_due'
 
   | 'voucher.purchased'
+  | 'package.purchased'
+  | 'subscription.purchased'
 
   | 'marketplace.enquiry'
 
