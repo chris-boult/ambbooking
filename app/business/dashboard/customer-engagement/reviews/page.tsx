@@ -2,6 +2,20 @@
 
 import { useEffect, useMemo, useState } from 'react'
 import { supabase } from '@/lib/supabase'
+import {
+  Download,
+  RefreshCw,
+  Search,
+  ShieldCheck,
+  Star,
+  StarHalf,
+  XCircle,
+} from 'lucide-react'
+import DashboardPage from '@/components/dashboard/DashboardPage'
+import DashboardHero from '@/components/dashboard/DashboardHero'
+import DashboardGrid from '@/components/dashboard/DashboardGrid'
+import DashboardStatCard from '@/components/dashboard/StatCard'
+import SectionCard from '@/components/dashboard/SectionCard'
 
 const REVIEWS_FEATURE_KEY = 'reviews'
 const REVIEW_MODERATION_FEATURE_KEY = 'review_moderation'
@@ -467,23 +481,26 @@ export default function ReviewsManagementPage() {
   }, [business?.plan])
 
   if (loading) {
-    return <div className="text-white">Loading reviews...</div>
+    return (
+      <DashboardPage className="flex min-h-[55vh] items-center justify-center">
+        <div className="rounded-[2rem] border border-white/10 bg-[#07111f] px-8 py-6 font-black text-slate-200 shadow-[0_50px_180px_rgba(0,0,0,.55)]">
+          Loading reviews...
+        </div>
+      </DashboardPage>
+    )
   }
 
   if (!features.reviews) {
     return (
-      <div>
-        <section className="mb-10">
-          <p className="mb-2 text-slate-400">Pack 8 commercial gating</p>
-          <h1 className="mb-2 text-4xl font-bold">Reviews</h1>
-          <p className="max-w-3xl text-slate-500">
-            Customer reviews are not included on the current {currentPlan} plan.
-            {business?.business_name ? ` Connected to ${business.business_name}.` : ''}
-          </p>
-        </section>
+      <DashboardPage>
+        <DashboardHero
+          eyebrow="Reviews"
+          title="Reviews are locked."
+          description={`Customer reviews are not included on the current ${currentPlan} plan.${business?.business_name ? ` Connected to ${business.business_name}.` : ''}`}
+        />
 
         {message && (
-          <div className="mb-6 rounded-2xl border border-cyan-300/20 bg-cyan-300/10 p-4 text-cyan-100">
+          <div className="rounded-2xl border border-cyan-300/20 bg-cyan-300/10 p-4 text-sm font-bold text-cyan-100">
             {message}
           </div>
         )}
@@ -494,56 +511,44 @@ export default function ReviewsManagementPage() {
           feature="Reviews"
           plan={currentPlan}
         />
-      </div>
+      </DashboardPage>
     )
   }
 
   return (
-    <div>
-      <section className="mb-10 flex flex-col gap-6 lg:flex-row lg:items-end lg:justify-between">
-        <div>
-          <p className="mb-2 text-slate-400">Pack 8 commercial gating</p>
-          <h1 className="mb-2 text-4xl font-bold">Reviews</h1>
-          <p className="max-w-3xl text-slate-500">
-            View customer feedback, approve published reviews and export review data.
-            {business?.business_name ? ` Connected to ${business.business_name}.` : ''}
-          </p>
-        </div>
+    <DashboardPage>
+      <DashboardHero
+        eyebrow="Reviews"
+        title="Reviews."
+        description={`View customer feedback, approve published reviews and export review data.${business?.business_name ? ` Connected to ${business.business_name}.` : ''}`}
+        actions={
+          <>
+            <ActionButton
+              onClick={exportCsv}
+              disabled={!features.exportCsv}
+              icon={<Download size={17} />}
+            >
+              Export CSV
+            </ActionButton>
 
-        <div className="flex flex-col gap-3 sm:flex-row">
-          <div className="rounded-xl border border-slate-800 bg-slate-900 px-5 py-3">
-            <p className="text-xs font-black uppercase tracking-[0.2em] text-slate-500">
-              Current plan
-            </p>
-            <p className="mt-1 text-xl font-black text-white">{currentPlan}</p>
-          </div>
-
-          <button
-            type="button"
-            onClick={exportCsv}
-            disabled={!features.exportCsv}
-            className="rounded-xl bg-slate-800 px-5 py-3 font-bold text-white hover:bg-slate-700 disabled:cursor-not-allowed disabled:opacity-50"
-          >
-            Export CSV
-          </button>
-
-          <button
-            type="button"
-            onClick={loadData}
-            className="rounded-xl bg-white px-5 py-3 font-bold text-slate-950"
-          >
-            Refresh
-          </button>
-        </div>
-      </section>
+            <ActionButton
+              onClick={loadData}
+              variant="primary"
+              icon={<RefreshCw size={17} />}
+            >
+              Refresh
+            </ActionButton>
+          </>
+        }
+      />
 
       {message && (
-        <div className="mb-6 rounded-2xl border border-cyan-300/20 bg-cyan-300/10 p-4 text-cyan-100">
+        <div className="rounded-2xl border border-cyan-300/20 bg-cyan-300/10 p-4 text-sm font-bold text-cyan-100">
           {message}
         </div>
       )}
 
-      <section className="mb-8 grid gap-4 md:grid-cols-4">
+      <DashboardGrid columns={4}>
         <FeatureStatusCard
           title="Reviews"
           enabled={features.reviews}
@@ -564,49 +569,70 @@ export default function ReviewsManagementPage() {
           enabled={features.reporting}
           description="View review performance metrics."
         />
-      </section>
+      </DashboardGrid>
 
-      {features.reporting && (
-        <section className="mb-8 grid gap-6 md:grid-cols-5">
-          <StatCard label="Average rating" value={stats.average ? stats.average.toFixed(1) : '—'} />
-          <StatCard label="Total reviews" value={stats.total} />
-          <StatCard label="Submitted" value={stats.submitted} />
-          <StatCard label="Published" value={stats.published} />
-          <StatCard label="Rejected" value={stats.rejected} />
-        </section>
-      )}
-
-      {!features.reporting && (
-        <div className="mb-8 rounded-2xl border border-amber-500/20 bg-amber-500/10 p-4 text-amber-200">
+      {features.reporting ? (
+        <DashboardGrid columns={4}>
+          <DashboardStatCard label="Average rating" value={stats.average ? stats.average.toFixed(1) : '—'} icon={<Star size={22} />} colour="amber" />
+          <DashboardStatCard label="Total reviews" value={stats.total} icon={<ShieldCheck size={22} />} />
+          <DashboardStatCard label="Submitted" value={stats.submitted} icon={<StarHalf size={22} />} colour="cyan" />
+          <DashboardStatCard label="Published" value={stats.published} icon={<Star size={22} />} colour="emerald" />
+          <DashboardStatCard label="Rejected" value={stats.rejected} icon={<XCircle size={22} />} colour="rose" />
+        </DashboardGrid>
+      ) : (
+        <div className="rounded-2xl border border-amber-500/20 bg-amber-500/10 p-4 text-sm font-bold text-amber-200">
           Review reporting is locked on this plan. Review records remain available where enabled.
         </div>
       )}
 
-      <section className="mb-8 rounded-2xl border border-slate-800 bg-slate-900 p-5">
-        <div className="grid gap-4 lg:grid-cols-[1fr_260px]">
-          <input
-            value={search}
-            onChange={(event) => setSearch(event.target.value)}
-            placeholder="Search reviews..."
-            className="w-full rounded-xl border border-slate-800 bg-slate-950 px-4 py-3 text-white outline-none placeholder:text-slate-600"
-          />
+      <SectionCard>
+        <div className="space-y-5">
+          <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
+            <div>
+              <h2 className="text-2xl font-black tracking-[-0.03em] text-white">
+                Review inbox
+              </h2>
+              <p className="mt-2 text-sm leading-6 text-slate-400">
+                Search, moderate and export customer feedback.
+              </p>
+            </div>
 
-          <select
-            value={statusFilter}
-            onChange={(event) => setStatusFilter(event.target.value as StatusFilter)}
-            className="w-full rounded-xl border border-slate-800 bg-slate-950 px-4 py-3 text-white outline-none"
-          >
-            <option value="all">All statuses</option>
-            <option value="submitted">Submitted</option>
-            <option value="published">Published</option>
-            <option value="rejected">Rejected</option>
-            <option value="draft">Draft</option>
-            <option value="pending">Pending</option>
-          </select>
-        </div>
-      </section>
+            <div className="relative">
+              <Search className="pointer-events-none absolute left-4 top-1/2 -translate-y-1/2 text-slate-500" size={18} />
+              <input
+                value={search}
+                onChange={(event) => setSearch(event.target.value)}
+                placeholder="Search reviews..."
+                className="w-full rounded-2xl border border-white/10 bg-slate-950 py-4 pl-11 pr-4 text-sm font-bold text-white outline-none placeholder:text-slate-600 focus:border-cyan-300 lg:w-96"
+              />
+            </div>
+          </div>
 
-      <section className="space-y-4">
+          <div className="-mx-1 flex gap-2 overflow-x-auto px-1 pb-1">
+            {[
+              ['all', 'All'],
+              ['submitted', 'Submitted'],
+              ['published', 'Published'],
+              ['pending', 'Pending'],
+              ['draft', 'Draft'],
+              ['rejected', 'Rejected'],
+            ].map(([key, label]) => (
+              <button
+                key={key}
+                type="button"
+                onClick={() => setStatusFilter(key as StatusFilter)}
+                className={`shrink-0 rounded-full border px-4 py-2 text-xs font-black transition ${
+                  statusFilter === key
+                    ? 'border-cyan-300/30 bg-cyan-400/15 text-cyan-100'
+                    : 'border-white/10 bg-white/[0.04] text-slate-400'
+                }`}
+              >
+                {label}
+              </button>
+            ))}
+          </div>
+
+          <section className="grid gap-4 xl:grid-cols-2">
         {filteredReviews.map((review) => (
           <ReviewCard
             key={review.id}
@@ -619,9 +645,11 @@ export default function ReviewsManagementPage() {
           />
         ))}
 
-        {filteredReviews.length === 0 && <EmptyState message="No reviews found." />}
-      </section>
-    </div>
+            {filteredReviews.length === 0 && <EmptyState message="No reviews found." />}
+          </section>
+        </div>
+      </SectionCard>
+    </DashboardPage>
   )
 }
 
@@ -656,55 +684,59 @@ function ReviewCard({
   onSubmit: () => void
 }) {
   return (
-    <article className="rounded-2xl border border-slate-800 bg-slate-900 p-6">
-      <div className="flex flex-col gap-5 lg:flex-row lg:items-start lg:justify-between">
-        <div className="min-w-0">
-          <div className="mb-3 flex flex-wrap items-center gap-3">
-            <h2 className="text-xl font-bold">{customerName(review)}</h2>
-            <StatusPill value={review.status || 'submitted'} />
+    <article className="overflow-hidden rounded-[2rem] border border-white/10 bg-slate-950/80 shadow-[0_30px_100px_rgba(0,0,0,.35)]">
+      <div className="p-5">
+        <div className="flex items-start justify-between gap-4">
+          <div className="min-w-0">
+            <h2 className="truncate text-xl font-black tracking-[-0.03em] text-white">
+              {customerName(review)}
+            </h2>
+            <p className="mt-2 text-2xl font-black text-amber-300">
+              {ratingStars(review.rating)}
+            </p>
           </div>
 
-          <p className="text-2xl font-black text-amber-300">{ratingStars(review.rating)}</p>
-
-          <p className="mt-3 text-slate-300">
-            {review.review_text || 'No review text provided.'}
-          </p>
-
-          <div className="mt-4 grid gap-3 text-sm text-slate-500 md:grid-cols-3">
-            <p>Service: {serviceName(review)}</p>
-            <p>Booking: {formatDate(bookingDate(review))}</p>
-            <p>Submitted: {formatDate(review.created_at)}</p>
-          </div>
+          <StatusPill value={review.status || 'submitted'} />
         </div>
 
-        <div className="flex shrink-0 flex-col gap-2 lg:w-44">
-          <button
-            type="button"
-            onClick={onPublish}
-            disabled={saving || !moderationEnabled}
-            className="rounded-xl bg-emerald-500/10 px-4 py-3 text-sm font-bold text-emerald-300 hover:bg-emerald-500/20 disabled:cursor-not-allowed disabled:opacity-50"
-          >
-            Publish
-          </button>
+        <p className="mt-5 whitespace-pre-wrap text-sm leading-6 text-slate-300">
+          {review.review_text || 'No review text provided.'}
+        </p>
 
-          <button
-            type="button"
-            onClick={onSubmit}
-            disabled={saving || !moderationEnabled}
-            className="rounded-xl border border-white/10 px-4 py-3 text-sm font-bold text-slate-300 hover:bg-white/10 disabled:cursor-not-allowed disabled:opacity-50"
-          >
-            Mark submitted
-          </button>
-
-          <button
-            type="button"
-            onClick={onReject}
-            disabled={saving || !moderationEnabled}
-            className="rounded-xl bg-red-500/10 px-4 py-3 text-sm font-bold text-red-300 hover:bg-red-500/20 disabled:cursor-not-allowed disabled:opacity-50"
-          >
-            Reject
-          </button>
+        <div className="mt-5 grid grid-cols-1 gap-3 sm:grid-cols-3">
+          <InfoTile label="Service" value={serviceName(review)} />
+          <InfoTile label="Booking" value={formatDate(bookingDate(review))} />
+          <InfoTile label="Submitted" value={formatDate(review.created_at)} />
         </div>
+      </div>
+
+      <div className="grid grid-cols-1 gap-2 border-t border-white/10 bg-white/[0.025] p-3 sm:grid-cols-3">
+        <button
+          type="button"
+          onClick={onPublish}
+          disabled={saving || !moderationEnabled}
+          className="rounded-2xl bg-emerald-400/10 px-3 py-3 text-xs font-black text-emerald-200 hover:bg-emerald-400/20 disabled:cursor-not-allowed disabled:opacity-40"
+        >
+          Publish
+        </button>
+
+        <button
+          type="button"
+          onClick={onSubmit}
+          disabled={saving || !moderationEnabled}
+          className="rounded-2xl bg-cyan-400/10 px-3 py-3 text-xs font-black text-cyan-200 hover:bg-cyan-400/20 disabled:cursor-not-allowed disabled:opacity-40"
+        >
+          Mark submitted
+        </button>
+
+        <button
+          type="button"
+          onClick={onReject}
+          disabled={saving || !moderationEnabled}
+          className="rounded-2xl bg-rose-400/10 px-3 py-3 text-xs font-black text-rose-200 hover:bg-rose-400/20 disabled:cursor-not-allowed disabled:opacity-40"
+        >
+          Reject
+        </button>
       </div>
     </article>
   )
@@ -724,7 +756,7 @@ function StatusPill({ value }: { value: string }) {
             ? 'border-amber-500/20 bg-amber-500/10 text-amber-300'
             : bad
               ? 'border-red-500/20 bg-red-500/10 text-red-300'
-              : 'border-slate-500/20 bg-slate-500/10 text-slate-300'
+              : 'border-white/10 bg-white/[0.06] text-slate-300'
       }`}
     >
       {value}
@@ -742,7 +774,7 @@ function FeatureStatusCard({
   description: string
 }) {
   return (
-    <div className="rounded-2xl border border-slate-800 bg-slate-900 p-5">
+    <div className="rounded-[2rem] border border-white/10 bg-[#07111f] p-5 shadow-[0_35px_120px_rgba(0,0,0,.32)]">
       <div className="mb-3 flex items-center justify-between gap-4">
         <h3 className="font-black text-white">{title}</h3>
         <span
@@ -755,7 +787,7 @@ function FeatureStatusCard({
           {enabled ? 'Unlocked' : 'Locked'}
         </span>
       </div>
-      <p className="text-sm text-slate-400">{description}</p>
+      <p className="text-sm leading-6 text-slate-400">{description}</p>
     </div>
   )
 }
@@ -772,7 +804,7 @@ function LockedFeatureCard({
   plan: string
 }) {
   return (
-    <div className="max-w-3xl rounded-3xl border border-amber-500/20 bg-amber-500/10 p-8">
+    <div className="max-w-3xl rounded-[2rem] border border-amber-500/20 bg-amber-500/10 p-8">
       <p className="mb-3 text-xs font-black uppercase tracking-[0.22em] text-amber-300">
         Upgrade required
       </p>
@@ -795,8 +827,51 @@ function LockedFeatureCard({
 
 function EmptyState({ message }: { message: string }) {
   return (
-    <div className="rounded-2xl border border-dashed border-slate-800 bg-slate-900 p-8 text-center text-slate-500">
-      {message}
+    <div className="rounded-3xl border border-dashed border-white/10 bg-white/[0.03] p-8 text-center">
+      <p className="text-lg font-black text-white">{message}</p>
+      <p className="mt-2 text-sm text-slate-500">Try another filter or search term.</p>
     </div>
+  )
+}
+
+function InfoTile({ label, value }: { label: string; value: string | number }) {
+  return (
+    <div className="rounded-2xl border border-white/10 bg-white/[0.035] p-3">
+      <p className="text-[10px] font-black uppercase tracking-[0.22em] text-slate-500">
+        {label}
+      </p>
+      <p className="mt-2 truncate text-sm font-black text-white">{value}</p>
+    </div>
+  )
+}
+
+function ActionButton({
+  children,
+  onClick,
+  variant = 'default',
+  icon,
+  disabled = false,
+}: {
+  children: React.ReactNode
+  onClick: () => void
+  variant?: 'default' | 'primary'
+  icon?: React.ReactNode
+  disabled?: boolean
+}) {
+  const styles = {
+    default: 'border-white/10 bg-white/[0.045] text-white hover:bg-white/[0.09]',
+    primary: 'border-cyan-400/20 bg-cyan-400 text-slate-950 hover:bg-cyan-300',
+  }
+
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      disabled={disabled}
+      className={`inline-flex items-center justify-center gap-2 rounded-2xl border px-5 py-3 text-sm font-black transition hover:-translate-y-0.5 disabled:cursor-not-allowed disabled:opacity-50 ${styles[variant]}`}
+    >
+      {icon}
+      {children}
+    </button>
   )
 }
