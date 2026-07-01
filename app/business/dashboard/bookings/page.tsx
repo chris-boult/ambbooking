@@ -1,12 +1,34 @@
 'use client'
 
 import { useEffect, useMemo, useState } from 'react'
-import PageHeader from '@/components/ui/PageHeader'
+import {
+  CalendarDays,
+  CheckCircle2,
+  Clock,
+  Search,
+  UserRound,
+  XCircle,
+} from 'lucide-react'
 import { supabase } from '@/lib/supabase'
+import DashboardPage from '@/components/dashboard/DashboardPage'
+import DashboardHero from '@/components/dashboard/DashboardHero'
+import DashboardGrid from '@/components/dashboard/DashboardGrid'
+import StatCard from '@/components/dashboard/StatCard'
+import SectionCard from '@/components/dashboard/SectionCard'
 import { Availability, Booking, Customer, RawBooking, Service, TeamMember } from './types'
 import { formatBookingDate, uniqueValues } from './utils/bookingFormatting'
-import BookingSection from './components/BookingSection'
 import RescheduleModal from './components/RescheduleModal'
+
+type FilterKey = 'upcoming' | 'past' | 'completed' | 'no_show' | 'cancelled' | 'all'
+
+const filters: { key: FilterKey; label: string }[] = [
+  { key: 'upcoming', label: 'Upcoming' },
+  { key: 'past', label: 'Past' },
+  { key: 'completed', label: 'Completed' },
+  { key: 'no_show', label: 'No shows' },
+  { key: 'cancelled', label: 'Cancelled' },
+  { key: 'all', label: 'All' },
+]
 
 export default function BookingsPage() {
   const [bookings, setBookings] = useState<Booking[]>([])
@@ -17,17 +39,24 @@ export default function BookingsPage() {
   const [availability, setAvailability] = useState<Availability | null>(null)
   const [bookedTimes, setBookedTimes] = useState<string[]>([])
   const [message, setMessage] = useState('')
+  const [search, setSearch] = useState('')
+  const [activeFilter, setActiveFilter] = useState<FilterKey>('upcoming')
 
-  const dateOptions = useMemo(() => Array.from({ length: 14 }, (_, index) => {
-    const date = new Date()
-    date.setDate(date.getDate() + index)
-    return {
-      value: date.toISOString().split('T')[0],
-      day: date.toLocaleDateString('en-GB', { weekday: 'short' }),
-      date: date.toLocaleDateString('en-GB', { day: 'numeric' }),
-      month: date.toLocaleDateString('en-GB', { month: 'short' }),
-    }
-  }), [])
+  const dateOptions = useMemo(
+    () =>
+      Array.from({ length: 14 }, (_, index) => {
+        const date = new Date()
+        date.setDate(date.getDate() + index)
+
+        return {
+          value: date.toISOString().split('T')[0],
+          day: date.toLocaleDateString('en-GB', { weekday: 'short' }),
+          date: date.toLocaleDateString('en-GB', { day: 'numeric' }),
+          month: date.toLocaleDateString('en-GB', { month: 'short' }),
+        }
+      }),
+    []
+  )
 
   const selectedDayOfWeek = newDate ? new Date(newDate).getDay() : null
 
@@ -79,7 +108,7 @@ export default function BookingsPage() {
             bookingDate: bookingDate || booking.booking_date,
             bookingTime: bookingTime || booking.booking_time,
             serviceName: booking.services?.[0]?.name || 'Appointment',
-            customerName: `${booking.customers?.[0]?.first_name || ''} ${booking.customers?.[0]?.last_name || ''}`.trim(),
+            customerName: getCustomerName(booking),
             customerEmail: booking.customers?.[0]?.email || '',
             teamMemberName: booking.team_members?.[0]?.full_name || '',
           },
@@ -115,32 +144,48 @@ export default function BookingsPage() {
     let teamMembers: TeamMember[] = []
 
     if (customerIds.length) {
-      const { data } = await supabase.from('customers').select('id, first_name, last_name, email').in('id', customerIds)
+      const { data } = await supabase
+        .from('customers')
+        .select('id, first_name, last_name, email')
+        .in('id', customerIds)
+
       customers = (data as Customer[]) || []
     }
 
     if (serviceIds.length) {
-      const { data } = await supabase.from('services').select('id, name, price').in('id', serviceIds)
+      const { data } = await supabase
+        .from('services')
+        .select('id, name, price')
+        .in('id', serviceIds)
+
       services = (data as Service[]) || []
     }
 
     if (teamMemberIds.length) {
-      const { data } = await supabase.from('team_members').select('id, full_name').in('id', teamMemberIds)
+      const { data } = await supabase
+        .from('team_members')
+        .select('id, full_name')
+        .in('id', teamMemberIds)
+
       teamMembers = (data as TeamMember[]) || []
     }
 
-    setBookings(rawBookings.map((booking) => {
-      const customer = customers.find((item) => item.id === booking.customer_id)
-      const service = services.find((item) => item.id === booking.service_id)
-      const teamMember = teamMembers.find((item) => item.id === booking.team_member_id)
+    setBookings(
+      rawBookings.map((booking) => {
+        const customer = customers.find((item) => item.id === booking.customer_id)
+        const service = services.find((item) => item.id === booking.service_id)
+        const teamMember = teamMembers.find((item) => item.id === booking.team_member_id)
 
-      return {
-        ...booking,
-        customers: customer ? [{ first_name: customer.first_name, last_name: customer.last_name, email: customer.email }] : null,
-        services: service ? [{ name: service.name, price: service.price }] : null,
-        team_members: teamMember ? [{ full_name: teamMember.full_name }] : null,
-      }
-    }))
+        return {
+          ...booking,
+          customers: customer
+            ? [{ first_name: customer.first_name, last_name: customer.last_name, email: customer.email }]
+            : null,
+          services: service ? [{ name: service.name, price: service.price }] : null,
+          team_members: teamMember ? [{ full_name: teamMember.full_name }] : null,
+        }
+      })
+    )
 
     setLoading(false)
   }
@@ -161,7 +206,9 @@ export default function BookingsPage() {
     if (loyaltyError || !loyaltyWallet) return
 
     const nextVisits = Number(loyaltyWallet.visits_completed || 0) + 1
-    const isNowEarned = Number(loyaltyWallet.visits_required || 0) > 0 && nextVisits >= Number(loyaltyWallet.visits_required || 0)
+    const isNowEarned =
+      Number(loyaltyWallet.visits_required || 0) > 0 &&
+      nextVisits >= Number(loyaltyWallet.visits_required || 0)
     const wasAlreadyEarned = loyaltyWallet.status === 'earned'
 
     const { error: updateError } = await supabase
@@ -254,7 +301,7 @@ export default function BookingsPage() {
         businessId: booking.business_id,
         customerId: booking.customer_id,
         bookingId: booking.id,
-        customerName: `${booking.customers?.[0]?.first_name || ''} ${booking.customers?.[0]?.last_name || ''}`,
+        customerName: getCustomerName(booking),
         customerEmail: booking.customers?.[0]?.email || '',
         bookingDate: formatBookingDate(booking.booking_date),
         bookingTime: booking.booking_time?.slice(0, 5),
@@ -322,7 +369,7 @@ export default function BookingsPage() {
         businessId: rescheduleBooking.business_id,
         customerId: rescheduleBooking.customer_id,
         bookingId: rescheduleBooking.id,
-        customerName: `${rescheduleBooking.customers?.[0]?.first_name || ''} ${rescheduleBooking.customers?.[0]?.last_name || ''}`,
+        customerName: getCustomerName(rescheduleBooking),
         customerEmail: rescheduleBooking.customers?.[0]?.email || '',
         bookingDate: formatBookingDate(newDate),
         bookingTime: newTime,
@@ -375,36 +422,181 @@ export default function BookingsPage() {
         .neq('id', rescheduleBooking.id)
         .neq('status', 'cancelled')
 
-      setBookedTimes((bookingsData as { booking_time: string }[] | null)?.map((booking) => booking.booking_time.slice(0, 5)) || [])
+      setBookedTimes(
+        ((bookingsData as { booking_time: string }[] | null) || []).map((booking) =>
+          booking.booking_time.slice(0, 5)
+        )
+      )
     }
 
     loadAvailabilityAndBookedTimes()
   }, [rescheduleBooking, newDate, selectedDayOfWeek])
 
   const today = new Date().toISOString().split('T')[0]
-  const upcomingBookings = bookings.filter((booking) => booking.booking_date >= today && booking.status === 'confirmed')
-  const pastConfirmedBookings = bookings.filter((booking) => booking.booking_date < today && booking.status === 'confirmed')
+
+  const upcomingBookings = bookings.filter(
+    (booking) => booking.booking_date >= today && booking.status === 'confirmed'
+  )
+  const pastConfirmedBookings = bookings.filter(
+    (booking) => booking.booking_date < today && booking.status === 'confirmed'
+  )
   const completedBookings = bookings.filter((booking) => booking.status === 'completed')
   const noShowBookings = bookings.filter((booking) => booking.status === 'no_show')
   const cancelledBookings = bookings.filter((booking) => booking.status === 'cancelled')
 
-  if (loading) return <div className="p-8 text-white">Loading bookings...</div>
+  const filteredBookings = useMemo(() => {
+    const base =
+      activeFilter === 'upcoming'
+        ? upcomingBookings
+        : activeFilter === 'past'
+          ? pastConfirmedBookings
+          : activeFilter === 'completed'
+            ? completedBookings
+            : activeFilter === 'no_show'
+              ? noShowBookings
+              : activeFilter === 'cancelled'
+                ? cancelledBookings
+                : bookings
+
+    const query = search.trim().toLowerCase()
+
+    if (!query) return base
+
+    return base.filter((booking) => {
+      return [
+        getCustomerName(booking),
+        booking.customers?.[0]?.email || '',
+        booking.services?.[0]?.name || '',
+        booking.team_members?.[0]?.full_name || '',
+        booking.status || '',
+        booking.booking_date || '',
+        booking.booking_time || '',
+      ]
+        .join(' ')
+        .toLowerCase()
+        .includes(query)
+    })
+  }, [
+    activeFilter,
+    bookings,
+    cancelledBookings,
+    completedBookings,
+    noShowBookings,
+    pastConfirmedBookings,
+    search,
+    upcomingBookings,
+  ])
+
+  if (loading) {
+    return (
+      <DashboardPage className="flex min-h-[50vh] items-center justify-center">
+        <div className="rounded-[2rem] border border-white/10 bg-[#07111f] px-8 py-6 font-black text-slate-200 shadow-[0_50px_180px_rgba(0,0,0,.55)]">
+          Loading bookings...
+        </div>
+      </DashboardPage>
+    )
+  }
 
   return (
-    <div className="p-8 text-white">
-      <PageHeader title="Bookings" />
+    <DashboardPage>
+      <DashboardHero
+        eyebrow="Bookings"
+        title="Manage bookings."
+        description="View upcoming appointments, reschedule customers, complete visits and manage cancellations."
+      />
 
       {message && (
-        <div className="mb-6 rounded-2xl border border-cyan-300/20 bg-cyan-300/10 p-4 text-cyan-100">
+        <div className="rounded-2xl border border-cyan-300/20 bg-cyan-300/10 p-4 text-sm font-bold text-cyan-100">
           {message}
         </div>
       )}
 
-      <BookingSection title="Upcoming Bookings" bookings={upcomingBookings} showActions onCancel={cancelBooking} onReschedule={openReschedule} onComplete={(id) => updateBookingStatus(id, 'completed')} onNoShow={(id) => updateBookingStatus(id, 'no_show')} />
-      <BookingSection title="Past Confirmed Bookings" bookings={pastConfirmedBookings} showActions onCancel={cancelBooking} onReschedule={openReschedule} onComplete={(id) => updateBookingStatus(id, 'completed')} onNoShow={(id) => updateBookingStatus(id, 'no_show')} />
-      <BookingSection title="Completed Bookings" bookings={completedBookings} />
-      <BookingSection title="No Shows" bookings={noShowBookings} />
-      <BookingSection title="Cancelled Bookings" bookings={cancelledBookings} />
+      <DashboardGrid columns={4}>
+        <StatCard
+          label="Upcoming"
+          value={upcomingBookings.length}
+          icon={<CalendarDays size={22} />}
+          colour="cyan"
+        />
+        <StatCard
+          label="Past confirmed"
+          value={pastConfirmedBookings.length}
+          icon={<Clock size={22} />}
+          colour="amber"
+        />
+        <StatCard
+          label="Completed"
+          value={completedBookings.length}
+          icon={<CheckCircle2 size={22} />}
+          colour="emerald"
+        />
+        <StatCard
+          label="Cancelled"
+          value={cancelledBookings.length}
+          icon={<XCircle size={22} />}
+          colour="rose"
+        />
+      </DashboardGrid>
+
+      <SectionCard>
+        <div className="space-y-5">
+          <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
+            <div className="relative">
+              <Search className="pointer-events-none absolute left-4 top-1/2 -translate-y-1/2 text-slate-500" size={18} />
+              <input
+                value={search}
+                onChange={(event) => setSearch(event.target.value)}
+                placeholder="Search bookings..."
+                className="w-full rounded-2xl border border-white/10 bg-slate-950 py-4 pl-11 pr-4 text-sm font-bold text-white outline-none placeholder:text-slate-600 focus:border-cyan-300 lg:w-96"
+              />
+            </div>
+
+            <div className="-mx-1 flex gap-2 overflow-x-auto px-1 pb-1">
+              {filters.map((filter) => (
+                <button
+                  key={filter.key}
+                  type="button"
+                  onClick={() => setActiveFilter(filter.key)}
+                  className={`shrink-0 rounded-full border px-4 py-2 text-xs font-black transition ${
+                    activeFilter === filter.key
+                      ? 'border-cyan-300/30 bg-cyan-400/15 text-cyan-100'
+                      : 'border-white/10 bg-white/[0.04] text-slate-400'
+                  }`}
+                >
+                  {filter.label}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          {filteredBookings.length === 0 ? (
+            <div className="rounded-3xl border border-dashed border-white/10 bg-white/[0.03] p-8 text-center">
+              <p className="text-lg font-black text-white">No bookings found.</p>
+              <p className="mt-2 text-sm text-slate-500">
+                Try another filter or search term.
+              </p>
+            </div>
+          ) : (
+            <div className="grid gap-4 xl:grid-cols-2">
+              {filteredBookings.map((booking) => {
+                const canAct = booking.status === 'confirmed'
+
+                return (
+                  <MobileBookingCard
+                    key={booking.id}
+                    booking={booking}
+                    showActions={canAct}
+                    onCancel={cancelBooking}
+                    onReschedule={openReschedule}
+                    onComplete={(id) => updateBookingStatus(id, 'completed')}
+                    onNoShow={(id) => updateBookingStatus(id, 'no_show')}
+                  />
+                )
+              })}
+            </div>
+          )}
+        </div>
+      </SectionCard>
 
       {rescheduleBooking && (
         <RescheduleModal
@@ -422,6 +614,122 @@ export default function BookingsPage() {
           onClose={closeReschedule}
         />
       )}
+    </DashboardPage>
+  )
+}
+
+function MobileBookingCard({
+  booking,
+  showActions,
+  onCancel,
+  onReschedule,
+  onComplete,
+  onNoShow,
+}: {
+  booking: Booking
+  showActions: boolean
+  onCancel: (id: string) => void
+  onReschedule: (booking: Booking) => void
+  onComplete: (id: string) => void
+  onNoShow: (id: string) => void
+}) {
+  const customerName = getCustomerName(booking)
+  const serviceName = booking.services?.[0]?.name || 'Appointment'
+  const teamMemberName = booking.team_members?.[0]?.full_name || 'Unassigned'
+  const price = booking.services?.[0]?.price
+  const time = booking.booking_time?.slice(0, 5) || 'Time not set'
+
+  return (
+    <article className="overflow-hidden rounded-[2rem] border border-white/10 bg-slate-950/80 shadow-[0_30px_100px_rgba(0,0,0,.35)]">
+      <div className="p-5">
+        <div className="flex items-start justify-between gap-4">
+          <div className="min-w-0">
+            <h3 className="truncate text-lg font-black tracking-[-0.03em] text-white">
+              {customerName || 'Unknown customer'}
+            </h3>
+            <p className="mt-1 truncate text-sm font-bold text-cyan-200">
+              {serviceName}
+            </p>
+          </div>
+
+          <StatusBadge status={booking.status || 'confirmed'} />
+        </div>
+
+        <div className="mt-5 grid grid-cols-2 gap-3">
+          <InfoTile label="Date" value={formatBookingDate(booking.booking_date)} />
+          <InfoTile label="Time" value={time} />
+          <InfoTile label="Team" value={teamMemberName} />
+          <InfoTile label="Price" value={price !== null && price !== undefined ? `£${price}` : '—'} />
+        </div>
+      </div>
+
+      {showActions && (
+        <div className="grid grid-cols-2 gap-2 border-t border-white/10 bg-white/[0.025] p-3 sm:grid-cols-4">
+          <button
+            type="button"
+            onClick={() => onComplete(booking.id)}
+            className="rounded-2xl bg-emerald-400/10 px-3 py-3 text-xs font-black text-emerald-200 hover:bg-emerald-400/20"
+          >
+            Complete
+          </button>
+
+          <button
+            type="button"
+            onClick={() => onReschedule(booking)}
+            className="rounded-2xl bg-cyan-400/10 px-3 py-3 text-xs font-black text-cyan-200 hover:bg-cyan-400/20"
+          >
+            Reschedule
+          </button>
+
+          <button
+            type="button"
+            onClick={() => onNoShow(booking.id)}
+            className="rounded-2xl bg-amber-400/10 px-3 py-3 text-xs font-black text-amber-200 hover:bg-amber-400/20"
+          >
+            No show
+          </button>
+
+          <button
+            type="button"
+            onClick={() => onCancel(booking.id)}
+            className="rounded-2xl bg-rose-400/10 px-3 py-3 text-xs font-black text-rose-200 hover:bg-rose-400/20"
+          >
+            Cancel
+          </button>
+        </div>
+      )}
+    </article>
+  )
+}
+
+function InfoTile({ label, value }: { label: string; value: string | number }) {
+  return (
+    <div className="rounded-2xl border border-white/10 bg-white/[0.035] p-3">
+      <p className="text-[10px] font-black uppercase tracking-[0.22em] text-slate-500">
+        {label}
+      </p>
+      <p className="mt-2 truncate text-sm font-black text-white">{value}</p>
     </div>
   )
+}
+
+function StatusBadge({ status }: { status: string }) {
+  const colour =
+    status === 'completed'
+      ? 'border-emerald-400/20 bg-emerald-400/10 text-emerald-200'
+      : status === 'cancelled'
+        ? 'border-rose-400/20 bg-rose-400/10 text-rose-200'
+        : status === 'no_show'
+          ? 'border-amber-400/20 bg-amber-400/10 text-amber-200'
+          : 'border-cyan-400/20 bg-cyan-400/10 text-cyan-200'
+
+  return (
+    <span className={`shrink-0 rounded-full border px-3 py-1 text-[10px] font-black uppercase tracking-[0.16em] ${colour}`}>
+      {status.replace(/_/g, ' ')}
+    </span>
+  )
+}
+
+function getCustomerName(booking: Booking) {
+  return `${booking.customers?.[0]?.first_name || ''} ${booking.customers?.[0]?.last_name || ''}`.trim()
 }
