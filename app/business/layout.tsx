@@ -3,6 +3,24 @@
 import Link from 'next/link'
 import { useEffect, useMemo, useState } from 'react'
 import { usePathname } from 'next/navigation'
+import {
+  BarChart3,
+  BookOpen,
+  CalendarDays,
+  ChevronRight,
+  CreditCard,
+  Gift,
+  Headphones,
+  Home,
+  Mail,
+  Menu,
+  MessageSquare,
+  Package,
+  Settings,
+  Sparkles,
+  Users,
+  X,
+} from 'lucide-react'
 import { supabase } from '@/lib/supabase'
 import { BrandProvider, resolveBrand, useBrand, type BrandConfig } from '@/lib/branding'
 import NotificationBell from '@/components/notifications/NotificationBell'
@@ -15,6 +33,7 @@ type NavItem = {
   href: string
   roles: NavRole[]
   group: 'Core' | 'Management' | 'Marketing' | 'Finance' | 'System'
+  icon: React.ElementType
 }
 
 type BusinessBrandRow = {
@@ -36,30 +55,30 @@ type BusinessBrandRow = {
 }
 
 const navItems: NavItem[] = [
-  { name: 'Overview', href: '/business/dashboard', roles: ['owner', 'manager', 'staff'], group: 'Core' },
-  { name: 'Calendar', href: '/business/dashboard/calendar', roles: ['owner', 'manager', 'staff'], group: 'Core' },
-  { name: 'Bookings', href: '/business/dashboard/bookings', roles: ['owner', 'manager', 'staff'], group: 'Core' },
-  { name: 'Customers', href: '/business/dashboard/customers', roles: ['owner', 'manager', 'staff'], group: 'Core' },
+  { name: 'Overview', href: '/business/dashboard', roles: ['owner', 'manager', 'staff'], group: 'Core', icon: Home },
+  { name: 'Calendar', href: '/business/dashboard/calendar', roles: ['owner', 'manager', 'staff'], group: 'Core', icon: CalendarDays },
+  { name: 'Bookings', href: '/business/dashboard/bookings', roles: ['owner', 'manager', 'staff'], group: 'Core', icon: BookOpen },
+  { name: 'Customers', href: '/business/dashboard/customers', roles: ['owner', 'manager', 'staff'], group: 'Core', icon: Users },
 
-  { name: 'Services', href: '/business/dashboard/services', roles: ['owner', 'manager'], group: 'Management' },
-  { name: 'Team', href: '/business/dashboard/team', roles: ['owner', 'manager'], group: 'Management' },
-  { name: 'Staff', href: '/business/dashboard/staff', roles: ['owner', 'manager'], group: 'Management' },
-  { name: 'Packages', href: '/business/dashboard/packages', roles: ['owner', 'manager'], group: 'Management' },
-  { name: 'Memberships', href: '/business/dashboard/memberships', roles: ['owner', 'manager'], group: 'Management' },
-  { name: 'Gift Vouchers', href: '/business/dashboard/gift-vouchers', roles: ['owner', 'manager'], group: 'Management' },
+  { name: 'Services', href: '/business/dashboard/services', roles: ['owner', 'manager'], group: 'Management', icon: Sparkles },
+  { name: 'Team', href: '/business/dashboard/team', roles: ['owner', 'manager'], group: 'Management', icon: Users },
+  { name: 'Staff', href: '/business/dashboard/staff', roles: ['owner', 'manager'], group: 'Management', icon: Users },
+  { name: 'Packages', href: '/business/dashboard/packages', roles: ['owner', 'manager'], group: 'Management', icon: Package },
+  { name: 'Memberships', href: '/business/dashboard/memberships', roles: ['owner', 'manager'], group: 'Management', icon: CreditCard },
+  { name: 'Gift Vouchers', href: '/business/dashboard/gift-vouchers', roles: ['owner', 'manager'], group: 'Management', icon: Gift },
 
-  { name: 'Customer Engagement', href: '/business/dashboard/customer-engagement', roles: ['owner', 'manager'], group: 'Marketing' },
-  { name: 'SMS Marketing', href: '/business/dashboard/marketing/sms', roles: ['owner', 'manager'], group: 'Marketing' },
-  { name: 'Email Campaigns', href: '/business/dashboard/marketing/email', roles: ['owner', 'manager'], group: 'Marketing' },
+  { name: 'Customer Engagement', href: '/business/dashboard/customer-engagement', roles: ['owner', 'manager'], group: 'Marketing', icon: MessageSquare },
+  { name: 'SMS Marketing', href: '/business/dashboard/marketing/sms', roles: ['owner', 'manager'], group: 'Marketing', icon: MessageSquare },
+  { name: 'Email Campaigns', href: '/business/dashboard/marketing/email', roles: ['owner', 'manager'], group: 'Marketing', icon: Mail },
 
-  { name: 'Reports', href: '/business/dashboard/reports', roles: ['owner', 'manager'], group: 'Finance' },
-  { name: 'Money', href: '/business/dashboard/money', roles: ['owner', 'manager'], group: 'Finance' },
+  { name: 'Reports', href: '/business/dashboard/reports', roles: ['owner', 'manager'], group: 'Finance', icon: BarChart3 },
+  { name: 'Money', href: '/business/dashboard/money', roles: ['owner', 'manager'], group: 'Finance', icon: CreditCard },
 
-  { name: 'Support', href: '/business/dashboard/support', roles: ['owner', 'manager', 'staff'], group: 'System' },
-  { name: 'Settings', href: '/business/dashboard/settings', roles: ['owner'], group: 'System' },
+  { name: 'Support', href: '/business/dashboard/support', roles: ['owner', 'manager', 'staff'], group: 'System', icon: Headphones },
+  { name: 'Settings', href: '/business/dashboard/settings', roles: ['owner'], group: 'System', icon: Settings },
 ]
 
-export default function DashboardLayout({ children }: { children: React.ReactNode }) {
+export default function BusinessLayout({ children }: { children: React.ReactNode }) {
   const [role, setRole] = useState<UserRole>(null)
   const [userId, setUserId] = useState<string | null>(null)
   const [loadingRole, setLoadingRole] = useState(true)
@@ -147,14 +166,14 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
 
   return (
     <BrandProvider brand={brand}>
-      <DashboardShell role={role} loadingRole={loadingRole} userId={userId}>
+      <BusinessShell role={role} loadingRole={loadingRole} userId={userId}>
         {children}
-      </DashboardShell>
+      </BusinessShell>
     </BrandProvider>
   )
 }
 
-function DashboardShell({
+function BusinessShell({
   children,
   role,
   loadingRole,
@@ -207,7 +226,7 @@ function DashboardShell({
       <div
         className="pointer-events-none fixed inset-0"
         style={{
-          background: `radial-gradient(circle at top left, ${brand.accentColour}33 0%, transparent 30%), radial-gradient(circle at bottom right, ${brand.primaryColour}33 0%, transparent 32%)`,
+          background: `radial-gradient(circle at top left, ${brand.accentColour}24 0%, transparent 32%), radial-gradient(circle at bottom right, ${brand.primaryColour}22 0%, transparent 34%)`,
         }}
       />
 
@@ -222,7 +241,11 @@ function DashboardShell({
 
             {!loadingRole &&
               filteredNav.map((item) => (
-                <DesktopNavLink key={item.href} item={item} active={isActive(pathname, item.href)} />
+                <DesktopNavLink
+                  key={item.href}
+                  item={item}
+                  active={isActive(pathname, item.href)}
+                />
               ))}
           </nav>
 
@@ -255,16 +278,16 @@ function DashboardShell({
               type="button"
               aria-label="Close menu"
               onClick={() => setMobileOpen(false)}
-              className="absolute inset-0 bg-black/70 backdrop-blur-sm"
+              className="absolute inset-0 bg-black/75 backdrop-blur-sm"
             />
 
-            <aside className="absolute left-0 top-0 flex h-full w-[86vw] max-w-sm flex-col border-r border-white/10 bg-[#020617] px-5 py-5 shadow-[40px_0_120px_rgba(0,0,0,.65)]">
-              <div className="flex items-center justify-between">
+            <aside className="absolute bottom-0 left-0 right-0 max-h-[88vh] overflow-hidden rounded-t-[2rem] border border-white/10 bg-[#020617] shadow-[0_-30px_120px_rgba(0,0,0,.85)]">
+              <div className="flex items-center justify-between border-b border-white/10 px-5 py-5">
                 <div className="min-w-0">
                   <div className="truncate text-lg font-black">
                     {brand.businessName || brand.platformName}
                   </div>
-                  <div className="mt-1 text-[10px] uppercase tracking-[0.32em] text-slate-500">
+                  <div className="mt-1 text-[10px] uppercase tracking-[0.3em] text-slate-500">
                     {role ? `${role} access` : 'owner access'}
                   </div>
                 </div>
@@ -272,33 +295,54 @@ function DashboardShell({
                 <button
                   type="button"
                   onClick={() => setMobileOpen(false)}
-                  className="rounded-2xl border border-white/10 bg-white/[0.04] px-4 py-3 text-sm font-black text-white"
+                  className="flex h-11 w-11 items-center justify-center rounded-2xl border border-white/10 bg-white/[0.04] text-white"
+                  aria-label="Close menu"
                 >
-                  Close
+                  <X size={20} />
                 </button>
               </div>
 
-              <nav className="mt-6 flex-1 space-y-6 overflow-y-auto pb-24">
+              <nav className="max-h-[68vh] space-y-5 overflow-y-auto px-5 py-5 pb-[max(2rem,env(safe-area-inset-bottom))]">
                 {Object.entries(groupedNav).map(([group, items]) => (
                   <div key={group}>
-                    <div className="mb-2 px-2 text-[10px] font-black uppercase tracking-[0.28em] text-slate-500">
+                    <div className="mb-2 px-1 text-[10px] font-black uppercase tracking-[0.28em] text-slate-500">
                       {group}
                     </div>
 
-                    <div className="space-y-1">
-                      {items.map((item) => (
-                        <Link
-                          key={item.href}
-                          href={item.href}
-                          className={`block rounded-2xl px-4 py-4 text-sm font-black transition ${
-                            isActive(pathname, item.href)
-                              ? 'bg-cyan-400/15 text-cyan-100'
-                              : 'text-slate-300 hover:bg-white/[0.05] hover:text-white'
-                          }`}
-                        >
-                          {item.name}
-                        </Link>
-                      ))}
+                    <div className="overflow-hidden rounded-3xl border border-white/10 bg-white/[0.035]">
+                      {items.map((item, index) => {
+                        const Icon = item.icon
+                        const active = isActive(pathname, item.href)
+
+                        return (
+                          <Link
+                            key={item.href}
+                            href={item.href}
+                            className={[
+                              'flex min-h-[56px] items-center gap-4 px-4 py-3 transition active:scale-[0.99]',
+                              index > 0 ? 'border-t border-white/10' : '',
+                              active ? 'bg-cyan-400/12 text-cyan-100' : 'text-slate-300',
+                            ].join(' ')}
+                          >
+                            <span
+                              className={[
+                                'flex h-10 w-10 shrink-0 items-center justify-center rounded-2xl border',
+                                active
+                                  ? 'border-cyan-400/25 bg-cyan-400/15 text-cyan-100'
+                                  : 'border-white/10 bg-black/20 text-slate-400',
+                              ].join(' ')}
+                            >
+                              <Icon size={18} />
+                            </span>
+
+                            <span className="min-w-0 flex-1 text-sm font-black">
+                              {item.name}
+                            </span>
+
+                            <ChevronRight size={17} className="text-slate-600" />
+                          </Link>
+                        )
+                      })}
                     </div>
                   </div>
                 ))}
@@ -308,18 +352,19 @@ function DashboardShell({
         )}
 
         <div className="flex min-w-0 flex-1 flex-col">
-          <header className="sticky top-0 z-30 border-b border-white/10 bg-[#020617]/85 px-4 py-4 backdrop-blur-2xl pt-[max(1rem,env(safe-area-inset-top))] lg:px-10 lg:py-5">
+          <header className="sticky top-0 z-30 border-b border-white/10 bg-[#020617]/88 px-4 py-3 backdrop-blur-2xl pt-[max(0.9rem,env(safe-area-inset-top))] lg:px-10 lg:py-5">
             <div className="flex items-center justify-between gap-4">
               <button
                 type="button"
                 onClick={() => setMobileOpen(true)}
-                className="rounded-2xl border border-white/10 bg-white/[0.04] px-4 py-3 text-sm font-black text-white lg:hidden"
+                className="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl border border-white/10 bg-white/[0.04] text-white lg:hidden"
+                aria-label="Open menu"
               >
-                Menu
+                <Menu size={21} />
               </button>
 
               <div className="min-w-0 flex-1 lg:flex-none">
-                <div className="truncate text-sm font-black lg:text-[10px] lg:uppercase lg:tracking-[0.45em] lg:text-slate-500">
+                <div className="truncate text-base font-black lg:text-[10px] lg:uppercase lg:tracking-[0.45em] lg:text-slate-500">
                   {brand.businessName || brand.platformName}
                 </div>
 
@@ -345,32 +390,42 @@ function DashboardShell({
             </div>
           </header>
 
-          <main className="flex-1 px-4 py-6 pb-28 sm:px-6 lg:px-10 lg:py-10 lg:pb-10">
+          <main className="flex-1 px-4 py-5 pb-24 sm:px-6 lg:px-10 lg:py-10 lg:pb-10">
             {children}
           </main>
 
-          <nav className="fixed bottom-0 left-0 right-0 z-40 border-t border-white/10 bg-[#020617]/95 px-3 pb-[max(0.75rem,env(safe-area-inset-bottom))] pt-3 backdrop-blur-2xl lg:hidden">
-            <div className="grid grid-cols-5 gap-2">
-              {bottomNav.map((item) => (
-                <Link
-                  key={item.href}
-                  href={item.href}
-                  className={`rounded-2xl px-2 py-3 text-center text-[11px] font-black ${
-                    isActive(pathname, item.href)
-                      ? 'bg-cyan-400/15 text-cyan-100'
-                      : 'text-slate-400'
-                  }`}
-                >
-                  {item.name === 'Overview' ? 'Home' : item.name}
-                </Link>
-              ))}
+          <nav className="fixed bottom-0 left-0 right-0 z-40 px-4 pb-[max(0.75rem,env(safe-area-inset-bottom))] lg:hidden">
+            <div className="mx-auto grid max-w-sm grid-cols-5 gap-1 rounded-[1.8rem] border border-white/10 bg-[#020617]/95 p-2 shadow-[0_20px_90px_rgba(0,0,0,.85)] backdrop-blur-2xl">
+              {bottomNav.map((item) => {
+                const Icon = item.icon
+                const active = isActive(pathname, item.href)
+
+                return (
+                  <Link
+                    key={item.href}
+                    href={item.href}
+                    aria-label={item.name === 'Overview' ? 'Home' : item.name}
+                    title={item.name === 'Overview' ? 'Home' : item.name}
+                    className={[
+                      'flex h-12 items-center justify-center rounded-2xl transition active:scale-95',
+                      active
+                        ? 'bg-cyan-400/15 text-cyan-100 shadow-[0_0_25px_rgba(34,211,238,.18)]'
+                        : 'text-slate-500 hover:text-slate-200',
+                    ].join(' ')}
+                  >
+                    <Icon size={21} strokeWidth={2.4} />
+                  </Link>
+                )
+              })}
 
               <button
                 type="button"
+                aria-label="Open menu"
+                title="Menu"
                 onClick={() => setMobileOpen(true)}
-                className="rounded-2xl px-2 py-3 text-center text-[11px] font-black text-slate-400"
+                className="flex h-12 items-center justify-center rounded-2xl text-slate-500 transition hover:text-slate-200 active:scale-95"
               >
-                More
+                <Menu size={21} strokeWidth={2.4} />
               </button>
             </div>
           </nav>
@@ -409,15 +464,18 @@ function BrandBlock({
 }
 
 function DesktopNavLink({ item, active }: { item: NavItem; active: boolean }) {
+  const Icon = item.icon
+
   return (
     <Link
       href={item.href}
-      className={`block rounded-2xl px-4 py-3 text-sm font-bold transition ${
+      className={`flex items-center gap-3 rounded-2xl px-4 py-3 text-sm font-bold transition ${
         active
           ? 'bg-cyan-400/15 text-cyan-100'
           : 'text-slate-400 hover:bg-white/5 hover:text-white'
       }`}
     >
+      <Icon size={17} />
       {item.name}
     </Link>
   )
