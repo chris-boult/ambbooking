@@ -4,6 +4,11 @@ import { useEffect, useMemo, useState } from 'react'
 import { supabase } from '@/lib/supabase'
 import { useRouter } from 'next/navigation'
 import { PushNotificationOptIn } from '@/components/notifications/PushNotificationOptIn'
+import DashboardPageShell from '@/components/dashboard/DashboardPage'
+import DashboardHeroShell from '@/components/dashboard/DashboardHero'
+import DashboardGrid from '@/components/dashboard/DashboardGrid'
+import StatCard from '@/components/dashboard/StatCard'
+import SectionCard from '@/components/dashboard/SectionCard'
 
 import {
   CalendarDays,
@@ -20,9 +25,6 @@ import {
 
 import type { Booking } from '@/app/business/dashboard/types'
 import { buildDashboardData } from '@/app/business/dashboard/utils/dashboardMetrics'
-import DashboardHero from './components/DashboardHero'
-import DashboardStatCard from './components/DashboardStatCard'
-import InsightCard from './components/InsightCard'
 import RevenueChartPanel from './components/RevenueChartPanel'
 import BusinessHealthPanel from './components/BusinessHealthPanel'
 import BookingPanel from './components/BookingPanel'
@@ -79,9 +81,20 @@ export default function DashboardPage() {
     setBusinessName(business.business_name)
     setBusinessId(business.id)
 
-    const { count: customerCount } = await supabase.from('customers').select('*', { count: 'exact', head: true }).eq('business_id', business.id)
-    const { count: serviceCount } = await supabase.from('services').select('*', { count: 'exact', head: true }).eq('business_id', business.id)
-    const { count: teamMemberCount } = await supabase.from('team_members').select('*', { count: 'exact', head: true }).eq('business_id', business.id)
+    const { count: customerCount } = await supabase
+      .from('customers')
+      .select('*', { count: 'exact', head: true })
+      .eq('business_id', business.id)
+
+    const { count: serviceCount } = await supabase
+      .from('services')
+      .select('*', { count: 'exact', head: true })
+      .eq('business_id', business.id)
+
+    const { count: teamMemberCount } = await supabase
+      .from('team_members')
+      .select('*', { count: 'exact', head: true })
+      .eq('business_id', business.id)
 
     const { data: bookingsData } = await supabase
       .from('bookings')
@@ -109,59 +122,160 @@ export default function DashboardPage() {
 
   if (loading) {
     return (
-      <main className="relative flex min-h-screen items-center justify-center overflow-hidden bg-[#020617] px-6 text-white">
-        <div className="absolute inset-0 -z-10 bg-[radial-gradient(circle_at_50%_0%,rgba(34,211,238,.18),transparent_34%),radial-gradient(circle_at_85%_70%,rgba(124,58,237,.13),transparent_32%)]" />
+      <DashboardPageShell className="flex min-h-[55vh] items-center justify-center">
         <div className="rounded-[2rem] border border-white/10 bg-[#07111f] px-8 py-6 font-black text-slate-200 shadow-[0_50px_180px_rgba(0,0,0,.55)]">
           Loading dashboard...
         </div>
-      </main>
+      </DashboardPageShell>
     )
   }
 
   return (
-    <main className="relative min-h-screen overflow-hidden bg-[#020617] text-white">
-      <div className="pointer-events-none absolute inset-0 -z-10 bg-[radial-gradient(circle_at_25%_0%,rgba(34,211,238,.12),transparent_34%),radial-gradient(circle_at_90%_10%,rgba(59,130,246,.10),transparent_30%),radial-gradient(circle_at_20%_85%,rgba(124,58,237,.10),transparent_34%)]" />
+    <DashboardPageShell>
+      <DashboardHeroShell
+        eyebrow="Business dashboard"
+        title={businessName ? `Welcome back, ${businessName}.` : 'Welcome back.'}
+        description={
+          email
+            ? `Signed in as ${email}. Track bookings, revenue, customers and business health from one place.`
+            : 'Track bookings, revenue, customers and business health from one place.'
+        }
+      />
 
-      <div className="mx-auto max-w-[1500px] px-6 py-10">
-        <DashboardHero businessName={businessName} email={email} />
+      {businessId && (
+        <SectionCard>
+          <PushNotificationOptIn businessId={businessId} />
+        </SectionCard>
+      )}
 
-        {businessId && (
-          <div className="mb-8 overflow-hidden rounded-[2rem] border border-white/10 bg-white/[0.035] p-5">
-            <PushNotificationOptIn businessId={businessId} />
-          </div>
-        )}
+      <DashboardGrid columns={4}>
+        <StatCard
+          label="Today&apos;s revenue"
+          value={`£${dashboard.revenueToday}`}
+          icon={<PoundSterling size={22} />}
+          subtitle={`${dashboard.todayBookings.length} bookings today`}
+          colour="emerald"
+        />
 
-        <div className="mb-8 grid gap-5 md:grid-cols-2 xl:grid-cols-4">
-          <DashboardStatCard label="Today&apos;s revenue" value={`£${dashboard.revenueToday}`} icon={PoundSterling} detail={`${dashboard.todayBookings.length} bookings today`} featured />
-          <DashboardStatCard label="This week" value={`£${dashboard.revenueThisWeek}`} icon={TrendingUp} detail="Confirmed and completed revenue" />
-          <DashboardStatCard label="Customers" value={customersCount} icon={Users} detail={`${bookings.length} total bookings`} />
-          <DashboardStatCard label="Avg booking" value={`£${dashboard.averageBookingValue}`} icon={CreditCard} detail="Average booking value" />
-        </div>
+        <StatCard
+          label="This week"
+          value={`£${dashboard.revenueThisWeek}`}
+          icon={<TrendingUp size={22} />}
+          subtitle="Confirmed and completed revenue"
+        />
 
-        <div className="mb-8 grid gap-5 md:grid-cols-2 xl:grid-cols-4">
-          <InsightCard label="Bookings today" value={dashboard.todayBookings.length} icon={CalendarDays} />
-          <InsightCard label="Upcoming" value={dashboard.upcomingBookings.length} icon={Clock} />
-          <InsightCard label="Completed" value={dashboard.completedBookings.length} icon={CheckCircle2} />
-          <InsightCard label="No shows" value={dashboard.noShowBookings.length} icon={XCircle} />
-        </div>
+        <StatCard
+          label="Customers"
+          value={customersCount}
+          icon={<Users size={22} />}
+          subtitle={`${bookings.length} total bookings`}
+          colour="violet"
+        />
 
-        <div className="mb-8 grid gap-8 xl:grid-cols-[1.45fr_0.8fr]">
-          <RevenueChartPanel labels={dashboard.chartData.labels} revenueData={dashboard.chartData.revenueData} totalRevenue={dashboard.totalRevenue} />
-          <BusinessHealthPanel servicesCount={servicesCount} teamCount={teamCount} bookingsCount={bookings.length} dashboard={dashboard} />
-        </div>
+        <StatCard
+          label="Avg booking"
+          value={`£${dashboard.averageBookingValue}`}
+          icon={<CreditCard size={22} />}
+          subtitle="Average booking value"
+          colour="amber"
+        />
+      </DashboardGrid>
 
-        <div className="mb-8 grid gap-5 md:grid-cols-2 xl:grid-cols-4">
-          <InsightCard label="Cancellation rate" value={`${dashboard.cancellationRate}%`} icon={XCircle} />
-          <InsightCard label="No-show rate" value={`${dashboard.noShowRate}%`} icon={UserRound} />
-          <InsightCard label="Top service" value={dashboard.topService} icon={LineChart} />
-          <InsightCard label="Top staff" value={dashboard.topStaff} icon={Users} />
-        </div>
+      <DashboardGrid columns={4}>
+        <StatCard
+          label="Bookings today"
+          value={dashboard.todayBookings.length}
+          icon={<CalendarDays size={22} />}
+          colour="cyan"
+        />
 
-        <div className="grid gap-8 xl:grid-cols-2">
-          <BookingPanel title="Today&apos;s schedule" subtitle="Confirmed appointments for today" href="/business/dashboard/calendar" hrefLabel="View calendar" bookings={dashboard.todayBookings} empty="No bookings scheduled for today." />
-          <BookingPanel title="Recent activity" subtitle="Latest booking activity across your business" href="/business/dashboard/bookings" hrefLabel="View all" bookings={dashboard.recentBookings} empty="No recent bookings yet." showDate />
-        </div>
-      </div>
-    </main>
+        <StatCard
+          label="Upcoming"
+          value={dashboard.upcomingBookings.length}
+          icon={<Clock size={22} />}
+          colour="amber"
+        />
+
+        <StatCard
+          label="Completed"
+          value={dashboard.completedBookings.length}
+          icon={<CheckCircle2 size={22} />}
+          colour="emerald"
+        />
+
+        <StatCard
+          label="No shows"
+          value={dashboard.noShowBookings.length}
+          icon={<XCircle size={22} />}
+          colour="rose"
+        />
+      </DashboardGrid>
+
+      <section className="grid gap-6 xl:grid-cols-[1.45fr_0.8fr]">
+        <RevenueChartPanel
+          labels={dashboard.chartData.labels}
+          revenueData={dashboard.chartData.revenueData}
+          totalRevenue={dashboard.totalRevenue}
+        />
+
+        <BusinessHealthPanel
+          servicesCount={servicesCount}
+          teamCount={teamCount}
+          bookingsCount={bookings.length}
+          dashboard={dashboard}
+        />
+      </section>
+
+      <DashboardGrid columns={4}>
+        <StatCard
+          label="Cancellation rate"
+          value={`${dashboard.cancellationRate}%`}
+          icon={<XCircle size={22} />}
+          colour="rose"
+        />
+
+        <StatCard
+          label="No-show rate"
+          value={`${dashboard.noShowRate}%`}
+          icon={<UserRound size={22} />}
+          colour="amber"
+        />
+
+        <StatCard
+          label="Top service"
+          value={dashboard.topService}
+          icon={<LineChart size={22} />}
+          colour="cyan"
+        />
+
+        <StatCard
+          label="Top staff"
+          value={dashboard.topStaff}
+          icon={<Users size={22} />}
+          colour="violet"
+        />
+      </DashboardGrid>
+
+      <section className="grid gap-6 xl:grid-cols-2">
+        <BookingPanel
+          title="Today&apos;s schedule"
+          subtitle="Confirmed appointments for today"
+          href="/business/dashboard/calendar"
+          hrefLabel="View calendar"
+          bookings={dashboard.todayBookings}
+          empty="No bookings scheduled for today."
+        />
+
+        <BookingPanel
+          title="Recent activity"
+          subtitle="Latest booking activity across your business"
+          href="/business/dashboard/bookings"
+          hrefLabel="View all"
+          bookings={dashboard.recentBookings}
+          empty="No recent bookings yet."
+          showDate
+        />
+      </section>
+    </DashboardPageShell>
   )
 }

@@ -22,11 +22,16 @@ export type PlatformEventType =
   | 'marketplace.enquiry'
 
   | 'review.received'
+  | 'review.requested'
 
   | 'waitinglist.offer'
 
-  | 'review.received'
-  | 'review.requested'
+  | 'support.ticket.created'
+  | 'support.ticket.reply.admin'
+  | 'support.ticket.reply.business'
+  | 'support.ticket.attachment'
+  | 'support.ticket.resolved'
+  | 'support.ticket.reopened'
 
 export interface PlatformEvent<T = Record<string, unknown>> {
   id: string

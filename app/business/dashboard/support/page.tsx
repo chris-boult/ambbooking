@@ -1,7 +1,23 @@
 'use client'
 
-import { useEffect, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { supabase } from '@/lib/supabase'
+
+type SelectedFile = {
+  id: string
+  file: File
+  previewUrl: string | null
+}
+
+const MAX_FILE_SIZE = 10 * 1024 * 1024
+
+const ALLOWED_TYPES = [
+  'image/png',
+  'image/jpeg',
+  'image/jpg',
+  'image/webp',
+  'application/pdf',
+]
 
 export default function BusinessSupportPage() {
   const [businessId, setBusinessId] = useState('')
@@ -12,10 +28,21 @@ export default function BusinessSupportPage() {
   const [message, setMessage] = useState('')
   const [status, setStatus] = useState('')
   const [loading, setLoading] = useState(false)
+  const [files, setFiles] = useState<SelectedFile[]>([])
 
   useEffect(() => {
     loadBusiness()
+
+    return () => {
+      files.forEach((item) => {
+        if (item.previewUrl) URL.revokeObjectURL(item.previewUrl)
+      })
+    }
   }, [])
+
+  const totalFileSize = useMemo(() => {
+    return files.reduce((total, item) => total + item.file.size, 0)
+  }, [files])
 
   async function loadBusiness() {
     const { data: userData } = await supabase.auth.getUser()
@@ -35,9 +62,93 @@ export default function BusinessSupportPage() {
     }
   }
 
+  function addFiles(fileList: FileList | null) {
+    setStatus('')
+
+    if (!fileList) return
+
+    const incoming = Array.from(fileList)
+    const validFiles: SelectedFile[] = []
+    const errors: string[] = []
+
+    incoming.forEach((file) => {
+      if (!ALLOWED_TYPES.includes(file.type)) {
+        errors.push(`${file.name} is not a supported file type.`)
+        return
+      }
+
+      if (file.size > MAX_FILE_SIZE) {
+        errors.push(`${file.name} is larger than 10MB.`)
+        return
+      }
+
+      validFiles.push({
+        id: crypto.randomUUID(),
+        file,
+        previewUrl: file.type.startsWith('image/') ? URL.createObjectURL(file) : null,
+      })
+    })
+
+    if (errors.length > 0) {
+      setStatus(errors.join(' '))
+    }
+
+    if (validFiles.length > 0) {
+      setFiles((current) => [...current, ...validFiles].slice(0, 5))
+    }
+  }
+
+  function removeFile(id: string) {
+    setFiles((current) => {
+      const item = current.find((file) => file.id === id)
+
+      if (item?.previewUrl) {
+        URL.revokeObjectURL(item.previewUrl)
+      }
+
+      return current.filter((file) => file.id !== id)
+    })
+  }
+
+  async function uploadAttachments(ticketId: string) {
+    if (files.length === 0) return
+
+    const { data: sessionData } = await supabase.auth.getSession()
+    const token = sessionData.session?.access_token
+
+    if (!token) {
+      throw new Error('You are not signed in.')
+    }
+
+    for (const item of files) {
+      const formData = new FormData()
+      formData.append('ticketId', ticketId)
+      formData.append('file', item.file)
+
+      const response = await fetch('/api/support/upload', {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${token}`,
+        },
+        body: formData,
+      })
+
+      const result = await response.json()
+
+      if (!response.ok) {
+        throw new Error(result.error || `Failed to upload ${item.file.name}`)
+      }
+    }
+  }
+
   async function submitTicket(e: React.FormEvent) {
     e.preventDefault()
     setStatus('')
+
+    if (!businessId) {
+      setStatus('Business profile could not be loaded. Please refresh and try again.')
+      return
+    }
 
     if (!subject.trim() || !message.trim()) {
       setStatus('Please add a subject and message.')
@@ -46,33 +157,72 @@ export default function BusinessSupportPage() {
 
     setLoading(true)
 
-    const { data: userData } = await supabase.auth.getUser()
+    try {
+      const { data: userData } = await supabase.auth.getUser()
 
-    const { error } = await supabase.from('support_tickets').insert({
-      business_id: businessId,
-      business_name: businessName,
-      user_id: userData.user?.id || null,
-      user_email: userData.user?.email || null,
+      const { data: ticket, error } = await supabase
+        .from('support_tickets')
+        .insert({
+          business_id: businessId,
+          business_name: businessName,
+          user_id: userData.user?.id || null,
+          user_email: userData.user?.email || null,
+          subject: subject.trim(),
+          message: message.trim(),
+          category,
+          priority,
+          status: 'open',
+          source: 'business_dashboard',
+        })
+        .select('id')
+        .single()
+
+      if (error) {
+        throw new Error(error.message)
+      }
+
+      if (!ticket?.id) {
+        throw new Error('Ticket was created but no ticket ID was returned.')
+      }
+
+      await uploadAttachments(ticket.id)
+
+     await fetch('/api/support/events', {
+  method: 'POST',
+  headers: {
+    'Content-Type': 'application/json',
+  },
+  body: JSON.stringify({
+    type: 'support.ticket.created',
+    businessId,
+    userId: userData.user?.id,
+    payload: {
+      ticketId: ticket.id,
       subject: subject.trim(),
-      message: message.trim(),
-      category,
       priority,
-      status: 'open',
-      source: 'business_dashboard',
-    })
+      category,
+      businessName,
+      userEmail: userData.user?.email || null,
+      attachmentCount: files.length,
+    },
+  }),
+})
 
-    setLoading(false)
+      files.forEach((item) => {
+        if (item.previewUrl) URL.revokeObjectURL(item.previewUrl)
+      })
 
-    if (error) {
-      setStatus(error.message)
-      return
+      setSubject('')
+      setMessage('')
+      setPriority('normal')
+      setCategory('general')
+      setFiles([])
+      setStatus('Support ticket raised successfully. AMB Booking support can now see this in the admin centre.')
+    } catch (error: any) {
+      setStatus(error?.message || 'Something went wrong.')
+    } finally {
+      setLoading(false)
     }
-
-    setSubject('')
-    setMessage('')
-    setPriority('normal')
-    setCategory('general')
-    setStatus('Support ticket raised successfully. AMB Booking support can now see this in the admin centre.')
   }
 
   return (
@@ -138,6 +288,71 @@ export default function BusinessSupportPage() {
             value={message}
             onChange={(e) => setMessage(e.target.value)}
           />
+
+          <div className="rounded-3xl border border-dashed border-white/10 bg-slate-950/70 p-5">
+            <label className="block cursor-pointer rounded-2xl border border-white/10 bg-white/[0.03] px-5 py-6 text-center transition hover:border-cyan-300/60 hover:bg-cyan-400/10">
+              <input
+                type="file"
+                multiple
+                accept="image/png,image/jpeg,image/jpg,image/webp,application/pdf"
+                className="hidden"
+                onChange={(e) => addFiles(e.target.files)}
+              />
+
+              <span className="block text-sm font-black text-cyan-200">
+                Upload screenshots or supporting files
+              </span>
+
+              <span className="mt-2 block text-xs font-bold text-slate-500">
+                PNG, JPG, WEBP or PDF. Maximum 10MB per file. Up to 5 files.
+              </span>
+            </label>
+
+            {files.length > 0 && (
+              <div className="mt-5 space-y-3">
+                <div className="text-xs font-black uppercase tracking-[0.2em] text-slate-500">
+                  Attachments selected · {(totalFileSize / 1024 / 1024).toFixed(2)}MB
+                </div>
+
+                {files.map((item) => (
+                  <div
+                    key={item.id}
+                    className="flex items-center gap-4 rounded-2xl border border-white/10 bg-slate-950 px-4 py-3"
+                  >
+                    {item.previewUrl ? (
+                      <img
+                        src={item.previewUrl}
+                        alt={item.file.name}
+                        className="h-14 w-14 rounded-xl object-cover"
+                      />
+                    ) : (
+                      <div className="flex h-14 w-14 items-center justify-center rounded-xl bg-cyan-400/10 text-xs font-black text-cyan-200">
+                        PDF
+                      </div>
+                    )}
+
+                    <div className="min-w-0 flex-1">
+                      <div className="truncate text-sm font-black text-white">
+                        {item.file.name}
+                      </div>
+
+                      <div className="text-xs font-bold text-slate-500">
+                        {(item.file.size / 1024 / 1024).toFixed(2)}MB
+                      </div>
+                    </div>
+
+                    <button
+                      type="button"
+                      onClick={() => removeFile(item.id)}
+                      className="rounded-xl border border-white/10 px-3 py-2 text-xs font-black text-slate-300 hover:border-red-300/50 hover:bg-red-400/10 hover:text-red-200"
+                    >
+                      Remove
+                    </button>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
 
           <button
             disabled={loading}

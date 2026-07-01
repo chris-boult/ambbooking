@@ -2,6 +2,7 @@
 
 import Link from 'next/link'
 import { useEffect, useMemo, useState } from 'react'
+import { usePathname } from 'next/navigation'
 import { supabase } from '@/lib/supabase'
 import { BrandProvider, resolveBrand, useBrand, type BrandConfig } from '@/lib/branding'
 import NotificationBell from '@/components/notifications/NotificationBell'
@@ -13,6 +14,7 @@ type NavItem = {
   name: string
   href: string
   roles: NavRole[]
+  group: 'Core' | 'Management' | 'Marketing' | 'Finance' | 'System'
 }
 
 type BusinessBrandRow = {
@@ -33,11 +35,31 @@ type BusinessBrandRow = {
   brand_mode?: 'amb' | 'co_branded' | 'white_label' | 'agency' | null
 }
 
-export default function DashboardLayout({
-  children,
-}: {
-  children: React.ReactNode
-}) {
+const navItems: NavItem[] = [
+  { name: 'Overview', href: '/business/dashboard', roles: ['owner', 'manager', 'staff'], group: 'Core' },
+  { name: 'Calendar', href: '/business/dashboard/calendar', roles: ['owner', 'manager', 'staff'], group: 'Core' },
+  { name: 'Bookings', href: '/business/dashboard/bookings', roles: ['owner', 'manager', 'staff'], group: 'Core' },
+  { name: 'Customers', href: '/business/dashboard/customers', roles: ['owner', 'manager', 'staff'], group: 'Core' },
+
+  { name: 'Services', href: '/business/dashboard/services', roles: ['owner', 'manager'], group: 'Management' },
+  { name: 'Team', href: '/business/dashboard/team', roles: ['owner', 'manager'], group: 'Management' },
+  { name: 'Staff', href: '/business/dashboard/staff', roles: ['owner', 'manager'], group: 'Management' },
+  { name: 'Packages', href: '/business/dashboard/packages', roles: ['owner', 'manager'], group: 'Management' },
+  { name: 'Memberships', href: '/business/dashboard/memberships', roles: ['owner', 'manager'], group: 'Management' },
+  { name: 'Gift Vouchers', href: '/business/dashboard/gift-vouchers', roles: ['owner', 'manager'], group: 'Management' },
+
+  { name: 'Customer Engagement', href: '/business/dashboard/customer-engagement', roles: ['owner', 'manager'], group: 'Marketing' },
+  { name: 'SMS Marketing', href: '/business/dashboard/marketing/sms', roles: ['owner', 'manager'], group: 'Marketing' },
+  { name: 'Email Campaigns', href: '/business/dashboard/marketing/email', roles: ['owner', 'manager'], group: 'Marketing' },
+
+  { name: 'Reports', href: '/business/dashboard/reports', roles: ['owner', 'manager'], group: 'Finance' },
+  { name: 'Money', href: '/business/dashboard/money', roles: ['owner', 'manager'], group: 'Finance' },
+
+  { name: 'Support', href: '/business/dashboard/support', roles: ['owner', 'manager', 'staff'], group: 'System' },
+  { name: 'Settings', href: '/business/dashboard/settings', roles: ['owner'], group: 'System' },
+]
+
+export default function DashboardLayout({ children }: { children: React.ReactNode }) {
   const [role, setRole] = useState<UserRole>(null)
   const [userId, setUserId] = useState<string | null>(null)
   const [loadingRole, setLoadingRole] = useState(true)
@@ -144,31 +166,30 @@ function DashboardShell({
   userId: string | null
 }) {
   const brand = useBrand()
+  const pathname = usePathname()
+  const [mobileOpen, setMobileOpen] = useState(false)
 
-  const navItems = useMemo<NavItem[]>((() => {
-    const allItems: NavItem[] = [
-      { name: 'Overview', href: '/business/dashboard', roles: ['owner', 'manager', 'staff'] },
-      { name: 'Calendar', href: '/business/dashboard/calendar', roles: ['owner', 'manager', 'staff'] },
-      { name: 'Bookings', href: '/business/dashboard/bookings', roles: ['owner', 'manager', 'staff'] },
-      { name: 'Customers', href: '/business/dashboard/customers', roles: ['owner', 'manager', 'staff'] },
-      { name: 'Services', href: '/business/dashboard/services', roles: ['owner', 'manager'] },
-      { name: 'Team', href: '/business/dashboard/team', roles: ['owner', 'manager'] },
-      { name: 'Staff', href: '/business/dashboard/staff', roles: ['owner', 'manager'] },
-      { name: 'Packages', href: '/business/dashboard/packages', roles: ['owner', 'manager'] },
-      { name: 'Memberships', href: '/business/dashboard/memberships', roles: ['owner', 'manager'] },
-      { name: 'Gift Vouchers', href: '/business/dashboard/gift-vouchers', roles: ['owner', 'manager'] },
-      { name: 'Customer Engagement', href: '/business/dashboard/customer-engagement', roles: ['owner', 'manager'] },
-      { name: 'SMS Marketing', href: '/business/dashboard/marketing/sms', roles: ['owner', 'manager'] },
-      { name: 'Email Campaigns', href: '/business/dashboard/marketing/email', roles: ['owner', 'manager'] },
-      { name: 'Reports', href: '/business/dashboard/reports', roles: ['owner', 'manager'] },
-      { name: 'Money', href: '/business/dashboard/money', roles: ['owner', 'manager'] },
-      { name: 'Support', href: '/business/dashboard/support', roles: ['owner', 'manager', 'staff'] },
-      { name: 'Settings', href: '/business/dashboard/settings', roles: ['owner'] },
-    ]
+  useEffect(() => {
+    setMobileOpen(false)
+  }, [pathname])
 
-    const resolvedRole: NavRole = role ?? 'owner'
-    return allItems.filter((item) => item.roles.includes(resolvedRole))
-  }), [role])
+  const resolvedRole: NavRole = role ?? 'owner'
+
+  const filteredNav = useMemo(() => {
+    return navItems.filter((item) => item.roles.includes(resolvedRole))
+  }, [resolvedRole])
+
+  const groupedNav = useMemo(() => {
+    return filteredNav.reduce<Record<string, NavItem[]>>((groups, item) => {
+      groups[item.group] = groups[item.group] || []
+      groups[item.group].push(item)
+      return groups
+    }, {})
+  }, [filteredNav])
+
+  const bottomNav = filteredNav.filter((item) =>
+    ['Overview', 'Calendar', 'Bookings', 'Customers'].includes(item.name)
+  )
 
   const logoUrl = brand.logoUrl || ''
 
@@ -192,42 +213,16 @@ function DashboardShell({
 
       <div className="relative z-10 flex min-h-screen">
         <aside className="hidden w-64 shrink-0 flex-col border-r border-white/10 bg-black/50 px-6 py-7 backdrop-blur-2xl lg:flex">
-          <Link href="/business/dashboard" className="mb-10 block">
-            <div className="rounded-2xl border border-white/10 bg-black p-4">
-              {logoUrl ? (
-                <img
-                  src={logoUrl}
-                  alt={brand.businessName || brand.platformName || 'Business'}
-                  className="block h-auto w-full max-w-[170px]"
-                />
-              ) : (
-                <div className="text-xl font-black tracking-tight">
-                  {brand.platformName}
-                </div>
-              )}
-            </div>
-
-            <div className="mt-4 text-[10px] uppercase tracking-[0.45em] text-slate-500">
-              {brand.whiteLabel ? 'BOOKING' : brand.bookingName}
-            </div>
-          </Link>
+          <BrandBlock logoUrl={logoUrl} brand={brand} />
 
           <nav className="space-y-1 overflow-y-auto pr-1">
             {loadingRole && (
-              <div className="px-4 py-3 text-sm text-slate-500">
-                Loading menu...
-              </div>
+              <div className="px-4 py-3 text-sm text-slate-500">Loading menu...</div>
             )}
 
             {!loadingRole &&
-              navItems.map((item) => (
-                <Link
-                  key={item.href}
-                  href={item.href}
-                  className="block rounded-2xl px-4 py-3 text-sm font-bold text-slate-400 transition hover:bg-white/5 hover:text-white"
-                >
-                  {item.name}
-                </Link>
+              filteredNav.map((item) => (
+                <DesktopNavLink key={item.href} item={item} active={isActive(pathname, item.href)} />
               ))}
           </nav>
 
@@ -238,9 +233,7 @@ function DashboardShell({
 
             <div className="text-lg font-bold">Growth Plan</div>
 
-            <p className="mt-2 text-sm text-slate-400">
-              Your booking system is live.
-            </p>
+            <p className="mt-2 text-sm text-slate-400">Your booking system is live.</p>
 
             {(role || 'owner') === 'owner' && (
               <Link
@@ -256,15 +249,81 @@ function DashboardShell({
           </div>
         </aside>
 
-        <div className="flex-1">
-          <header className="sticky top-0 z-20 border-b border-white/10 bg-[#020617]/80 px-6 py-5 backdrop-blur-2xl lg:px-10">
-            <div className="flex items-center justify-between">
-              <div>
-                <div className="text-[10px] uppercase tracking-[0.45em] text-slate-500">
-                  {brand.platformName}
+        {mobileOpen && (
+          <div className="fixed inset-0 z-50 lg:hidden">
+            <button
+              type="button"
+              aria-label="Close menu"
+              onClick={() => setMobileOpen(false)}
+              className="absolute inset-0 bg-black/70 backdrop-blur-sm"
+            />
+
+            <aside className="absolute left-0 top-0 flex h-full w-[86vw] max-w-sm flex-col border-r border-white/10 bg-[#020617] px-5 py-5 shadow-[40px_0_120px_rgba(0,0,0,.65)]">
+              <div className="flex items-center justify-between">
+                <div className="min-w-0">
+                  <div className="truncate text-lg font-black">
+                    {brand.businessName || brand.platformName}
+                  </div>
+                  <div className="mt-1 text-[10px] uppercase tracking-[0.32em] text-slate-500">
+                    {role ? `${role} access` : 'owner access'}
+                  </div>
                 </div>
 
-                <div className="mt-1 text-sm text-slate-400">
+                <button
+                  type="button"
+                  onClick={() => setMobileOpen(false)}
+                  className="rounded-2xl border border-white/10 bg-white/[0.04] px-4 py-3 text-sm font-black text-white"
+                >
+                  Close
+                </button>
+              </div>
+
+              <nav className="mt-6 flex-1 space-y-6 overflow-y-auto pb-24">
+                {Object.entries(groupedNav).map(([group, items]) => (
+                  <div key={group}>
+                    <div className="mb-2 px-2 text-[10px] font-black uppercase tracking-[0.28em] text-slate-500">
+                      {group}
+                    </div>
+
+                    <div className="space-y-1">
+                      {items.map((item) => (
+                        <Link
+                          key={item.href}
+                          href={item.href}
+                          className={`block rounded-2xl px-4 py-4 text-sm font-black transition ${
+                            isActive(pathname, item.href)
+                              ? 'bg-cyan-400/15 text-cyan-100'
+                              : 'text-slate-300 hover:bg-white/[0.05] hover:text-white'
+                          }`}
+                        >
+                          {item.name}
+                        </Link>
+                      ))}
+                    </div>
+                  </div>
+                ))}
+              </nav>
+            </aside>
+          </div>
+        )}
+
+        <div className="flex min-w-0 flex-1 flex-col">
+          <header className="sticky top-0 z-30 border-b border-white/10 bg-[#020617]/85 px-4 py-4 backdrop-blur-2xl pt-[max(1rem,env(safe-area-inset-top))] lg:px-10 lg:py-5">
+            <div className="flex items-center justify-between gap-4">
+              <button
+                type="button"
+                onClick={() => setMobileOpen(true)}
+                className="rounded-2xl border border-white/10 bg-white/[0.04] px-4 py-3 text-sm font-black text-white lg:hidden"
+              >
+                Menu
+              </button>
+
+              <div className="min-w-0 flex-1 lg:flex-none">
+                <div className="truncate text-sm font-black lg:text-[10px] lg:uppercase lg:tracking-[0.45em] lg:text-slate-500">
+                  {brand.businessName || brand.platformName}
+                </div>
+
+                <div className="mt-1 hidden text-sm text-slate-400 lg:block">
                   {brand.whiteLabel
                     ? `Manage ${brand.businessName}`
                     : 'Book more. Manage less.'}
@@ -277,7 +336,7 @@ function DashboardShell({
                 {(role || 'owner') === 'owner' && (
                   <Link
                     href="/business/dashboard/settings"
-                    className="rounded-full border border-white/10 bg-white/[0.04] px-4 py-2 text-sm font-bold text-slate-300 hover:text-white"
+                    className="hidden rounded-full border border-white/10 bg-white/[0.04] px-4 py-2 text-sm font-bold text-slate-300 hover:text-white sm:block"
                   >
                     Settings
                   </Link>
@@ -286,11 +345,85 @@ function DashboardShell({
             </div>
           </header>
 
-          <main className="px-6 py-8 lg:px-10 lg:py-10">
+          <main className="flex-1 px-4 py-6 pb-28 sm:px-6 lg:px-10 lg:py-10 lg:pb-10">
             {children}
           </main>
+
+          <nav className="fixed bottom-0 left-0 right-0 z-40 border-t border-white/10 bg-[#020617]/95 px-3 pb-[max(0.75rem,env(safe-area-inset-bottom))] pt-3 backdrop-blur-2xl lg:hidden">
+            <div className="grid grid-cols-5 gap-2">
+              {bottomNav.map((item) => (
+                <Link
+                  key={item.href}
+                  href={item.href}
+                  className={`rounded-2xl px-2 py-3 text-center text-[11px] font-black ${
+                    isActive(pathname, item.href)
+                      ? 'bg-cyan-400/15 text-cyan-100'
+                      : 'text-slate-400'
+                  }`}
+                >
+                  {item.name === 'Overview' ? 'Home' : item.name}
+                </Link>
+              ))}
+
+              <button
+                type="button"
+                onClick={() => setMobileOpen(true)}
+                className="rounded-2xl px-2 py-3 text-center text-[11px] font-black text-slate-400"
+              >
+                More
+              </button>
+            </div>
+          </nav>
         </div>
       </div>
     </div>
   )
+}
+
+function BrandBlock({
+  logoUrl,
+  brand,
+}: {
+  logoUrl: string
+  brand: BrandConfig
+}) {
+  return (
+    <Link href="/business/dashboard" className="mb-10 block">
+      <div className="rounded-2xl border border-white/10 bg-black p-4">
+        {logoUrl ? (
+          <img
+            src={logoUrl}
+            alt={brand.businessName || brand.platformName || 'Business'}
+            className="block h-auto w-full max-w-[170px]"
+          />
+        ) : (
+          <div className="text-xl font-black tracking-tight">{brand.platformName}</div>
+        )}
+      </div>
+
+      <div className="mt-4 text-[10px] uppercase tracking-[0.45em] text-slate-500">
+        {brand.whiteLabel ? 'BOOKING' : brand.bookingName}
+      </div>
+    </Link>
+  )
+}
+
+function DesktopNavLink({ item, active }: { item: NavItem; active: boolean }) {
+  return (
+    <Link
+      href={item.href}
+      className={`block rounded-2xl px-4 py-3 text-sm font-bold transition ${
+        active
+          ? 'bg-cyan-400/15 text-cyan-100'
+          : 'text-slate-400 hover:bg-white/5 hover:text-white'
+      }`}
+    >
+      {item.name}
+    </Link>
+  )
+}
+
+function isActive(pathname: string, href: string) {
+  if (href === '/business/dashboard') return pathname === href
+  return pathname === href || pathname.startsWith(`${href}/`)
 }
