@@ -1,7 +1,25 @@
 'use client'
 
-import { useEffect, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
+import {
+  Archive,
+  Crown,
+  Download,
+  Mail,
+  Phone,
+  Plus,
+  Search,
+  Upload,
+  UserRound,
+  Users,
+  Wallet,
+} from 'lucide-react'
 import { supabase } from '@/lib/supabase'
+import DashboardPage from '@/components/dashboard/DashboardPage'
+import DashboardHero from '@/components/dashboard/DashboardHero'
+import DashboardGrid from '@/components/dashboard/DashboardGrid'
+import DashboardStatCard from '@/components/dashboard/StatCard'
+import SectionCard from '@/components/dashboard/SectionCard'
 
 type Customer = {
   id: string
@@ -79,6 +97,14 @@ type CsvCustomerImportRow = {
   outstanding_balance: number
 }
 
+type FilterKey = 'all' | 'vip' | 'marketing' | 'archived'
+
+const filters: { key: FilterKey; label: string }[] = [
+  { key: 'all', label: 'All' },
+  { key: 'vip', label: 'VIP' },
+  { key: 'marketing', label: 'Marketing' },
+  { key: 'archived', label: 'Archived' },
+]
 
 export default function CustomersPage() {
   const [customers, setCustomers] = useState<CustomerWithStats[]>([])
@@ -90,7 +116,7 @@ export default function CustomersPage() {
   const [note, setNote] = useState('')
   const [message, setMessage] = useState('')
   const [searchTerm, setSearchTerm] = useState('')
-  const [showArchived, setShowArchived] = useState(false)
+  const [activeFilter, setActiveFilter] = useState<FilterKey>('all')
   const [showAddCustomer, setShowAddCustomer] = useState(false)
   const [showImportCustomers, setShowImportCustomers] = useState(false)
   const [importFileName, setImportFileName] = useState('')
@@ -129,32 +155,53 @@ export default function CustomersPage() {
   const [editNoShowCount, setEditNoShowCount] = useState('0')
   const [editOutstandingBalance, setEditOutstandingBalance] = useState('0')
 
-  const filteredCustomers = customers.filter((customer) => {
-    if (!showArchived && customer.archived) return false
-
-    const search = searchTerm.trim().toLowerCase()
-
-    if (!search) return true
-
-    const fullName = `${customer.first_name || ''} ${customer.last_name || ''}`.toLowerCase()
-    const email = customer.email?.toLowerCase() || ''
-    const phone = customer.phone?.toLowerCase() || ''
-    const notes = customer.notes?.toLowerCase() || ''
-    const source = customer.customer_source?.toLowerCase() || ''
-    const tags = customer.tags?.join(' ').toLowerCase() || ''
-
-    return (
-      fullName.includes(search) ||
-      email.includes(search) ||
-      phone.includes(search) ||
-      notes.includes(search) ||
-      source.includes(search) ||
-      tags.includes(search)
-    )
-  })
-
   const selectedCustomer =
     customers.find((customer) => customer.id === selectedCustomerId) || null
+
+  const activeCustomers = customers.filter((customer) => !customer.archived)
+  const vipCustomers = activeCustomers.filter((customer) => customer.vip)
+  const marketingCustomers = activeCustomers.filter(
+    (customer) => customer.marketing_opt_in !== false
+  )
+  const archivedCustomers = customers.filter((customer) => customer.archived)
+  const totalRevenue = customers.reduce((total, c) => total + c.totalSpend, 0)
+  const outstandingBalance = customers.reduce(
+    (total, c) => total + Number(c.outstanding_balance || 0),
+    0
+  )
+
+  const filteredCustomers = useMemo(() => {
+    return customers.filter((customer) => {
+      if (activeFilter === 'all' && customer.archived) return false
+      if (activeFilter === 'vip' && (!customer.vip || customer.archived)) return false
+      if (
+        activeFilter === 'marketing' &&
+        (customer.marketing_opt_in === false || customer.archived)
+      ) {
+        return false
+      }
+      if (activeFilter === 'archived' && !customer.archived) return false
+
+      const search = searchTerm.trim().toLowerCase()
+      if (!search) return true
+
+      const fullName = `${customer.first_name || ''} ${customer.last_name || ''}`.toLowerCase()
+      const email = customer.email?.toLowerCase() || ''
+      const phone = customer.phone?.toLowerCase() || ''
+      const notes = customer.notes?.toLowerCase() || ''
+      const source = customer.customer_source?.toLowerCase() || ''
+      const tags = customer.tags?.join(' ').toLowerCase() || ''
+
+      return (
+        fullName.includes(search) ||
+        email.includes(search) ||
+        phone.includes(search) ||
+        notes.includes(search) ||
+        source.includes(search) ||
+        tags.includes(search)
+      )
+    })
+  }, [customers, activeFilter, searchTerm])
 
   useEffect(() => {
     loadData()
@@ -262,9 +309,7 @@ export default function CustomersPage() {
         )
 
         const activeBookings = customerBookings.filter(
-          (booking) =>
-            booking.status !== 'cancelled' &&
-            booking.status !== 'no_show'
+          (booking) => booking.status !== 'cancelled' && booking.status !== 'no_show'
         )
 
         const totalSpend = activeBookings.reduce((total, booking) => {
@@ -279,9 +324,7 @@ export default function CustomersPage() {
           .filter((booking) => booking.booking_date >= today)
           .sort((a, b) => a.booking_date.localeCompare(b.booking_date))
 
-        const customerNotes = notes.filter(
-          (item) => item.customer_id === customer.id
-        )
+        const customerNotes = notes.filter((item) => item.customer_id === customer.id)
 
         return {
           ...customer,
@@ -466,10 +509,7 @@ export default function CustomersPage() {
       .update({ customer_id: null })
       .eq('customer_id', customer.id)
 
-    const { error } = await supabase
-      .from('customers')
-      .delete()
-      .eq('id', customer.id)
+    const { error } = await supabase.from('customers').delete().eq('id', customer.id)
 
     if (error) {
       setMessage(error.message)
@@ -618,8 +658,7 @@ export default function CustomersPage() {
         const splitName = fullName.split(' ').filter(Boolean)
         const firstName = firstNameFromCsv || splitName[0] || ''
         const lastName =
-          lastNameFromCsv ||
-          (splitName.length > 1 ? splitName.slice(1).join(' ') : '')
+          lastNameFromCsv || (splitName.length > 1 ? splitName.slice(1).join(' ') : '')
 
         const rawTags = getCsvValue(row, ['tags', 'tag', 'labels'])
         const rawBirthday = getCsvValue(row, ['birthday', 'date_of_birth', 'dob'])
@@ -752,22 +791,24 @@ export default function CustomersPage() {
       archived: customer.archived ? 'Yes' : 'No',
     }))
 
-    const headers = Object.keys(rows[0] || {
-      first_name: '',
-      last_name: '',
-      email: '',
-      phone: '',
-      vip: '',
-      marketing_opt_in: '',
-      source: '',
-      tags: '',
-      birthday: '',
-      no_show_count: '',
-      outstanding_balance: '',
-      total_bookings: '',
-      total_spend: '',
-      archived: '',
-    })
+    const headers = Object.keys(
+      rows[0] || {
+        first_name: '',
+        last_name: '',
+        email: '',
+        phone: '',
+        vip: '',
+        marketing_opt_in: '',
+        source: '',
+        tags: '',
+        birthday: '',
+        no_show_count: '',
+        outstanding_balance: '',
+        total_bookings: '',
+        total_spend: '',
+        archived: '',
+      }
+    )
 
     const csv = [
       headers.join(','),
@@ -793,885 +834,602 @@ export default function CustomersPage() {
   }
 
   return (
-    <div>
-      <div className="mb-10 flex flex-col lg:flex-row lg:items-end lg:justify-between gap-6">
-        <div>
-          <p className="text-slate-400 mb-2">CRM</p>
-          <h1 className="text-4xl font-bold mb-2">Customers</h1>
-          <p className="text-slate-500">
-            View customer history, CRM notes, VIP status and lifetime value.
-          </p>
-        </div>
+    <DashboardPage>
+      <DashboardHero
+        eyebrow="CRM"
+        title="Customers."
+        description="View customer history, CRM notes, VIP status and lifetime value."
+        actions={
+          <>
+            <ActionButton
+              onClick={() => {
+                setShowAddCustomer((value) => !value)
+                setShowImportCustomers(false)
+              }}
+              variant="primary"
+              icon={<Plus size={17} />}
+            >
+              {showAddCustomer ? 'Close form' : 'Add customer'}
+            </ActionButton>
 
-        <div className="flex flex-wrap gap-3">
-          <button
-            type="button"
-            onClick={() => {
-              setShowAddCustomer((value) => !value)
-              setShowImportCustomers(false)
-            }}
-            className="group inline-flex items-center justify-center gap-3 rounded-2xl bg-cyan-400 px-6 py-4 text-sm font-black text-slate-950 shadow-[0_0_70px_rgba(34,211,238,.3)] transition hover:-translate-y-1 hover:bg-cyan-300"
-          >
-            <span className="text-lg leading-none">+</span>
-            {showAddCustomer ? 'Close form' : 'Add customer'}
-          </button>
+            <ActionButton
+              onClick={() => {
+                setShowImportCustomers((value) => !value)
+                setShowAddCustomer(false)
+              }}
+              variant="secondary"
+              icon={<Upload size={17} />}
+            >
+              Import
+            </ActionButton>
 
-          <button
-            type="button"
-            onClick={() => {
-              setShowImportCustomers((value) => !value)
-              setShowAddCustomer(false)
-            }}
-            className="group inline-flex items-center justify-center gap-3 rounded-2xl border border-cyan-400/20 bg-cyan-400/10 px-6 py-4 text-sm font-black text-cyan-100 shadow-[0_0_50px_rgba(34,211,238,.12)] transition hover:-translate-y-1 hover:border-cyan-300/40 hover:bg-cyan-400/15"
-          >
-            <span className="text-base leading-none">⇧</span>
-            Import CSV
-          </button>
-
-          <button
-            type="button"
-            onClick={exportCustomersCsv}
-            className="group inline-flex items-center justify-center gap-3 rounded-2xl border border-white/10 bg-white/[0.045] px-6 py-4 text-sm font-black text-white transition hover:-translate-y-1 hover:bg-white/[0.09]"
-          >
-            <span className="text-base leading-none">⇩</span>
-            Export CSV
-          </button>
-        </div>
-      </div>
+            <ActionButton onClick={exportCustomersCsv} icon={<Download size={17} />}>
+              Export
+            </ActionButton>
+          </>
+        }
+      />
 
       {message && (
-        <div className="bg-slate-900 border border-slate-800 rounded-2xl p-4 mb-8 text-slate-300">
+        <div className="rounded-2xl border border-cyan-300/20 bg-cyan-300/10 p-4 text-sm font-bold text-cyan-100">
           {message}
         </div>
       )}
 
+      <DashboardGrid columns={4}>
+        <DashboardStatCard label="Customers" value={activeCustomers.length} icon={<Users size={22} />} />
+        <DashboardStatCard label="VIPs" value={vipCustomers.length} icon={<Crown size={22} />} colour="amber" />
+        <DashboardStatCard label="Revenue" value={`£${totalRevenue}`} icon={<Wallet size={22} />} colour="emerald" />
+        <DashboardStatCard label="Outstanding" value={`£${outstandingBalance}`} icon={<Archive size={22} />} colour="rose" />
+      </DashboardGrid>
+
       {showImportCustomers && (
-        <section className="mb-10 overflow-hidden rounded-[2.5rem] border border-cyan-400/20 bg-[#07111f] p-8 shadow-[0_60px_200px_rgba(0,0,0,.45)]">
-          <div className="mb-8 flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
-            <div>
-              <p className="mb-3 text-xs font-black uppercase tracking-[0.32em] text-cyan-300">
-                Customer import
-              </p>
-
-              <h2 className="text-3xl font-black tracking-[-0.04em]">
-                Bring your existing customers into AMB Booking.
-              </h2>
-
-              <p className="mt-3 max-w-3xl leading-7 text-slate-400">
-                Upload a CSV from your old booking system, spreadsheet, Mailchimp list or CRM. Supported columns include name, first name, last name, email, phone, notes, source, tags, birthday, VIP, marketing opt-in, no-shows and outstanding balance.
-              </p>
-            </div>
-
-            <button
-              type="button"
-              onClick={() => {
-                setShowImportCustomers(false)
-                setImportFileName('')
-                setImportPreview([])
-              }}
-              className="rounded-2xl border border-white/10 bg-white/[0.04] px-5 py-3 text-sm font-black text-white transition hover:bg-white/[0.08]"
-            >
-              Close import
-            </button>
-          </div>
-
+        <SectionCard title="Import customers" description="Upload a CSV from your previous CRM or booking system.">
           <label className="block cursor-pointer rounded-[2rem] border border-dashed border-cyan-400/40 bg-cyan-400/10 p-8 text-center transition hover:bg-cyan-400/15">
-            <input
-              type="file"
-              accept=".csv,text/csv"
-              onChange={handleCustomerCsvUpload}
-              className="hidden"
-            />
-
-            <div className="mx-auto mb-4 flex h-16 w-16 items-center justify-center rounded-3xl bg-cyan-400 text-sm font-black text-slate-950 shadow-[0_0_60px_rgba(34,211,238,.35)]">
+            <input type="file" accept=".csv,text/csv" onChange={handleCustomerCsvUpload} className="hidden" />
+            <div className="mx-auto mb-4 flex h-16 w-16 items-center justify-center rounded-3xl bg-cyan-400 text-sm font-black text-slate-950">
               CSV
             </div>
-
-            <h3 className="text-2xl font-black">
-              Choose customer CSV
-            </h3>
-
-            <p className="mt-2 text-sm text-slate-400">
-              {importFileName || 'Click here to upload a CSV file.'}
-            </p>
+            <h3 className="text-2xl font-black text-white">Choose customer CSV</h3>
+            <p className="mt-2 text-sm text-slate-400">{importFileName || 'Click here to upload a CSV file.'}</p>
           </label>
 
           {importPreview.length > 0 && (
-            <div className="mt-8">
-              <div className="mb-5 flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
-                <div>
-                  <h3 className="text-2xl font-black">
-                    Import preview
-                  </h3>
-
-                  <p className="mt-1 text-sm text-slate-400">
-                    {importPreview.length} customers ready to import.
-                  </p>
-                </div>
-
-                <button
-                  type="button"
-                  onClick={importCustomersCsv}
-                  disabled={importingCsv}
-                  className="rounded-2xl bg-cyan-400 px-6 py-4 text-sm font-black text-slate-950 transition hover:-translate-y-1 hover:bg-cyan-300 disabled:cursor-not-allowed disabled:opacity-60"
-                >
-                  {importingCsv ? 'Importing customers...' : `Import ${importPreview.length} customers`}
-                </button>
+            <div className="mt-6">
+              <div className="mb-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                <p className="text-sm font-bold text-slate-300">
+                  {importPreview.length} customers ready to import.
+                </p>
+                <ActionButton onClick={importCustomersCsv} variant="primary">
+                  {importingCsv ? 'Importing...' : `Import ${importPreview.length}`}
+                </ActionButton>
               </div>
 
-              <div className="max-h-[360px] overflow-auto rounded-2xl border border-white/10 bg-slate-950">
+              <div className="max-h-[320px] overflow-auto rounded-2xl border border-white/10 bg-slate-950">
                 <table className="w-full text-left text-sm">
                   <thead className="sticky top-0 bg-slate-950 text-slate-400">
                     <tr>
                       <th className="p-4">Name</th>
                       <th className="p-4">Email</th>
                       <th className="p-4">Phone</th>
-                      <th className="p-4">Source</th>
-                      <th className="p-4">Tags</th>
                     </tr>
                   </thead>
-
                   <tbody>
                     {importPreview.slice(0, 50).map((customer, index) => (
-                      <tr
-                        key={`${customer.email || customer.phone || customer.first_name}-${index}`}
-                        className="border-t border-white/10"
-                      >
-                        <td className="p-4 font-bold text-white">
-                          {customer.first_name} {customer.last_name}
-                        </td>
+                      <tr key={`${customer.email || customer.phone || customer.first_name}-${index}`} className="border-t border-white/10">
+                        <td className="p-4 font-bold text-white">{customer.first_name} {customer.last_name}</td>
                         <td className="p-4 text-slate-400">{customer.email || '-'}</td>
                         <td className="p-4 text-slate-400">{customer.phone || '-'}</td>
-                        <td className="p-4 text-slate-400">{customer.customer_source || '-'}</td>
-                        <td className="p-4 text-slate-400">{customer.tags.join(', ') || '-'}</td>
                       </tr>
                     ))}
                   </tbody>
                 </table>
               </div>
-
-              {importPreview.length > 50 && (
-                <p className="mt-3 text-sm text-slate-500">
-                  Showing first 50 rows only. All {importPreview.length} rows will be imported.
-                </p>
-              )}
             </div>
           )}
-        </section>
+        </SectionCard>
       )}
 
       {showAddCustomer && (
-        <section className="bg-slate-900 border border-slate-800 rounded-2xl p-6 mb-10">
-          <div className="mb-6">
-            <h2 className="text-2xl font-bold">Add customer manually</h2>
-            <p className="text-slate-500 mt-1">
-              Add CRM details, preferences, notes and commercial status.
-            </p>
+        <SectionCard title="Add customer manually" description="Add CRM details, preferences and customer notes.">
+          <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+            <Input label="First name *" value={newFirstName} onChange={setNewFirstName} />
+            <Input label="Last name" value={newLastName} onChange={setNewLastName} />
+            <Input label="Email" value={newEmail} onChange={setNewEmail} />
+            <Input label="Phone" value={newPhone} onChange={setNewPhone} />
+            <Input label="Customer source" value={newSource} onChange={setNewSource} />
+            <Input label="Tags" value={newTags} onChange={setNewTags} placeholder="Comma separated" />
+            <Input label="Birthday" value={newBirthday} onChange={setNewBirthday} type="date" />
+            <Input label="No-show count" value={newNoShowCount} onChange={setNewNoShowCount} type="number" />
+            <Input label="Outstanding balance (£)" value={newOutstandingBalance} onChange={setNewOutstandingBalance} type="number" />
+
+            <Select label="Preferred staff" value={newPreferredTeamMemberId} onChange={setNewPreferredTeamMemberId}>
+              <option value="">No preferred staff</option>
+              {teamMembers.map((member) => (
+                <option key={member.id} value={member.id}>{member.full_name}</option>
+              ))}
+            </Select>
+
+            <Select label="Preferred service" value={newPreferredServiceId} onChange={setNewPreferredServiceId}>
+              <option value="">No preferred service</option>
+              {services.map((service) => (
+                <option key={service.id} value={service.id}>{service.name}</option>
+              ))}
+            </Select>
+
+            <Toggle label="VIP customer" checked={newVip} onChange={setNewVip} />
+            <Toggle label="Marketing opt-in" checked={newMarketingOptIn} onChange={setNewMarketingOptIn} />
           </div>
 
-          <div className="space-y-8">
-            <div>
-              <h3 className="text-sm font-bold uppercase tracking-[0.2em] text-slate-500 mb-4">
-                Basic details
-              </h3>
-
-              <div className="grid md:grid-cols-2 xl:grid-cols-4 gap-4">
-                <div>
-                  <label className="block text-sm text-slate-400 mb-2">First name *</label>
-                  <input
-                    className="w-full p-3 rounded-lg bg-slate-800 border border-slate-700"
-                    placeholder="First name"
-                    value={newFirstName}
-                    onChange={(e) => setNewFirstName(e.target.value)}
-                  />
-                </div>
-
-                <div>
-                  <label className="block text-sm text-slate-400 mb-2">Last name</label>
-                  <input
-                    className="w-full p-3 rounded-lg bg-slate-800 border border-slate-700"
-                    placeholder="Last name"
-                    value={newLastName}
-                    onChange={(e) => setNewLastName(e.target.value)}
-                  />
-                </div>
-
-                <div>
-                  <label className="block text-sm text-slate-400 mb-2">Email</label>
-                  <input
-                    className="w-full p-3 rounded-lg bg-slate-800 border border-slate-700"
-                    placeholder="Email address"
-                    value={newEmail}
-                    onChange={(e) => setNewEmail(e.target.value)}
-                  />
-                </div>
-
-                <div>
-                  <label className="block text-sm text-slate-400 mb-2">Phone</label>
-                  <input
-                    className="w-full p-3 rounded-lg bg-slate-800 border border-slate-700"
-                    placeholder="Phone number"
-                    value={newPhone}
-                    onChange={(e) => setNewPhone(e.target.value)}
-                  />
-                </div>
-              </div>
-            </div>
-
-            <div>
-              <h3 className="text-sm font-bold uppercase tracking-[0.2em] text-slate-500 mb-4">
-                CRM details
-              </h3>
-
-              <div className="grid md:grid-cols-2 xl:grid-cols-4 gap-4">
-                <div>
-                  <label className="block text-sm text-slate-400 mb-2">Customer source</label>
-                  <input
-                    className="w-full p-3 rounded-lg bg-slate-800 border border-slate-700"
-                    placeholder="Instagram, referral, walk-in..."
-                    value={newSource}
-                    onChange={(e) => setNewSource(e.target.value)}
-                  />
-                </div>
-
-                <div>
-                  <label className="block text-sm text-slate-400 mb-2">Tags</label>
-                  <input
-                    className="w-full p-3 rounded-lg bg-slate-800 border border-slate-700"
-                    placeholder="Comma separated, e.g. beard, colour"
-                    value={newTags}
-                    onChange={(e) => setNewTags(e.target.value)}
-                  />
-                </div>
-
-                <div>
-                  <label className="block text-sm text-slate-400 mb-2">Birthday</label>
-                  <input
-                    type="date"
-                    className="w-full p-3 rounded-lg bg-slate-800 border border-slate-700"
-                    value={newBirthday}
-                    onChange={(e) => setNewBirthday(e.target.value)}
-                  />
-                </div>
-
-                <div>
-                  <label className="block text-sm text-slate-400 mb-2">Marketing status</label>
-                  <label className="flex items-center gap-3 bg-slate-800 border border-slate-700 rounded-xl p-3">
-                    <input
-                      type="checkbox"
-                      checked={newMarketingOptIn}
-                      onChange={(e) => setNewMarketingOptIn(e.target.checked)}
-                    />
-                    <span>Marketing opt-in</span>
-                  </label>
-                </div>
-              </div>
-            </div>
-
-            <div>
-              <h3 className="text-sm font-bold uppercase tracking-[0.2em] text-slate-500 mb-4">
-                Preferences
-              </h3>
-
-              <div className="grid md:grid-cols-2 gap-4">
-                <div>
-                  <label className="block text-sm text-slate-400 mb-2">Preferred staff</label>
-                  <select
-                    className="w-full p-3 rounded-lg bg-slate-800 border border-slate-700"
-                    value={newPreferredTeamMemberId}
-                    onChange={(e) => setNewPreferredTeamMemberId(e.target.value)}
-                  >
-                    <option value="">No preferred staff</option>
-                    {teamMembers.map((member) => (
-                      <option key={member.id} value={member.id}>
-                        {member.full_name}
-                      </option>
-                    ))}
-                  </select>
-                </div>
-
-                <div>
-                  <label className="block text-sm text-slate-400 mb-2">Preferred service</label>
-                  <select
-                    className="w-full p-3 rounded-lg bg-slate-800 border border-slate-700"
-                    value={newPreferredServiceId}
-                    onChange={(e) => setNewPreferredServiceId(e.target.value)}
-                  >
-                    <option value="">No preferred service</option>
-                    {services.map((service) => (
-                      <option key={service.id} value={service.id}>
-                        {service.name}
-                      </option>
-                    ))}
-                  </select>
-                </div>
-              </div>
-            </div>
-
-            <div>
-              <h3 className="text-sm font-bold uppercase tracking-[0.2em] text-slate-500 mb-4">
-                Commercial status
-              </h3>
-
-              <div className="grid md:grid-cols-3 gap-4">
-                <div>
-                  <label className="block text-sm text-slate-400 mb-2">No-show count</label>
-                  <input
-                    type="number"
-                    min="0"
-                    className="w-full p-3 rounded-lg bg-slate-800 border border-slate-700"
-                    placeholder="0"
-                    value={newNoShowCount}
-                    onChange={(e) => setNewNoShowCount(e.target.value)}
-                  />
-                </div>
-
-                <div>
-                  <label className="block text-sm text-slate-400 mb-2">Outstanding balance (£)</label>
-                  <input
-                    type="number"
-                    step="0.01"
-                    className="w-full p-3 rounded-lg bg-slate-800 border border-slate-700"
-                    placeholder="0.00"
-                    value={newOutstandingBalance}
-                    onChange={(e) => setNewOutstandingBalance(e.target.value)}
-                  />
-                </div>
-
-                <div>
-                  <label className="block text-sm text-slate-400 mb-2">Customer status</label>
-                  <label className="flex items-center gap-3 bg-slate-800 border border-slate-700 rounded-xl p-3">
-                    <input
-                      type="checkbox"
-                      checked={newVip}
-                      onChange={(e) => setNewVip(e.target.checked)}
-                    />
-                    <span>VIP customer</span>
-                  </label>
-                </div>
-              </div>
-            </div>
-
-            <div>
-              <h3 className="text-sm font-bold uppercase tracking-[0.2em] text-slate-500 mb-4">
-                Notes
-              </h3>
-
-              <textarea
-                className="w-full p-3 rounded-lg bg-slate-800 border border-slate-700 min-h-24"
-                placeholder="Profile notes, preferences, usual style, allergies..."
-                value={newNotes}
-                onChange={(e) => setNewNotes(e.target.value)}
-              />
-            </div>
-          </div>
-
-          <button
-            type="button"
-            onClick={addCustomerManually}
-            className="mt-6 bg-white text-slate-950 font-bold px-5 py-3 rounded-xl"
-          >
-            Add customer
-          </button>
-        </section>
-      )}
-
-      <div className="grid grid-cols-1 md:grid-cols-4 gap-6 mb-10">
-        <StatCard label="Customers" value={customers.filter((customer) => !customer.archived).length} />
-        <StatCard
-          label="VIPs"
-          value={customers.filter((customer) => customer.vip && !customer.archived).length}
-        />
-        <StatCard
-          label="Revenue"
-          value={`£${customers.reduce((total, c) => total + c.totalSpend, 0)}`}
-        />
-        <StatCard
-          label="Outstanding"
-          value={`£${customers.reduce((total, c) => total + Number(c.outstanding_balance || 0), 0)}`}
-        />
-      </div>
-
-      <div className="grid xl:grid-cols-3 gap-8">
-        <div className="xl:col-span-1 space-y-4">
-          <input
-            className="w-full p-3 rounded-lg bg-slate-900 border border-slate-800"
-            placeholder="Search customers..."
-            value={searchTerm}
-            onChange={(e) => setSearchTerm(e.target.value)}
+          <textarea
+            className="mt-4 min-h-28 w-full rounded-2xl border border-white/10 bg-slate-950 px-5 py-4 text-white outline-none placeholder:text-slate-600 focus:border-cyan-300"
+            placeholder="Profile notes, preferences, usual style, allergies..."
+            value={newNotes}
+            onChange={(e) => setNewNotes(e.target.value)}
           />
 
-          <label className="flex items-center gap-3 bg-slate-900 border border-slate-800 rounded-xl p-4">
-            <input
-              type="checkbox"
-              checked={showArchived}
-              onChange={(e) => setShowArchived(e.target.checked)}
-            />
-            <span className="text-slate-300">Show archived customers</span>
-          </label>
+          <div className="mt-5">
+            <ActionButton onClick={addCustomerManually} variant="primary">
+              Add customer
+            </ActionButton>
+          </div>
+        </SectionCard>
+      )}
 
-          {filteredCustomers.map((customer) => (
-            <button
-              key={customer.id}
-              onClick={() => {
-                setSelectedCustomerId(customer.id)
-                setIsEditing(false)
-                setMessage('')
-              }}
-              className={`w-full text-left bg-slate-900 border rounded-2xl p-5 ${
-                selectedCustomerId === customer.id
-                  ? 'border-white'
-                  : 'border-slate-800'
-              } ${customer.archived ? 'opacity-50' : ''}`}
-            >
-              <div className="flex items-start justify-between gap-3">
-                <div>
-                  <h3 className="text-xl font-bold">
-                    {customer.first_name} {customer.last_name}
-                  </h3>
-                  <p className="text-slate-400 text-sm">{customer.email}</p>
-                  <p className="text-slate-500 text-sm">{customer.phone}</p>
-                </div>
+      <SectionCard>
+        <div className="space-y-5">
+          <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
+            <div className="relative">
+              <Search className="pointer-events-none absolute left-4 top-1/2 -translate-y-1/2 text-slate-500" size={18} />
+              <input
+                value={searchTerm}
+                onChange={(event) => setSearchTerm(event.target.value)}
+                placeholder="Search customers..."
+                className="w-full rounded-2xl border border-white/10 bg-slate-950 py-4 pl-11 pr-4 text-sm font-bold text-white outline-none placeholder:text-slate-600 focus:border-cyan-300 lg:w-96"
+              />
+            </div>
 
-                <div className="flex flex-col items-end gap-2">
-                  {customer.vip && (
-                    <span className="bg-yellow-500/10 text-yellow-300 border border-yellow-500/30 rounded-full px-3 py-1 text-xs font-bold">
-                      VIP
-                    </span>
+            <div className="-mx-1 flex gap-2 overflow-x-auto px-1 pb-1">
+              {filters.map((filter) => (
+                <button
+                  key={filter.key}
+                  type="button"
+                  onClick={() => setActiveFilter(filter.key)}
+                  className={`shrink-0 rounded-full border px-4 py-2 text-xs font-black transition ${
+                    activeFilter === filter.key
+                      ? 'border-cyan-300/30 bg-cyan-400/15 text-cyan-100'
+                      : 'border-white/10 bg-white/[0.04] text-slate-400'
+                  }`}
+                >
+                  {filter.label}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          <div className="grid gap-6 xl:grid-cols-[0.85fr_1.15fr]">
+            <div className="space-y-3">
+              {filteredCustomers.map((customer) => (
+                <button
+                  key={customer.id}
+                  type="button"
+                  onClick={() => {
+                    setSelectedCustomerId(customer.id)
+                    setIsEditing(false)
+                    setMessage('')
+                  }}
+                  className={`w-full rounded-[2rem] border p-5 text-left transition hover:-translate-y-0.5 ${
+                    selectedCustomerId === customer.id
+                      ? 'border-cyan-300/40 bg-cyan-400/10'
+                      : 'border-white/10 bg-slate-950/80 hover:border-white/20'
+                  } ${customer.archived ? 'opacity-60' : ''}`}
+                >
+                  <div className="flex items-start justify-between gap-4">
+                    <div className="min-w-0">
+                      <h3 className="truncate text-lg font-black text-white">
+                        {customer.first_name} {customer.last_name}
+                      </h3>
+                      <p className="mt-1 truncate text-sm text-slate-400">{customer.email || 'No email'}</p>
+                      <p className="mt-1 truncate text-sm text-slate-500">{customer.phone || 'No phone'}</p>
+                    </div>
+
+                    <div className="flex flex-col items-end gap-2">
+                      {customer.vip && <Badge colour="amber">VIP</Badge>}
+                      {customer.archived && <Badge colour="slate">Archived</Badge>}
+                    </div>
+                  </div>
+
+                  {customer.tags && customer.tags.length > 0 && (
+                    <div className="mt-4 flex flex-wrap gap-2">
+                      {customer.tags.slice(0, 3).map((tag) => (
+                        <span key={tag} className="rounded-full bg-white/[0.04] px-3 py-1 text-xs font-bold text-slate-300">
+                          {tag}
+                        </span>
+                      ))}
+                    </div>
                   )}
 
-                  {customer.archived && (
-                    <span className="bg-slate-700 text-slate-300 border border-slate-600 rounded-full px-3 py-1 text-xs font-bold">
-                      Archived
-                    </span>
-                  )}
-                </div>
-              </div>
+                  <div className="mt-4 grid grid-cols-2 gap-3">
+                    <MiniStat label="Bookings" value={customer.totalBookings} />
+                    <MiniStat label="Spend" value={`£${customer.totalSpend}`} />
+                  </div>
+                </button>
+              ))}
 
-              {customer.tags && customer.tags.length > 0 && (
-                <div className="flex flex-wrap gap-2 mt-4">
-                  {customer.tags.slice(0, 3).map((tag) => (
-                    <span
-                      key={tag}
-                      className="bg-slate-800 text-slate-300 rounded-full px-3 py-1 text-xs"
-                    >
-                      {tag}
-                    </span>
-                  ))}
+              {filteredCustomers.length === 0 && (
+                <div className="rounded-3xl border border-dashed border-white/10 bg-white/[0.03] p-8 text-center text-slate-500">
+                  No customers found.
                 </div>
               )}
-
-              <div className="grid grid-cols-2 gap-3 mt-4 text-sm">
-                <MiniStat label="Bookings" value={customer.totalBookings} />
-                <MiniStat label="Spend" value={`£${customer.totalSpend}`} />
-              </div>
-            </button>
-          ))}
-
-          {filteredCustomers.length === 0 && (
-            <div className="bg-slate-900 border border-slate-800 rounded-2xl p-6 text-slate-500">
-              No customers found.
             </div>
-          )}
+
+            <div>
+              {!selectedCustomer ? (
+                <div className="rounded-[2rem] border border-dashed border-white/10 bg-white/[0.03] p-8 text-center text-slate-500">
+                  Select a customer to view their profile.
+                </div>
+              ) : (
+                <CustomerProfile
+                  customer={selectedCustomer}
+                  isEditing={isEditing}
+                  note={note}
+                  setNote={setNote}
+                  startEditing={startEditing}
+                  toggleVip={toggleVip}
+                  toggleMarketing={toggleMarketing}
+                  archiveCustomer={archiveCustomer}
+                  restoreCustomer={restoreCustomer}
+                  deleteCustomer={deleteCustomer}
+                  addNote={addNote}
+                  getTeamMemberName={getTeamMemberName}
+                  getServiceName={getServiceName}
+                  editState={{
+                    editFirstName,
+                    editLastName,
+                    editEmail,
+                    editPhone,
+                    editNotes,
+                    editVip,
+                    editMarketingOptIn,
+                    editLastVisit,
+                    editSource,
+                    editTags,
+                    editPreferredTeamMemberId,
+                    editPreferredServiceId,
+                    editBirthday,
+                    editNoShowCount,
+                    editOutstandingBalance,
+                    setEditFirstName,
+                    setEditLastName,
+                    setEditEmail,
+                    setEditPhone,
+                    setEditNotes,
+                    setEditVip,
+                    setEditMarketingOptIn,
+                    setEditLastVisit,
+                    setEditSource,
+                    setEditTags,
+                    setEditPreferredTeamMemberId,
+                    setEditPreferredServiceId,
+                    setEditBirthday,
+                    setEditNoShowCount,
+                    setEditOutstandingBalance,
+                    saveCustomerChanges,
+                    setIsEditing,
+                    teamMembers,
+                    services,
+                  }}
+                />
+              )}
+            </div>
+          </div>
+        </div>
+      </SectionCard>
+    </DashboardPage>
+  )
+}
+
+function CustomerProfile({
+  customer,
+  isEditing,
+  note,
+  setNote,
+  startEditing,
+  toggleVip,
+  toggleMarketing,
+  archiveCustomer,
+  restoreCustomer,
+  deleteCustomer,
+  addNote,
+  getTeamMemberName,
+  getServiceName,
+  editState,
+}: {
+  customer: CustomerWithStats
+  isEditing: boolean
+  note: string
+  setNote: (value: string) => void
+  startEditing: (customer: CustomerWithStats) => void
+  toggleVip: (customer: CustomerWithStats) => void
+  toggleMarketing: (customer: CustomerWithStats) => void
+  archiveCustomer: (customer: CustomerWithStats) => void
+  restoreCustomer: (customer: CustomerWithStats) => void
+  deleteCustomer: (customer: CustomerWithStats) => void
+  addNote: () => void
+  getTeamMemberName: (id: string | null) => string
+  getServiceName: (id: string | null) => string
+  editState: any
+}) {
+  return (
+    <div className="space-y-5">
+      <div className="rounded-[2rem] border border-white/10 bg-slate-950/80 p-5">
+        <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
+          <div>
+            <div className="flex flex-wrap items-center gap-2">
+              <h2 className="text-2xl font-black tracking-[-0.04em] text-white">
+                {customer.first_name} {customer.last_name}
+              </h2>
+              {customer.vip && <Badge colour="amber">VIP</Badge>}
+              {customer.archived && <Badge colour="slate">Archived</Badge>}
+            </div>
+
+            <div className="mt-4 space-y-2 text-sm text-slate-400">
+              <p className="flex items-center gap-2"><Mail size={15} /> {customer.email || 'No email'}</p>
+              <p className="flex items-center gap-2"><Phone size={15} /> {customer.phone || 'No phone'}</p>
+            </div>
+          </div>
+
+          <div className="flex flex-wrap gap-2">
+            <ProfileActionButton onClick={() => startEditing(customer)}>Edit</ProfileActionButton>
+            <ProfileActionButton onClick={() => toggleVip(customer)} variant="vip">
+              {customer.vip ? 'Remove VIP' : 'Mark VIP'}
+            </ProfileActionButton>
+            <ProfileActionButton onClick={() => toggleMarketing(customer)} variant="marketing">
+              {customer.marketing_opt_in === false ? 'Opt in' : 'Opt out'}
+            </ProfileActionButton>
+            {customer.archived ? (
+              <ProfileActionButton onClick={() => restoreCustomer(customer)} variant="restore">
+                Restore
+              </ProfileActionButton>
+            ) : (
+              <ProfileActionButton onClick={() => archiveCustomer(customer)} variant="archive">
+                Archive
+              </ProfileActionButton>
+            )}
+            <ProfileActionButton onClick={() => deleteCustomer(customer)} variant="danger">
+              Delete
+            </ProfileActionButton>
+          </div>
         </div>
 
-        <div className="xl:col-span-2">
-          {!selectedCustomer && (
-            <div className="bg-slate-900 border border-slate-800 rounded-2xl p-8 text-slate-500">
-              Select a customer to view their profile.
+        <div className="mt-5 grid grid-cols-2 gap-3 lg:grid-cols-4">
+          <MiniStat label="Bookings" value={customer.totalBookings} />
+          <MiniStat label="Spend" value={`£${customer.totalSpend}`} />
+          <MiniStat label="Last visit" value={customer.lastBooking ? new Date(customer.lastBooking).toLocaleDateString('en-GB') : 'None'} />
+          <MiniStat label="Next" value={customer.nextBooking ? new Date(customer.nextBooking).toLocaleDateString('en-GB') : 'None'} />
+        </div>
+
+        <div className="mt-5 grid gap-2 text-sm text-slate-400 md:grid-cols-2">
+          <p>Source: {customer.customer_source || 'Not set'}</p>
+          <p>Birthday: {customer.birthday ? new Date(customer.birthday).toLocaleDateString('en-GB') : 'Not set'}</p>
+          <p>Preferred staff: {getTeamMemberName(customer.preferred_team_member_id)}</p>
+          <p>Preferred service: {getServiceName(customer.preferred_service_id)}</p>
+          <p>No-shows: {customer.no_show_count || 0}</p>
+          <p>Balance: £{Number(customer.outstanding_balance || 0)}</p>
+        </div>
+
+        {customer.notes && (
+          <div className="mt-5 rounded-2xl border border-white/10 bg-white/[0.035] p-4">
+            <h3 className="font-black text-white">Profile notes</h3>
+            <p className="mt-2 whitespace-pre-wrap text-sm leading-6 text-slate-300">{customer.notes}</p>
+          </div>
+        )}
+      </div>
+
+      {isEditing && <EditCustomerForm editState={editState} />}
+
+      <div className="rounded-[2rem] border border-white/10 bg-slate-950/80 p-5">
+        <h3 className="text-xl font-black text-white">Add timeline note</h3>
+        <textarea
+          className="mt-4 min-h-28 w-full rounded-2xl border border-white/10 bg-[#020617] px-5 py-4 text-white outline-none placeholder:text-slate-600 focus:border-cyan-300"
+          placeholder="Add customer note..."
+          value={note}
+          onChange={(e) => setNote(e.target.value)}
+        />
+        <div className="mt-4">
+          <ActionButton onClick={addNote} variant="primary">Save note</ActionButton>
+        </div>
+      </div>
+
+      <div className="rounded-[2rem] border border-white/10 bg-slate-950/80 p-5">
+        <h3 className="text-xl font-black text-white">Timeline notes</h3>
+        <div className="mt-4 space-y-3">
+          {customer.notesList.map((item) => (
+            <div key={item.id} className="rounded-2xl border border-white/10 bg-white/[0.035] p-4">
+              <p className="text-slate-300">{item.note}</p>
+              <p className="mt-2 text-xs text-slate-500">{new Date(item.created_at).toLocaleString('en-GB')}</p>
             </div>
-          )}
+          ))}
+          {customer.notesList.length === 0 && <p className="text-slate-500">No timeline notes yet.</p>}
+        </div>
+      </div>
 
-          {selectedCustomer && (
-            <div className="space-y-8">
-              <section className="bg-slate-900 border border-slate-800 rounded-2xl p-6">
-                <div className="flex flex-col lg:flex-row lg:justify-between gap-4 mb-6">
-                  <div>
-                    <div className="flex flex-wrap items-center gap-3 mb-2">
-                      <h2 className="text-3xl font-bold">
-                        {selectedCustomer.first_name} {selectedCustomer.last_name}
-                      </h2>
-
-                      {selectedCustomer.vip && (
-                        <span className="bg-yellow-500/10 text-yellow-300 border border-yellow-500/30 rounded-full px-3 py-1 text-xs font-bold">
-                          VIP
-                        </span>
-                      )}
-
-                      {selectedCustomer.archived && (
-                        <span className="bg-slate-700 text-slate-300 border border-slate-600 rounded-full px-3 py-1 text-xs font-bold">
-                          Archived
-                        </span>
-                      )}
-                    </div>
-
-                    <p className="text-slate-400">{selectedCustomer.email}</p>
-                    <p className="text-slate-500">{selectedCustomer.phone}</p>
-
-                    <div className="mt-4 grid md:grid-cols-2 gap-2 text-sm text-slate-400">
-                      <p>Source: {selectedCustomer.customer_source || 'Not set'}</p>
-                      <p>Birthday: {selectedCustomer.birthday ? new Date(selectedCustomer.birthday).toLocaleDateString('en-GB') : 'Not set'}</p>
-                      <p>Preferred staff: {getTeamMemberName(selectedCustomer.preferred_team_member_id)}</p>
-                      <p>Preferred service: {getServiceName(selectedCustomer.preferred_service_id)}</p>
-                      <p>No-shows: {selectedCustomer.no_show_count || 0}</p>
-                      <p>Balance: £{Number(selectedCustomer.outstanding_balance || 0)}</p>
-                    </div>
-
-                    {selectedCustomer.tags && selectedCustomer.tags.length > 0 && (
-                      <div className="flex flex-wrap gap-2 mt-4">
-                        {selectedCustomer.tags.map((tag) => (
-                          <span
-                            key={tag}
-                            className="bg-slate-800 text-slate-300 rounded-full px-3 py-1 text-xs"
-                          >
-                            {tag}
-                          </span>
-                        ))}
-                      </div>
-                    )}
-
-                    <p className="text-slate-500 text-sm mt-4">
-                      Marketing:{' '}
-                      <span
-                        className={
-                          selectedCustomer.marketing_opt_in === false
-                            ? 'text-red-400'
-                            : 'text-emerald-400'
-                        }
-                      >
-                        {selectedCustomer.marketing_opt_in === false
-                          ? 'Opted out'
-                          : 'Opted in'}
-                      </span>
-                    </p>
-                  </div>
-
-                  <div className="flex flex-wrap gap-3">
-                    <ProfileActionButton onClick={() => startEditing(selectedCustomer)}>
-                      Edit
-                    </ProfileActionButton>
-
-                    <ProfileActionButton
-                      onClick={() => toggleVip(selectedCustomer)}
-                      variant="vip"
-                    >
-                      {selectedCustomer.vip ? 'Remove VIP' : 'Mark VIP'}
-                    </ProfileActionButton>
-
-                    <ProfileActionButton
-                      onClick={() => toggleMarketing(selectedCustomer)}
-                      variant="marketing"
-                    >
-                      {selectedCustomer.marketing_opt_in === false ? 'Opt in' : 'Opt out'}
-                    </ProfileActionButton>
-
-                    {selectedCustomer.archived ? (
-                      <ProfileActionButton
-                        onClick={() => restoreCustomer(selectedCustomer)}
-                        variant="restore"
-                      >
-                        Restore
-                      </ProfileActionButton>
-                    ) : (
-                      <ProfileActionButton
-                        onClick={() => archiveCustomer(selectedCustomer)}
-                        variant="archive"
-                      >
-                        Archive
-                      </ProfileActionButton>
-                    )}
-
-                    <ProfileActionButton
-                      onClick={() => deleteCustomer(selectedCustomer)}
-                      variant="danger"
-                    >
-                      Delete
-                    </ProfileActionButton>
-                  </div>
-                </div>
-
-                {message && <p className="text-slate-300 mb-4">{message}</p>}
-
-                <div className="grid md:grid-cols-4 gap-4">
-                  <MiniStat label="Bookings" value={selectedCustomer.totalBookings} />
-                  <MiniStat label="Spend" value={`£${selectedCustomer.totalSpend}`} />
-                  <MiniStat
-                    label="Last visit"
-                    value={
-                      selectedCustomer.lastBooking
-                        ? new Date(selectedCustomer.lastBooking).toLocaleDateString('en-GB')
-                        : 'None'
-                    }
-                  />
-                  <MiniStat
-                    label="Next"
-                    value={
-                      selectedCustomer.nextBooking
-                        ? new Date(selectedCustomer.nextBooking).toLocaleDateString('en-GB')
-                        : 'None'
-                    }
-                  />
-                </div>
-
-                {selectedCustomer.notes && (
-                  <div className="border border-slate-800 rounded-2xl p-5 mt-6">
-                    <h3 className="text-xl font-bold mb-2">Profile notes</h3>
-                    <p className="text-slate-300 whitespace-pre-wrap">
-                      {selectedCustomer.notes}
-                    </p>
-                  </div>
-                )}
-              </section>
-
-              {isEditing && (
-                <section className="bg-slate-900 border border-slate-800 rounded-2xl p-6">
-                  <h3 className="text-2xl font-bold mb-4">Edit customer</h3>
-
-                  <div className="grid md:grid-cols-2 gap-4 mb-4">
-                    <input
-                      className="w-full p-3 rounded-lg bg-slate-800 border border-slate-700"
-                      value={editFirstName}
-                      onChange={(e) => setEditFirstName(e.target.value)}
-                      placeholder="First name"
-                    />
-
-                    <input
-                      className="w-full p-3 rounded-lg bg-slate-800 border border-slate-700"
-                      value={editLastName}
-                      onChange={(e) => setEditLastName(e.target.value)}
-                      placeholder="Last name"
-                    />
-
-                    <input
-                      className="w-full p-3 rounded-lg bg-slate-800 border border-slate-700"
-                      value={editEmail}
-                      onChange={(e) => setEditEmail(e.target.value)}
-                      placeholder="Email"
-                    />
-
-                    <input
-                      className="w-full p-3 rounded-lg bg-slate-800 border border-slate-700"
-                      value={editPhone}
-                      onChange={(e) => setEditPhone(e.target.value)}
-                      placeholder="Phone"
-                    />
-
-                    <div>
-                      <label className="block text-sm text-slate-400 mb-2">
-                        Last visit
-                      </label>
-                      <input
-                        type="date"
-                        className="w-full p-3 rounded-lg bg-slate-800 border border-slate-700"
-                        value={editLastVisit}
-                        onChange={(e) => setEditLastVisit(e.target.value)}
-                      />
-                    </div>
-
-                    <div>
-                      <label className="block text-sm text-slate-400 mb-2">
-                        Birthday
-                      </label>
-                      <input
-                        type="date"
-                        className="w-full p-3 rounded-lg bg-slate-800 border border-slate-700"
-                        value={editBirthday}
-                        onChange={(e) => setEditBirthday(e.target.value)}
-                      />
-                    </div>
-
-                    <input
-                      className="w-full p-3 rounded-lg bg-slate-800 border border-slate-700"
-                      value={editSource}
-                      onChange={(e) => setEditSource(e.target.value)}
-                      placeholder="Source"
-                    />
-
-                    <input
-                      className="w-full p-3 rounded-lg bg-slate-800 border border-slate-700"
-                      value={editTags}
-                      onChange={(e) => setEditTags(e.target.value)}
-                      placeholder="Tags, comma separated"
-                    />
-
-                    <select
-                      className="w-full p-3 rounded-lg bg-slate-800 border border-slate-700"
-                      value={editPreferredTeamMemberId}
-                      onChange={(e) => setEditPreferredTeamMemberId(e.target.value)}
-                    >
-                      <option value="">Preferred staff</option>
-                      {teamMembers.map((member) => (
-                        <option key={member.id} value={member.id}>
-                          {member.full_name}
-                        </option>
-                      ))}
-                    </select>
-
-                    <select
-                      className="w-full p-3 rounded-lg bg-slate-800 border border-slate-700"
-                      value={editPreferredServiceId}
-                      onChange={(e) => setEditPreferredServiceId(e.target.value)}
-                    >
-                      <option value="">Preferred service</option>
-                      {services.map((service) => (
-                        <option key={service.id} value={service.id}>
-                          {service.name}
-                        </option>
-                      ))}
-                    </select>
-
-                    <div>
-                      <label className="block text-sm text-slate-400 mb-2">
-                        No-show count
-                      </label>
-                      <input
-                        type="number"
-                        min="0"
-                        className="w-full p-3 rounded-lg bg-slate-800 border border-slate-700"
-                        value={editNoShowCount}
-                        onChange={(e) => setEditNoShowCount(e.target.value)}
-                        placeholder="0"
-                      />
-                    </div>
-
-                    <div>
-                      <label className="block text-sm text-slate-400 mb-2">
-                        Outstanding balance (£)
-                      </label>
-                      <input
-                        type="number"
-                        step="0.01"
-                        className="w-full p-3 rounded-lg bg-slate-800 border border-slate-700"
-                        value={editOutstandingBalance}
-                        onChange={(e) => setEditOutstandingBalance(e.target.value)}
-                        placeholder="0.00"
-                      />
-                    </div>
-                  </div>
-
-                  <textarea
-                    className="w-full p-3 rounded-lg bg-slate-800 border border-slate-700 mb-4"
-                    value={editNotes}
-                    onChange={(e) => setEditNotes(e.target.value)}
-                    placeholder="Profile notes, preferences, usual style, allergies, preferred staff member..."
-                  />
-
-                  <div className="grid md:grid-cols-2 gap-4 mb-4">
-                    <label className="flex items-center gap-3 bg-slate-800 border border-slate-700 rounded-xl p-4">
-                      <input
-                        type="checkbox"
-                        checked={editVip}
-                        onChange={(e) => setEditVip(e.target.checked)}
-                      />
-                      <span>VIP customer</span>
-                    </label>
-
-                    <label className="flex items-center gap-3 bg-slate-800 border border-slate-700 rounded-xl p-4">
-                      <input
-                        type="checkbox"
-                        checked={editMarketingOptIn}
-                        onChange={(e) => setEditMarketingOptIn(e.target.checked)}
-                      />
-                      <span>Marketing opt-in</span>
-                    </label>
-                  </div>
-
-                  <div className="flex gap-3">
-                    <button
-                      onClick={saveCustomerChanges}
-                      className="bg-white text-slate-950 font-bold px-5 py-3 rounded-xl"
-                    >
-                      Save changes
-                    </button>
-
-                    <button
-                      onClick={() => setIsEditing(false)}
-                      className="bg-slate-700 hover:bg-slate-600 font-bold px-5 py-3 rounded-xl"
-                    >
-                      Cancel
-                    </button>
-                  </div>
-                </section>
-              )}
-
-              <section className="bg-slate-900 border border-slate-800 rounded-2xl p-6">
-                <h3 className="text-2xl font-bold mb-4">Add timeline note</h3>
-
-                <textarea
-                  className="w-full p-3 rounded-lg bg-slate-800 border border-slate-700 mb-4"
-                  placeholder="Add customer note..."
-                  value={note}
-                  onChange={(e) => setNote(e.target.value)}
-                />
-
-                <button
-                  onClick={addNote}
-                  className="bg-white text-slate-950 font-bold px-5 py-3 rounded-xl"
-                >
-                  Save note
-                </button>
-              </section>
-
-              <section className="bg-slate-900 border border-slate-800 rounded-2xl p-6">
-                <h3 className="text-2xl font-bold mb-4">Timeline notes</h3>
-
-                <div className="space-y-3">
-                  {selectedCustomer.notesList.map((item) => (
-                    <div
-                      key={item.id}
-                      className="border border-slate-800 rounded-xl p-4"
-                    >
-                      <p>{item.note}</p>
-                      <p className="text-slate-500 text-sm mt-2">
-                        {new Date(item.created_at).toLocaleString('en-GB')}
-                      </p>
-                    </div>
-                  ))}
-
-                  {selectedCustomer.notesList.length === 0 && (
-                    <p className="text-slate-500">No timeline notes yet.</p>
-                  )}
-                </div>
-              </section>
-
-              <section className="bg-slate-900 border border-slate-800 rounded-2xl p-6">
-                <h3 className="text-2xl font-bold mb-4">Appointment history</h3>
-
-                <div className="space-y-3">
-                  {selectedCustomer.bookings.map((booking) => (
-                    <div
-                      key={booking.id}
-                      className="border border-slate-800 rounded-xl p-4 flex justify-between gap-4"
-                    >
-                      <div>
-                        <p className="font-bold">
-                          {booking.services?.[0]?.name || 'Unknown service'}
-                        </p>
-                        <p className="text-slate-400 text-sm">
-                          {new Date(booking.booking_date).toLocaleDateString('en-GB')}{' '}
-                          at {booking.booking_time?.slice(0, 5)}
-                        </p>
-                      </div>
-
-                      <div className="text-right">
-                        <p>£{booking.services?.[0]?.price || 0}</p>
-                        <p className="text-slate-500 text-sm">
-                          {booking.status || 'confirmed'}
-                        </p>
-                      </div>
-                    </div>
-                  ))}
-
-                  {selectedCustomer.bookings.length === 0 && (
-                    <p className="text-slate-500">No appointment history yet.</p>
-                  )}
-                </div>
-              </section>
+      <div className="rounded-[2rem] border border-white/10 bg-slate-950/80 p-5">
+        <h3 className="text-xl font-black text-white">Appointment history</h3>
+        <div className="mt-4 space-y-3">
+          {customer.bookings.map((booking) => (
+            <div key={booking.id} className="flex justify-between gap-4 rounded-2xl border border-white/10 bg-white/[0.035] p-4">
+              <div>
+                <p className="font-black text-white">{booking.services?.[0]?.name || 'Unknown service'}</p>
+                <p className="mt-1 text-sm text-slate-400">
+                  {new Date(booking.booking_date).toLocaleDateString('en-GB')} at {booking.booking_time?.slice(0, 5)}
+                </p>
+              </div>
+              <div className="text-right">
+                <p className="font-black text-white">£{booking.services?.[0]?.price || 0}</p>
+                <p className="mt-1 text-sm text-slate-500">{booking.status || 'confirmed'}</p>
+              </div>
             </div>
-          )}
+          ))}
+          {customer.bookings.length === 0 && <p className="text-slate-500">No appointment history yet.</p>}
         </div>
       </div>
     </div>
+  )
+}
+
+function EditCustomerForm({ editState }: { editState: any }) {
+  const s = editState
+
+  return (
+    <div className="rounded-[2rem] border border-white/10 bg-slate-950/80 p-5">
+      <h3 className="text-xl font-black text-white">Edit customer</h3>
+
+      <div className="mt-4 grid gap-4 md:grid-cols-2">
+        <Input label="First name" value={s.editFirstName} onChange={s.setEditFirstName} />
+        <Input label="Last name" value={s.editLastName} onChange={s.setEditLastName} />
+        <Input label="Email" value={s.editEmail} onChange={s.setEditEmail} />
+        <Input label="Phone" value={s.editPhone} onChange={s.setEditPhone} />
+        <Input label="Last visit" value={s.editLastVisit} onChange={s.setEditLastVisit} type="date" />
+        <Input label="Birthday" value={s.editBirthday} onChange={s.setEditBirthday} type="date" />
+        <Input label="Source" value={s.editSource} onChange={s.setEditSource} />
+        <Input label="Tags" value={s.editTags} onChange={s.setEditTags} />
+        <Input label="No-show count" value={s.editNoShowCount} onChange={s.setEditNoShowCount} type="number" />
+        <Input label="Outstanding balance (£)" value={s.editOutstandingBalance} onChange={s.setEditOutstandingBalance} type="number" />
+
+        <Select label="Preferred staff" value={s.editPreferredTeamMemberId} onChange={s.setEditPreferredTeamMemberId}>
+          <option value="">Preferred staff</option>
+          {s.teamMembers.map((member: TeamMember) => (
+            <option key={member.id} value={member.id}>{member.full_name}</option>
+          ))}
+        </Select>
+
+        <Select label="Preferred service" value={s.editPreferredServiceId} onChange={s.setEditPreferredServiceId}>
+          <option value="">Preferred service</option>
+          {s.services.map((service: Service) => (
+            <option key={service.id} value={service.id}>{service.name}</option>
+          ))}
+        </Select>
+
+        <Toggle label="VIP customer" checked={s.editVip} onChange={s.setEditVip} />
+        <Toggle label="Marketing opt-in" checked={s.editMarketingOptIn} onChange={s.setEditMarketingOptIn} />
+      </div>
+
+      <textarea
+        className="mt-4 min-h-28 w-full rounded-2xl border border-white/10 bg-[#020617] px-5 py-4 text-white outline-none placeholder:text-slate-600 focus:border-cyan-300"
+        value={s.editNotes}
+        onChange={(e) => s.setEditNotes(e.target.value)}
+        placeholder="Profile notes..."
+      />
+
+      <div className="mt-5 flex flex-wrap gap-3">
+        <ActionButton onClick={s.saveCustomerChanges} variant="primary">Save changes</ActionButton>
+        <ActionButton onClick={() => s.setIsEditing(false)}>Cancel</ActionButton>
+      </div>
+    </div>
+  )
+}
+
+function Input({
+  label,
+  value,
+  onChange,
+  type = 'text',
+  placeholder,
+}: {
+  label: string
+  value: string
+  onChange: (value: string) => void
+  type?: string
+  placeholder?: string
+}) {
+  return (
+    <label>
+      <span className="mb-2 block text-sm font-bold text-slate-400">{label}</span>
+      <input
+        type={type}
+        className="w-full rounded-2xl border border-white/10 bg-slate-950 px-4 py-3 text-white outline-none placeholder:text-slate-600 focus:border-cyan-300"
+        value={value}
+        placeholder={placeholder}
+        onChange={(e) => onChange(e.target.value)}
+      />
+    </label>
+  )
+}
+
+function Select({
+  label,
+  value,
+  onChange,
+  children,
+}: {
+  label: string
+  value: string
+  onChange: (value: string) => void
+  children: React.ReactNode
+}) {
+  return (
+    <label>
+      <span className="mb-2 block text-sm font-bold text-slate-400">{label}</span>
+      <select
+        className="w-full rounded-2xl border border-white/10 bg-slate-950 px-4 py-3 text-white outline-none focus:border-cyan-300"
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+      >
+        {children}
+      </select>
+    </label>
+  )
+}
+
+function Toggle({
+  label,
+  checked,
+  onChange,
+}: {
+  label: string
+  checked: boolean
+  onChange: (value: boolean) => void
+}) {
+  return (
+    <label className="flex items-center gap-3 rounded-2xl border border-white/10 bg-slate-950 px-4 py-3">
+      <input
+        type="checkbox"
+        checked={checked}
+        onChange={(e) => onChange(e.target.checked)}
+        className="accent-cyan-400"
+      />
+      <span className="text-sm font-bold text-slate-300">{label}</span>
+    </label>
+  )
+}
+
+function ActionButton({
+  children,
+  onClick,
+  variant = 'default',
+  icon,
+}: {
+  children: React.ReactNode
+  onClick: () => void
+  variant?: 'default' | 'primary' | 'secondary'
+  icon?: React.ReactNode
+}) {
+  const styles = {
+    default: 'border-white/10 bg-white/[0.045] text-white hover:bg-white/[0.09]',
+    primary: 'border-cyan-400/20 bg-cyan-400 text-slate-950 hover:bg-cyan-300',
+    secondary: 'border-cyan-400/20 bg-cyan-400/10 text-cyan-100 hover:bg-cyan-400/15',
+  }
+
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className={`inline-flex items-center justify-center gap-2 rounded-2xl border px-5 py-3 text-sm font-black transition hover:-translate-y-0.5 ${styles[variant]}`}
+    >
+      {icon}
+      {children}
+    </button>
   )
 }
 
@@ -1704,32 +1462,32 @@ function ProfileActionButton({
   )
 }
 
-function StatCard({
-  label,
-  value,
-}: {
-  label: string
-  value: number | string
-}) {
+function MiniStat({ label, value }: { label: string; value: number | string }) {
   return (
-    <div className="bg-slate-900 border border-slate-800 rounded-2xl p-6">
-      <p className="text-slate-400 mb-2">{label}</p>
-      <h2 className="text-3xl font-bold">{value}</h2>
+    <div className="rounded-2xl border border-white/10 bg-white/[0.035] p-3">
+      <p className="text-[10px] font-black uppercase tracking-[0.22em] text-slate-500">
+        {label}
+      </p>
+      <p className="mt-2 truncate text-sm font-black text-white">{value}</p>
     </div>
   )
 }
 
-function MiniStat({
-  label,
-  value,
+function Badge({
+  children,
+  colour,
 }: {
-  label: string
-  value: number | string
+  children: React.ReactNode
+  colour: 'amber' | 'slate'
 }) {
+  const styles = {
+    amber: 'border-yellow-400/25 bg-yellow-400/10 text-yellow-200',
+    slate: 'border-white/10 bg-white/[0.06] text-slate-300',
+  }
+
   return (
-    <div className="bg-slate-800/60 border border-slate-700 rounded-xl p-4">
-      <p className="text-slate-400 mb-1">{label}</p>
-      <p className="font-bold">{value}</p>
-    </div>
+    <span className={`rounded-full border px-3 py-1 text-xs font-black ${styles[colour]}`}>
+      {children}
+    </span>
   )
 }

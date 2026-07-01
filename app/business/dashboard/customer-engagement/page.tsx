@@ -2,7 +2,22 @@
 
 import Link from 'next/link'
 import { useEffect, useMemo, useState } from 'react'
+import {
+  ArrowRight,
+  FileText,
+  Gift,
+  RefreshCw,
+  Share2,
+  Star,
+  Trophy,
+  Users,
+} from 'lucide-react'
 import { supabase } from '@/lib/supabase'
+import DashboardPage from '@/components/dashboard/DashboardPage'
+import DashboardHero from '@/components/dashboard/DashboardHero'
+import DashboardGrid from '@/components/dashboard/DashboardGrid'
+import StatCard from '@/components/dashboard/StatCard'
+import SectionCard from '@/components/dashboard/SectionCard'
 
 type Business = {
   id: string
@@ -94,26 +109,32 @@ export default function CustomerEngagementPage() {
       const foundBusiness = await getBusinessForUser()
       setBusiness(foundBusiness)
 
-      const [reviewsResult, referralsResult, documentsResult, loyaltyResult] = await Promise.all([
-        supabase
-          .from('customer_reviews')
-          .select('id,business_id,rating,status')
-          .eq('business_id', foundBusiness.id),
-        supabase
-          .from('customer_referrals')
-          .select('id,business_id,status,reward_amount')
-          .eq('business_id', foundBusiness.id),
-        supabase
-          .from('customer_documents')
-          .select('id,business_id,customer_id,title,file_url,category')
-          .eq('business_id', foundBusiness.id),
-        supabase
-          .from('customer_loyalty')
-          .select('id,business_id,customer_id,visits_required,visits_completed,reward_label,status')
-          .eq('business_id', foundBusiness.id),
-      ])
+      const [reviewsResult, referralsResult, documentsResult, loyaltyResult] =
+        await Promise.all([
+          supabase
+            .from('customer_reviews')
+            .select('id,business_id,rating,status')
+            .eq('business_id', foundBusiness.id),
+          supabase
+            .from('customer_referrals')
+            .select('id,business_id,status,reward_amount')
+            .eq('business_id', foundBusiness.id),
+          supabase
+            .from('customer_documents')
+            .select('id,business_id,customer_id,title,file_url,category')
+            .eq('business_id', foundBusiness.id),
+          supabase
+            .from('customer_loyalty')
+            .select('id,business_id,customer_id,visits_required,visits_completed,reward_label,status')
+            .eq('business_id', foundBusiness.id),
+        ])
 
-      if (reviewsResult.error || referralsResult.error || documentsResult.error || loyaltyResult.error) {
+      if (
+        reviewsResult.error ||
+        referralsResult.error ||
+        documentsResult.error ||
+        loyaltyResult.error
+      ) {
         setMessage(
           reviewsResult.error?.message ||
             referralsResult.error?.message ||
@@ -128,29 +149,44 @@ export default function CustomerEngagementPage() {
         setLoyalty((loyaltyResult.data as Loyalty[]) || [])
       }
     } catch (error) {
-      setMessage(error instanceof Error ? error.message : 'Could not load customer engagement centre.')
+      setMessage(
+        error instanceof Error
+          ? error.message
+          : 'Could not load customer engagement centre.'
+      )
     }
 
     setLoading(false)
   }
 
   const reviewStats = useMemo(() => {
-    const ratings = reviews.map((review) => Number(review.rating || 0)).filter((rating) => rating > 0)
+    const ratings = reviews
+      .map((review) => Number(review.rating || 0))
+      .filter((rating) => rating > 0)
+
     const averageRating =
-      ratings.length > 0 ? ratings.reduce((sum, rating) => sum + rating, 0) / ratings.length : 0
+      ratings.length > 0
+        ? ratings.reduce((sum, rating) => sum + rating, 0) / ratings.length
+        : 0
 
     return {
       averageRating,
       total: reviews.length,
-      pending: reviews.filter((review) => review.status === 'draft' || review.status === 'pending').length,
-      published: reviews.filter((review) => review.status === 'published' || review.status === 'submitted').length,
+      pending: reviews.filter(
+        (review) => review.status === 'draft' || review.status === 'pending'
+      ).length,
+      published: reviews.filter(
+        (review) => review.status === 'published' || review.status === 'submitted'
+      ).length,
     }
   }, [reviews])
 
   const referralStats = useMemo(() => {
     return {
       total: referrals.length,
-      converted: referrals.filter((referral) => referral.status === 'converted' || referral.status === 'paid').length,
+      converted: referrals.filter(
+        (referral) => referral.status === 'converted' || referral.status === 'paid'
+      ).length,
       pending: referrals.filter((referral) => referral.status === 'pending').length,
       rewards: referrals
         .filter((referral) => referral.status === 'paid')
@@ -163,70 +199,109 @@ export default function CustomerEngagementPage() {
       total: documents.length,
       sharedAll: documents.filter((document) => !document.customer_id).length,
       assigned: documents.filter((document) => document.customer_id).length,
-      categories: new Set(documents.map((document) => document.category).filter(Boolean)).size,
+      categories: new Set(documents.map((document) => document.category).filter(Boolean))
+        .size,
     }
   }, [documents])
 
   const loyaltyStats = useMemo(() => {
     const active = loyalty.filter((item) => item.status === 'active')
     const earned = active.filter(
-      (item) => Number(item.visits_completed || 0) >= Number(item.visits_required || 0)
+      (item) =>
+        Number(item.visits_completed || 0) >= Number(item.visits_required || 0)
     ).length
-    const totalRequired = active.reduce((sum, item) => sum + Number(item.visits_required || 0), 0)
-    const totalCompleted = active.reduce((sum, item) => sum + Number(item.visits_completed || 0), 0)
+    const totalRequired = active.reduce(
+      (sum, item) => sum + Number(item.visits_required || 0),
+      0
+    )
+    const totalCompleted = active.reduce(
+      (sum, item) => sum + Number(item.visits_completed || 0),
+      0
+    )
 
     return {
       active: active.length,
       earned,
       redeemed: loyalty.filter((item) => item.status === 'redeemed').length,
-      completionRate: totalRequired > 0 ? Math.round((totalCompleted / totalRequired) * 100) : 0,
+      completionRate:
+        totalRequired > 0 ? Math.round((totalCompleted / totalRequired) * 100) : 0,
     }
   }, [loyalty])
 
   if (loading) {
-    return <div className="text-white">Loading customer engagement...</div>
+    return (
+      <DashboardPage className="flex min-h-[55vh] items-center justify-center">
+        <div className="rounded-[2rem] border border-white/10 bg-[#07111f] px-8 py-6 font-black text-slate-200 shadow-[0_50px_180px_rgba(0,0,0,.55)]">
+          Loading customer engagement...
+        </div>
+      </DashboardPage>
+    )
   }
 
   return (
-    <div>
-      <section className="mb-10 flex flex-col gap-6 lg:flex-row lg:items-end lg:justify-between">
-        <div>
-          <p className="mb-2 text-slate-400">Customer Engagement</p>
-          <h1 className="mb-2 text-4xl font-bold">Customer engagement centre</h1>
-          <p className="max-w-3xl text-slate-500">
-            Manage reviews, referrals, documents and loyalty from one place.
-            {business?.business_name ? ` Connected to ${business.business_name}.` : ''}
-          </p>
-        </div>
-
-        <button
-          type="button"
-          onClick={loadData}
-          className="rounded-xl bg-white px-5 py-3 font-bold text-slate-950"
-        >
-          Refresh
-        </button>
-      </section>
+    <DashboardPage>
+      <DashboardHero
+        eyebrow="Customer engagement"
+        title="Customer engagement centre."
+        description={`Manage reviews, referrals, documents and loyalty from one place.${
+          business?.business_name ? ` Connected to ${business.business_name}.` : ''
+        }`}
+        actions={
+          <button
+            type="button"
+            onClick={loadData}
+            className="inline-flex items-center justify-center gap-2 rounded-2xl border border-white/10 bg-white/[0.045] px-5 py-3 text-sm font-black text-white transition hover:-translate-y-0.5 hover:bg-white/[0.09]"
+          >
+            <RefreshCw size={16} />
+            Refresh
+          </button>
+        }
+      />
 
       {message && (
-        <div className="mb-6 rounded-2xl border border-red-500/20 bg-red-500/10 p-4 text-red-200">
+        <div className="rounded-2xl border border-red-500/20 bg-red-500/10 p-4 text-sm font-bold text-red-200">
           {message}
         </div>
       )}
 
-      <section className="mb-8 grid gap-6 md:grid-cols-4">
-        <StatCard label="Average rating" value={reviewStats.averageRating ? reviewStats.averageRating.toFixed(1) : '—'} />
-        <StatCard label="Referral leads" value={referralStats.total} />
-        <StatCard label="Documents shared" value={documentStats.total} />
-        <StatCard label="Loyalty members" value={loyaltyStats.active} />
-      </section>
+      <DashboardGrid columns={4}>
+        <StatCard
+          label="Average rating"
+          value={reviewStats.averageRating ? reviewStats.averageRating.toFixed(1) : '—'}
+          icon={<Star size={22} />}
+          colour="amber"
+        />
 
-      <section className="grid gap-8 xl:grid-cols-2">
+        <StatCard
+          label="Referral leads"
+          value={referralStats.total}
+          icon={<Share2 size={22} />}
+          colour="cyan"
+        />
+
+        <StatCard
+          label="Documents"
+          value={documentStats.total}
+          icon={<FileText size={22} />}
+          colour="violet"
+        />
+
+        <StatCard
+          label="Loyalty members"
+          value={loyaltyStats.active}
+          icon={<Trophy size={22} />}
+          colour="emerald"
+        />
+      </DashboardGrid>
+
+      <section className="grid gap-6 xl:grid-cols-2">
         <EngagementCard
           title="Reviews"
           description="View customer feedback, approve reviews and monitor your average rating."
           href="/business/dashboard/customer-engagement/reviews"
           action="Manage reviews"
+          icon={<Star size={22} />}
+          tone="amber"
           stats={[
             ['Average rating', reviewStats.averageRating ? `${reviewStats.averageRating.toFixed(1)} / 5` : 'No ratings'],
             ['Reviews received', String(reviewStats.total)],
@@ -240,6 +315,8 @@ export default function CustomerEngagementPage() {
           description="Track customer referral leads, reward status and converted referrals."
           href="/business/dashboard/customer-engagement/referrals"
           action="Manage referrals"
+          icon={<Share2 size={22} />}
+          tone="cyan"
           stats={[
             ['Referral leads', String(referralStats.total)],
             ['Converted', String(referralStats.converted)],
@@ -253,6 +330,8 @@ export default function CustomerEngagementPage() {
           description="Upload and share documents with individual customers or all portal users."
           href="/business/dashboard/customer-engagement/documents"
           action="Manage documents"
+          icon={<FileText size={22} />}
+          tone="violet"
           stats={[
             ['Documents uploaded', String(documentStats.total)],
             ['Shared with all', String(documentStats.sharedAll)],
@@ -266,6 +345,8 @@ export default function CustomerEngagementPage() {
           description="Manage visit-based rewards and customer loyalty wallets."
           href="/business/dashboard/customer-engagement/loyalty"
           action="Manage loyalty"
+          icon={<Trophy size={22} />}
+          tone="emerald"
           stats={[
             ['Active members', String(loyaltyStats.active)],
             ['Rewards earned', String(loyaltyStats.earned)],
@@ -274,22 +355,101 @@ export default function CustomerEngagementPage() {
           ]}
         />
       </section>
-    </div>
+
+      <SectionCard
+        title="Engagement overview"
+        description="Quick summary of customer engagement activity across all customer-facing tools."
+      >
+        <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+          <SummaryTile
+            icon={<Users size={18} />}
+            label="Review activity"
+            value={`${reviewStats.published} published`}
+            helper={`${reviewStats.pending} waiting`}
+          />
+          <SummaryTile
+            icon={<Gift size={18} />}
+            label="Referral rewards"
+            value={money(referralStats.rewards)}
+            helper={`${referralStats.converted} converted`}
+          />
+          <SummaryTile
+            icon={<FileText size={18} />}
+            label="Document library"
+            value={`${documentStats.categories} categories`}
+            helper={`${documentStats.assigned} assigned`}
+          />
+          <SummaryTile
+            icon={<Trophy size={18} />}
+            label="Loyalty progress"
+            value={`${loyaltyStats.completionRate}%`}
+            helper={`${loyaltyStats.earned} rewards earned`}
+          />
+        </div>
+      </SectionCard>
+    </DashboardPage>
   )
 }
 
-function StatCard({
-  label,
-  value,
+function EngagementCard({
+  title,
+  description,
+  stats,
+  href,
+  action,
+  icon,
+  tone,
 }: {
-  label: string
-  value: number | string
+  title: string
+  description: string
+  stats: [string, string][]
+  href: string
+  action: string
+  icon: React.ReactNode
+  tone: 'cyan' | 'amber' | 'violet' | 'emerald'
 }) {
   return (
-    <div className="rounded-2xl border border-slate-800 bg-slate-900 p-6">
-      <p className="mb-2 text-slate-400">{label}</p>
-      <h2 className="text-3xl font-bold">{value}</h2>
-    </div>
+    <section className="overflow-hidden rounded-[2rem] border border-white/10 bg-[#07111f] shadow-[0_35px_120px_rgba(0,0,0,.32)]">
+      <div className="p-5 sm:p-7">
+        <div className="flex items-start justify-between gap-5">
+          <div className="min-w-0">
+            <div className="mb-4 flex items-center gap-3">
+              <IconBubble tone={tone}>{icon}</IconBubble>
+              <h2 className="text-2xl font-black tracking-[-0.03em] text-white">
+                {title}
+              </h2>
+            </div>
+            <p className="max-w-xl text-sm leading-6 text-slate-400">
+              {description}
+            </p>
+          </div>
+
+          <Link
+            href={href}
+            className="hidden shrink-0 items-center gap-2 rounded-2xl border border-white/10 bg-white/[0.045] px-4 py-3 text-sm font-black text-white transition hover:-translate-y-0.5 hover:bg-white/[0.09] sm:inline-flex"
+          >
+            {action}
+            <ArrowRight size={16} />
+          </Link>
+        </div>
+
+        <div className="mt-6 grid grid-cols-2 gap-3">
+          {stats.map(([label, value]) => (
+            <MiniStat key={label} label={label} value={value} />
+          ))}
+        </div>
+      </div>
+
+      <div className="border-t border-white/10 bg-white/[0.025] p-3 sm:hidden">
+        <Link
+          href={href}
+          className="flex w-full items-center justify-center gap-2 rounded-2xl bg-cyan-400/10 px-4 py-3 text-sm font-black text-cyan-100"
+        >
+          {action}
+          <ArrowRight size={16} />
+        </Link>
+      </div>
+    </section>
   )
 }
 
@@ -301,47 +461,57 @@ function MiniStat({
   value: string
 }) {
   return (
-    <div className="rounded-xl border border-slate-800 p-4">
-      <p className="mb-1 text-sm text-slate-400">{label}</p>
-      <p className="text-xl font-bold">{value}</p>
+    <div className="rounded-2xl border border-white/10 bg-white/[0.035] p-4">
+      <p className="text-[10px] font-black uppercase tracking-[0.22em] text-slate-500">
+        {label}
+      </p>
+      <p className="mt-2 truncate text-lg font-black text-white">{value}</p>
     </div>
   )
 }
 
-function EngagementCard({
-  title,
-  description,
-  stats,
-  href,
-  action,
+function SummaryTile({
+  icon,
+  label,
+  value,
+  helper,
 }: {
-  title: string
-  description: string
-  stats: [string, string][]
-  href: string
-  action: string
+  icon: React.ReactNode
+  label: string
+  value: string
+  helper: string
 }) {
   return (
-    <section className="rounded-2xl border border-slate-800 bg-slate-900 p-6">
-      <div className="mb-6 flex flex-col gap-4 md:flex-row md:items-start md:justify-between">
-        <div>
-          <h2 className="text-2xl font-bold">{title}</h2>
-          <p className="mt-2 max-w-xl text-slate-400">{description}</p>
-        </div>
-
-        <Link
-          href={href}
-          className="rounded-xl bg-slate-800 px-4 py-3 text-center text-sm font-bold text-white hover:bg-slate-700"
-        >
-          {action}
-        </Link>
+    <div className="rounded-2xl border border-white/10 bg-slate-950/80 p-5">
+      <div className="mb-4 flex h-11 w-11 items-center justify-center rounded-2xl border border-cyan-400/20 bg-cyan-400/10 text-cyan-200">
+        {icon}
       </div>
+      <p className="text-[10px] font-black uppercase tracking-[0.22em] text-slate-500">
+        {label}
+      </p>
+      <p className="mt-2 text-2xl font-black text-white">{value}</p>
+      <p className="mt-1 text-sm text-slate-500">{helper}</p>
+    </div>
+  )
+}
 
-      <div className="grid gap-4 md:grid-cols-2">
-        {stats.map(([label, value]) => (
-          <MiniStat key={label} label={label} value={value} />
-        ))}
-      </div>
-    </section>
+function IconBubble({
+  children,
+  tone,
+}: {
+  children: React.ReactNode
+  tone: 'cyan' | 'amber' | 'violet' | 'emerald'
+}) {
+  const styles = {
+    cyan: 'border-cyan-400/20 bg-cyan-400/10 text-cyan-200',
+    amber: 'border-amber-400/20 bg-amber-400/10 text-amber-200',
+    violet: 'border-violet-400/20 bg-violet-400/10 text-violet-200',
+    emerald: 'border-emerald-400/20 bg-emerald-400/10 text-emerald-200',
+  }
+
+  return (
+    <div className={`flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl border ${styles[tone]}`}>
+      {children}
+    </div>
   )
 }

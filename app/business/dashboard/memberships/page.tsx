@@ -1,8 +1,14 @@
 'use client'
 
 import { useEffect, useMemo, useState } from 'react'
+import { Search, RefreshCw, Users, PauseCircle, XCircle, Ticket, Clock, Gift, BarChart3 } from 'lucide-react'
 import { supabase } from '@/lib/supabase'
 import { hasFeature } from '@/lib/features'
+import DashboardPage from '@/components/dashboard/DashboardPage'
+import DashboardHero from '@/components/dashboard/DashboardHero'
+import DashboardGrid from '@/components/dashboard/DashboardGrid'
+import StatCard from '@/components/dashboard/StatCard'
+import SectionCard from '@/components/dashboard/SectionCard'
 
 type Business = {
   id: string
@@ -766,71 +772,81 @@ export default function MembershipsPage() {
 
   if (loading) {
     return (
-      <main className="min-h-screen bg-[#020617] p-8 text-white">
-        <p className="text-slate-400">Loading memberships...</p>
-      </main>
+      <DashboardPage className="flex min-h-[50vh] items-center justify-center">
+        <div className="rounded-[2rem] border border-white/10 bg-[#07111f] px-8 py-6 font-black text-slate-200 shadow-[0_50px_180px_rgba(0,0,0,.55)]">
+          Loading memberships...
+        </div>
+      </DashboardPage>
     )
   }
 
   if (featureAllowed === false) {
     return (
-      <main className="min-h-screen bg-[#020617] p-8 text-white">
-        <div className="mx-auto max-w-3xl rounded-3xl border border-white/10 bg-white/[0.04] p-8">
+      <DashboardPage>
+        <SectionCard>
           <p className="text-sm font-black uppercase tracking-[0.25em] text-cyan-300">Feature unavailable</p>
-          <h1 className="mt-3 text-4xl font-black">Memberships are not enabled</h1>
+          <h1 className="mt-3 text-4xl font-black text-white">Memberships are not enabled</h1>
           <p className="mt-4 text-slate-400">
             This business does not currently have access to the memberships feature.
           </p>
-        </div>
-      </main>
+        </SectionCard>
+      </DashboardPage>
     )
   }
 
   return (
-    <main className="min-h-screen bg-[#020617] p-6 text-white md:p-8">
-      <div className="mx-auto max-w-7xl space-y-8">
-        <section className="flex flex-col gap-5 md:flex-row md:items-end md:justify-between">
-          <div>
-            <p className="text-sm font-black uppercase tracking-[0.25em] text-cyan-300">Membership engine V3</p>
-            <h1 className="mt-2 text-4xl font-black">Memberships</h1>
-            <p className="mt-3 max-w-3xl text-slate-400">
-              Create plans, manage benefits, assign members, consume sessions manually and track every membership usage event.
-            </p>
-            {business?.slug && <p className="mt-2 text-sm text-slate-500">Public membership page: /book/{business.slug}/memberships</p>}
-          </div>
-
-          <div className="flex flex-col gap-3 sm:flex-row">
-            <input
-              value={search}
-              onChange={(event) => setSearch(event.target.value)}
-              placeholder="Search members or usage..."
-              className="rounded-2xl border border-white/10 bg-slate-950 px-4 py-3 text-white outline-none placeholder:text-slate-600"
-            />
+    <DashboardPage>
+      <DashboardHero
+        eyebrow="Membership engine V3"
+        title="Memberships."
+        description="Create plans, manage benefits, assign members, consume sessions manually and track every membership usage event."
+        actions={
+          <div className="flex w-full flex-col gap-3 sm:w-auto sm:flex-row">
+            <div className="relative">
+              <Search className="pointer-events-none absolute left-4 top-1/2 -translate-y-1/2 text-slate-500" size={18} />
+              <input
+                value={search}
+                onChange={(event) => setSearch(event.target.value)}
+                placeholder="Search members or usage..."
+                className="w-full rounded-2xl border border-white/10 bg-slate-950 py-3 pl-11 pr-4 text-sm font-bold text-white outline-none placeholder:text-slate-600 focus:border-cyan-300 sm:w-72"
+              />
+            </div>
             <button
               type="button"
               onClick={loadData}
-              className="rounded-2xl bg-cyan-400 px-5 py-3 font-black text-slate-950 hover:bg-cyan-300"
+              className="inline-flex items-center justify-center gap-2 rounded-2xl bg-cyan-400 px-5 py-3 text-sm font-black text-slate-950 transition hover:bg-cyan-300"
             >
+              <RefreshCw size={16} />
               Refresh
             </button>
           </div>
-        </section>
+        }
+      >
+        {business?.slug && (
+          <p className="mt-4 text-sm font-bold text-slate-500">
+            Public membership page: /book/{business.slug}/memberships
+          </p>
+        )}
+      </DashboardHero>
 
         {message && <div className="rounded-2xl border border-cyan-300/20 bg-cyan-300/10 p-4 text-cyan-100">{message}</div>}
 
-        <section className="grid gap-4 md:grid-cols-4 xl:grid-cols-8">
-          <Kpi title="Membership MRR" value={money(stats.mrr)} />
-          <Kpi title="Active members" value={String(stats.active)} />
-          <Kpi title="Paused" value={String(stats.paused)} />
-          <Kpi title="Cancelled" value={String(stats.cancelled)} />
-          <Kpi title="Sessions used" value={String(stats.used)} />
-          <Kpi title="Remaining" value={String(stats.remaining)} />
-          <Kpi title="Benefits" value={String(stats.benefitCount)} />
-          <Kpi title="Utilisation" value={`${stats.utilisation}%`} />
-        </section>
+      <DashboardGrid columns={4}>
+        <StatCard label="Membership MRR" value={money(stats.mrr)} icon={<BarChart3 size={22} />} colour="emerald" />
+        <StatCard label="Active members" value={String(stats.active)} icon={<Users size={22} />} />
+        <StatCard label="Paused" value={String(stats.paused)} icon={<PauseCircle size={22} />} colour="amber" />
+        <StatCard label="Cancelled" value={String(stats.cancelled)} icon={<XCircle size={22} />} colour="rose" />
+      </DashboardGrid>
 
-        <section className="rounded-3xl border border-white/10 bg-white/[0.04] p-4">
-          <div className="flex flex-wrap gap-2">
+      <DashboardGrid columns={4}>
+        <StatCard label="Sessions used" value={String(stats.used)} icon={<Ticket size={22} />} colour="violet" />
+        <StatCard label="Remaining" value={String(stats.remaining)} icon={<Clock size={22} />} colour="cyan" />
+        <StatCard label="Benefits" value={String(stats.benefitCount)} icon={<Gift size={22} />} colour="amber" />
+        <StatCard label="Utilisation" value={`${stats.utilisation}%`} icon={<BarChart3 size={22} />} colour="emerald" />
+      </DashboardGrid>
+
+      <SectionCard>
+          <div className="flex gap-2 overflow-x-auto pb-1">
             {[
               ['plans', 'Plans'],
               ['benefits', 'Benefits'],
@@ -842,15 +858,15 @@ export default function MembershipsPage() {
                 key={key}
                 type="button"
                 onClick={() => setTab(key as TabKey)}
-                className={`rounded-2xl px-4 py-3 text-sm font-black ${
-                  tab === key ? 'bg-white text-slate-950' : 'border border-white/10 text-slate-300 hover:bg-white/10'
+                className={`shrink-0 rounded-full border px-4 py-2 text-xs font-black transition ${
+                  tab === key ? 'border-cyan-300/30 bg-cyan-400/15 text-cyan-100' : 'border-white/10 bg-white/[0.04] text-slate-400 hover:bg-white/[0.08]'
                 }`}
               >
                 {label}
               </button>
             ))}
           </div>
-        </section>
+      </SectionCard>
 
         {tab === 'plans' && (
           <section className="grid gap-6 xl:grid-cols-[0.9fr_1.1fr]">
@@ -914,7 +930,7 @@ export default function MembershipsPage() {
                   const planMrr = activeMembers.reduce((sum, membership) => sum + Number(membership.monthly_amount || 0), 0)
 
                   return (
-                    <div key={plan.id} className="rounded-2xl border border-white/10 bg-black/20 p-5">
+                    <div key={plan.id} className="rounded-2xl border border-white/10 bg-slate-950/80 p-5">
                       <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
                         <div>
                           <div className="flex flex-wrap items-center gap-2">
@@ -975,7 +991,7 @@ export default function MembershipsPage() {
                 {plans.map((plan) => {
                   const benefitsForPlan = planBenefits(plan.id, benefits)
                   return (
-                    <div key={plan.id} className="rounded-2xl border border-white/10 bg-black/20 p-5">
+                    <div key={plan.id} className="rounded-2xl border border-white/10 bg-slate-950/80 p-5">
                       <div className="flex items-center justify-between gap-4">
                         <div>
                           <p className="text-lg font-black">{plan.name}</p>
@@ -1058,7 +1074,7 @@ export default function MembershipsPage() {
                   const lastUsed = memberUsage[0]
 
                   return (
-                    <div key={membership.id} className="rounded-3xl border border-white/10 bg-black/20 p-5">
+                    <div key={membership.id} className="rounded-3xl border border-white/10 bg-slate-950/80 p-5">
                       <div className="flex flex-col gap-5 lg:flex-row lg:items-start lg:justify-between">
                         <div>
                           <p className="text-lg font-black">{membership.membership_name}</p>
@@ -1248,7 +1264,7 @@ export default function MembershipsPage() {
               <Panel title="Top membership plans">
                 <div className="space-y-3">
                   {topPlans.map(({ plan, members, revenue, used, included }) => (
-                    <div key={plan.id} className="rounded-2xl border border-white/10 bg-black/20 p-4">
+                    <div key={plan.id} className="rounded-2xl border border-white/10 bg-slate-950/80 p-4">
                       <div className="flex items-start justify-between gap-4">
                         <div>
                           <p className="font-black">{plan.name}</p>
@@ -1265,7 +1281,7 @@ export default function MembershipsPage() {
               <Panel title="Most active members">
                 <div className="space-y-3">
                   {topMembers.map((membership) => (
-                    <div key={membership.id} className="rounded-2xl border border-white/10 bg-black/20 p-4">
+                    <div key={membership.id} className="rounded-2xl border border-white/10 bg-slate-950/80 p-4">
                       <div className="flex items-start justify-between gap-4">
                         <div>
                           <p className="font-black">{customerName(membership.customers)}</p>
@@ -1281,27 +1297,16 @@ export default function MembershipsPage() {
             </section>
           </div>
         )}
-      </div>
-    </main>
+    </DashboardPage>
   )
 }
 
 function Kpi({ title, value }: { title: string; value: string }) {
-  return (
-    <div className="rounded-3xl border border-white/10 bg-white/[0.04] p-5">
-      <p className="text-xs font-black uppercase tracking-[0.22em] text-slate-500">{title}</p>
-      <p className="mt-3 text-3xl font-black">{value}</p>
-    </div>
-  )
+  return <StatCard label={title} value={value} />
 }
 
 function Panel({ title, children }: { title: string; children: React.ReactNode }) {
-  return (
-    <section className="rounded-3xl border border-white/10 bg-white/[0.04] p-6">
-      <h2 className="mb-5 text-2xl font-black">{title}</h2>
-      {children}
-    </section>
-  )
+  return <SectionCard title={title}>{children}</SectionCard>
 }
 
 function LabelledInput({
@@ -1399,7 +1404,7 @@ function StatusPill({ value }: { value: string }) {
 
 function EmptyState({ message }: { message: string }) {
   return (
-    <div className="rounded-2xl border border-dashed border-white/10 bg-black/20 p-8 text-center text-slate-500">
+    <div className="rounded-2xl border border-dashed border-white/10 bg-slate-950/80 p-8 text-center text-slate-500">
       {message}
     </div>
   )

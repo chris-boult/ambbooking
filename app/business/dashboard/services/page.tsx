@@ -1,10 +1,26 @@
 'use client'
 
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useState, type ElementType } from 'react'
+import {
+  Archive,
+  Clock,
+  CreditCard,
+  Package,
+  Plus,
+  Search,
+  Sparkles,
+  Trash2,
+} from 'lucide-react'
 import { supabase } from '@/lib/supabase'
+import DashboardPage from '@/components/dashboard/DashboardPage'
+import DashboardHero from '@/components/dashboard/DashboardHero'
+import DashboardGrid from '@/components/dashboard/DashboardGrid'
+import StatCard from '@/components/dashboard/StatCard'
+import SectionCard from '@/components/dashboard/SectionCard'
 
 type PaymentType = 'pay_later' | 'deposit' | 'full_payment'
 type ServiceMode = 'standard' | 'add_on' | 'bundle'
+type FilterKey = 'all' | 'standard' | 'add_on' | 'bundle'
 
 type Service = {
   id: string
@@ -55,6 +71,13 @@ const emptyForm = {
   sortOrder: '0',
 }
 
+const filters: { key: FilterKey; label: string }[] = [
+  { key: 'all', label: 'All' },
+  { key: 'standard', label: 'Standard' },
+  { key: 'add_on', label: 'Add-ons' },
+  { key: 'bundle', label: 'Bundles' },
+]
+
 export default function ServicesPage() {
   const [services, setServices] = useState<Service[]>([])
   const [businessId, setBusinessId] = useState('')
@@ -63,6 +86,9 @@ export default function ServicesPage() {
   const [message, setMessage] = useState('')
   const [loading, setLoading] = useState(false)
   const [hiddenServiceIds, setHiddenServiceIds] = useState<string[]>([])
+  const [search, setSearch] = useState('')
+  const [activeFilter, setActiveFilter] = useState<FilterKey>('all')
+  const [showForm, setShowForm] = useState(false)
 
   useEffect(() => {
     if (typeof window !== 'undefined') {
@@ -90,12 +116,18 @@ export default function ServicesPage() {
   )
 
   const standardServices = useMemo(
-    () => activeServices.filter((service) => !service.is_add_on && service.service_type !== 'bundle'),
+    () =>
+      activeServices.filter(
+        (service) => !service.is_add_on && service.service_type !== 'bundle'
+      ),
     [activeServices]
   )
 
   const addOnServices = useMemo(
-    () => activeServices.filter((service) => service.is_add_on || service.service_type === 'add_on'),
+    () =>
+      activeServices.filter(
+        (service) => service.is_add_on || service.service_type === 'add_on'
+      ),
     [activeServices]
   )
 
@@ -105,8 +137,33 @@ export default function ServicesPage() {
   )
 
   const categories = useMemo(() => {
-    return Array.from(new Set(activeServices.map((s) => s.category).filter(Boolean) as string[])).sort()
+    return Array.from(
+      new Set(activeServices.map((s) => s.category).filter(Boolean) as string[])
+    ).sort()
   }, [activeServices])
+
+  const filteredServices = useMemo(() => {
+    const query = search.trim().toLowerCase()
+
+    return activeServices.filter((service) => {
+      const mode = getServiceMode(service)
+
+      if (activeFilter !== 'all' && mode !== activeFilter) return false
+
+      if (!query) return true
+
+      return [
+        service.name,
+        service.description || '',
+        service.category || '',
+        serviceModeLabel(service),
+        paymentLabel(service.payment_type),
+      ]
+        .join(' ')
+        .toLowerCase()
+        .includes(query)
+    })
+  }, [activeServices, activeFilter, search])
 
   function rememberHiddenService(serviceId: string) {
     setHiddenServiceIds((current) => {
@@ -184,6 +241,7 @@ export default function ServicesPage() {
   function resetForm() {
     setForm(emptyForm)
     setEditingId(null)
+    setShowForm(false)
   }
 
   function startEdit(service: Service) {
@@ -195,6 +253,7 @@ export default function ServicesPage() {
           : 'standard'
 
     setEditingId(service.id)
+    setShowForm(true)
     setForm({
       mode,
       name: service.name || '',
@@ -284,13 +343,15 @@ export default function ServicesPage() {
       deposit_amount: form.paymentType === 'deposit' ? numericDeposit : 0,
       service_type: form.mode,
       is_add_on: form.mode === 'add_on',
-      parent_service_id: form.mode === 'add_on' && form.parentServiceId ? form.parentServiceId : null,
+      parent_service_id:
+        form.mode === 'add_on' && form.parentServiceId ? form.parentServiceId : null,
       add_on_price: form.mode === 'add_on' ? numericPrice : null,
       recommended_service_ids: form.mode === 'standard' ? form.recommendedServiceIds : [],
       requires_service_id: form.requiresServiceId || null,
       bundle_price: form.mode === 'bundle' && numericBundlePrice > 0 ? numericBundlePrice : null,
       bundle_discount_type: form.mode === 'bundle' ? form.bundleDiscountType || null : null,
-      bundle_discount_value: form.mode === 'bundle' ? Number(form.bundleDiscountValue || 0) : null,
+      bundle_discount_value:
+        form.mode === 'bundle' ? Number(form.bundleDiscountValue || 0) : null,
       sort_order: Number(form.sortOrder || 0),
       is_active: true,
     }
@@ -437,292 +498,515 @@ export default function ServicesPage() {
   }
 
   return (
-    <main className="min-h-screen space-y-8 bg-slate-950 p-6 text-white md:p-8">
-      <div>
-        <p className="text-sm font-bold uppercase tracking-[0.25em] text-cyan-300">Setup</p>
-        <h1 className="mt-2 text-4xl font-black">Services</h1>
-        <p className="mt-3 max-w-3xl text-slate-400">
-          Create standard services, add-ons and bundles. Add setup, travel or cleanup buffer time so your calendar blocks the real time needed.
-        </p>
-      </div>
+    <DashboardPage>
+      <DashboardHero
+        eyebrow="Setup"
+        title="Services."
+        description="Create standard services, add-ons and bundles. Add buffer time so your calendar blocks the real time needed."
+        actions={
+          <ActionButton
+            onClick={() => {
+              setShowForm((value) => !value)
+              if (!showForm) {
+                setEditingId(null)
+                setForm(emptyForm)
+              }
+            }}
+            variant="primary"
+            icon={<Plus size={17} />}
+          >
+            {showForm ? 'Close form' : 'Add service'}
+          </ActionButton>
+        }
+      />
 
-      {message && <div className="rounded-2xl border border-white/10 bg-white/[0.04] p-4 text-slate-300">{message}</div>}
+      {message && (
+        <div className="rounded-2xl border border-cyan-300/20 bg-cyan-300/10 p-4 text-sm font-bold text-cyan-100">
+          {message}
+        </div>
+      )}
 
-      <div className="grid gap-8 xl:grid-cols-[0.95fr_1.05fr]">
-        <section className="rounded-3xl border border-white/10 bg-white/[0.04] p-6 md:p-8">
-          <h2 className="text-2xl font-black">{editingId ? 'Edit service' : 'Add service'}</h2>
-          <p className="mt-2 text-slate-400">Choose what you are creating first. The form only shows what you need.</p>
+      <DashboardGrid columns={4}>
+        <StatCard
+          label="Active services"
+          value={activeServices.length}
+          icon={<Sparkles size={22} />}
+        />
+        <StatCard
+          label="Standard"
+          value={standardServices.length}
+          icon={<Clock size={22} />}
+          colour="emerald"
+        />
+        <StatCard
+          label="Add-ons"
+          value={addOnServices.length}
+          icon={<Plus size={22} />}
+          colour="amber"
+        />
+        <StatCard
+          label="Bundles"
+          value={bundleServices.length}
+          icon={<Package size={22} />}
+          colour="violet"
+        />
+      </DashboardGrid>
 
-          <form onSubmit={handleSaveService} className="mt-6 space-y-5">
-            <div className="grid gap-3 md:grid-cols-3">
-              {([
-                ['standard', 'Standard service', 'Bookable on its own'],
-                ['add_on', 'Add-on', 'Suggested extra'],
-                ['bundle', 'Bundle', 'Combined service'],
-              ] as [ServiceMode, string, string][]).map(([mode, label, helper]) => (
-                <button
-                  key={mode}
-                  type="button"
-                  onClick={() => updateForm('mode', mode)}
-                  className={`rounded-2xl border p-4 text-left ${
-                    form.mode === mode
-                      ? 'border-cyan-400/50 bg-cyan-400/10 text-cyan-100'
-                      : 'border-white/10 bg-black/20 text-slate-300'
-                  }`}
-                >
-                  <p className="font-black">{label}</p>
-                  <p className="mt-1 text-xs opacity-70">{helper}</p>
-                </button>
-              ))}
-            </div>
+      {showForm && (
+        <SectionCard
+          title={editingId ? 'Edit service' : 'Add service'}
+          description="Choose what you are creating first. The form only shows what you need."
+        >
+          <ServiceForm
+            form={form}
+            loading={loading}
+            editingId={editingId}
+            categories={categories}
+            standardServices={standardServices}
+            addOnServices={addOnServices}
+            activeServices={activeServices}
+            toggleRecommended={toggleRecommended}
+            updateForm={updateForm}
+            resetForm={resetForm}
+            handleSaveService={handleSaveService}
+          />
+        </SectionCard>
+      )}
 
-            <div className="grid gap-4 md:grid-cols-2">
-              <Field
-                label="Name"
-                value={form.name}
-                onChange={(v) => updateForm('name', v)}
-                placeholder={form.mode === 'bundle' ? 'Haircut + Beard Trim' : form.mode === 'add_on' ? 'Beard Trim' : 'Haircut'}
-              />
-
-              <div>
-                <label className="mb-2 block text-sm font-bold text-slate-400">Category</label>
-                <input
-                  list="service-categories"
-                  className="w-full rounded-2xl border border-white/10 bg-black/20 px-4 py-4 text-white outline-none placeholder:text-slate-600"
-                  placeholder="Hair, Beard, Extras, Bundles"
-                  value={form.category}
-                  onChange={(e) => updateForm('category', e.target.value)}
-                />
-                <datalist id="service-categories">
-                  {categories.map((category) => (
-                    <option key={category} value={category} />
-                  ))}
-                </datalist>
-              </div>
-            </div>
-
-            <textarea
-              className="min-h-24 w-full rounded-2xl border border-white/10 bg-black/20 px-4 py-4 text-white outline-none placeholder:text-slate-600"
-              placeholder="Description"
-              value={form.description}
-              onChange={(e) => updateForm('description', e.target.value)}
-            />
-
-            <div className="grid gap-4 md:grid-cols-3">
-              <Field label="Duration minutes" type="number" value={form.duration} onChange={(v) => updateForm('duration', v)} placeholder="30" />
-              <Field label={form.mode === 'bundle' ? 'Normal price' : 'Price'} type="number" value={form.price} onChange={(v) => updateForm('price', v)} placeholder="20.00" />
-              <Field label="Sort order" type="number" value={form.sortOrder} onChange={(v) => updateForm('sortOrder', v)} placeholder="0" />
-            </div>
-
-            <div className="rounded-2xl border border-cyan-400/20 bg-cyan-400/10 p-5">
-              <p className="mb-2 font-black text-cyan-100">Buffer time</p>
-              <p className="mb-4 text-sm text-slate-400">
-                Use this for travel, setup, cleaning, prep, reset time or gaps that should block the calendar.
-              </p>
-
-              <div className="grid gap-4 md:grid-cols-2">
-                <Field
-                  label="Buffer before minutes"
-                  type="number"
-                  value={form.bufferBefore}
-                  onChange={(v) => updateForm('bufferBefore', v)}
-                  placeholder="0"
-                />
-                <Field
-                  label="Buffer after minutes"
-                  type="number"
-                  value={form.bufferAfter}
-                  onChange={(v) => updateForm('bufferAfter', v)}
-                  placeholder="0"
-                />
-              </div>
-
-              <div className="mt-4 rounded-2xl border border-white/10 bg-black/20 p-4 text-sm text-slate-300">
-                Total blocked time:{' '}
-                <span className="font-black text-cyan-200">
-                  {Number(form.bufferBefore || 0) + Number(form.duration || 0) + Number(form.bufferAfter || 0)} mins
-                </span>
-              </div>
-            </div>
-
-            {form.mode === 'add_on' && (
-              <div className="rounded-2xl border border-cyan-400/20 bg-cyan-400/10 p-5">
-                <p className="mb-3 font-black text-cyan-100">Attach this add-on to a main service</p>
-                <select
-                  value={form.parentServiceId}
-                  onChange={(e) => updateForm('parentServiceId', e.target.value)}
-                  className="w-full rounded-2xl border border-white/10 bg-slate-950 px-4 py-4 text-white outline-none"
-                >
-                  <option value="">Optional: select parent service</option>
-                  {standardServices.map((service) => (
-                    <option key={service.id} value={service.id}>
-                      {service.name}
-                    </option>
-                  ))}
-                </select>
-                <p className="mt-3 text-sm text-slate-400">You can also edit a standard service and choose this add-on under Recommended services.</p>
-              </div>
-            )}
-
-            {form.mode === 'standard' && addOnServices.length > 0 && (
-              <div className="rounded-2xl border border-white/10 bg-black/20 p-5">
-                <p className="mb-2 font-black">Recommended add-ons</p>
-                <p className="mb-4 text-sm text-slate-400">These appear automatically when a customer selects this service.</p>
-
-                <div className="grid gap-3 md:grid-cols-2">
-                  {addOnServices.map((service) => (
-                    <label key={service.id} className="flex cursor-pointer items-center gap-3 rounded-xl border border-white/10 bg-white/[0.03] p-3 text-sm text-slate-200">
-                      <input type="checkbox" checked={form.recommendedServiceIds.includes(service.id)} onChange={() => toggleRecommended(service.id)} />
-                      <span className="flex-1">{service.name}</span>
-                      <span className="text-slate-400">£{Number(service.price || 0).toFixed(2)}</span>
-                    </label>
-                  ))}
-                </div>
-              </div>
-            )}
-
-            {form.mode === 'bundle' && (
-              <div className="rounded-2xl border border-purple-400/20 bg-purple-400/10 p-5">
-                <p className="mb-3 font-black text-purple-100">Bundle pricing</p>
-
-                <div className="grid gap-4 md:grid-cols-3">
-                  <Field label="Bundle price" type="number" value={form.bundlePrice} onChange={(v) => updateForm('bundlePrice', v)} placeholder="25.00" />
-
-                  <div>
-                    <label className="mb-2 block text-sm font-bold text-slate-400">Discount type</label>
-                    <select value={form.bundleDiscountType} onChange={(e) => updateForm('bundleDiscountType', e.target.value)} className="w-full rounded-2xl border border-white/10 bg-slate-950 px-4 py-4 text-white outline-none">
-                      <option value="">None</option>
-                      <option value="fixed">Fixed amount</option>
-                      <option value="percentage">Percentage</option>
-                    </select>
-                  </div>
-
-                  <Field label="Discount value" type="number" value={form.bundleDiscountValue} onChange={(v) => updateForm('bundleDiscountValue', v)} placeholder="5" />
-                </div>
-              </div>
-            )}
-
-            <details className="rounded-2xl border border-white/10 bg-black/20 p-5">
-              <summary className="cursor-pointer font-black">Advanced settings</summary>
-
-              <div className="mt-5 grid gap-4 md:grid-cols-2">
-                <div>
-                  <label className="mb-2 block text-sm font-bold text-slate-400">Requires service</label>
-                  <select value={form.requiresServiceId} onChange={(e) => updateForm('requiresServiceId', e.target.value)} className="w-full rounded-2xl border border-white/10 bg-slate-950 px-4 py-4 text-white outline-none">
-                    <option value="">No requirement</option>
-                    {activeServices.filter((s) => s.id !== editingId).map((service) => (
-                      <option key={service.id} value={service.id}>
-                        {service.name}
-                      </option>
-                    ))}
-                  </select>
-                </div>
-              </div>
-            </details>
-
-            <div className="rounded-2xl border border-white/10 bg-black/20 p-5">
-              <p className="mb-4 text-sm font-bold uppercase tracking-[0.2em] text-slate-500">Payment rule</p>
-
-              <div className="grid gap-3 md:grid-cols-3">
-                {([
-                  ['pay_later', 'Pay at appointment'],
-                  ['deposit', 'Deposit required'],
-                  ['full_payment', 'Full payment required'],
-                ] as [PaymentType, string][]).map(([type, label]) => (
-                  <button
-                    key={type}
-                    type="button"
-                    onClick={() => updateForm('paymentType', type)}
-                    className={`rounded-2xl border p-4 text-left font-bold ${
-                      form.paymentType === type ? 'border-cyan-400/50 bg-cyan-400/10 text-cyan-100' : 'border-white/10 text-slate-300'
-                    }`}
-                  >
-                    {label}
-                  </button>
-                ))}
-              </div>
-
-              {form.paymentType === 'deposit' && (
-                <div className="mt-4">
-                  <Field label="Deposit amount" type="number" value={form.depositAmount} onChange={(v) => updateForm('depositAmount', v)} placeholder="10.00" />
-                </div>
-              )}
-            </div>
-
-            <div className="grid gap-3 md:grid-cols-2">
-              <button disabled={loading} className="rounded-2xl bg-white px-5 py-4 font-black text-slate-950 disabled:opacity-50">
-                {loading ? 'Saving...' : editingId ? 'Update service' : 'Create service'}
-              </button>
-
-              {editingId && (
-                <button type="button" onClick={resetForm} className="rounded-2xl border border-white/10 px-5 py-4 font-black text-white hover:bg-white/10">
-                  Cancel edit
-                </button>
-              )}
-            </div>
-          </form>
-        </section>
-
-        <section className="rounded-3xl border border-white/10 bg-white/[0.04] p-6 md:p-8">
-          <div className="flex items-end justify-between gap-4">
+      <SectionCard>
+        <div className="space-y-5">
+          <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
             <div>
-              <h2 className="text-2xl font-black">Your services</h2>
-              <p className="mt-2 text-slate-400">
-                Grouped by service type. Archived and deleted services are hidden from this list.
+              <h2 className="text-2xl font-black tracking-[-0.03em] text-white">
+                Your services
+              </h2>
+              <p className="mt-2 text-sm leading-6 text-slate-400">
+                Manage pricing, duration, payments, buffers, bundles and add-ons.
               </p>
             </div>
-            <span className="rounded-full bg-white/10 px-4 py-2 text-sm font-bold text-slate-300">
-              {activeServices.length} active service{activeServices.length === 1 ? '' : 's'}
-            </span>
+
+            <div className="relative">
+              <Search className="pointer-events-none absolute left-4 top-1/2 -translate-y-1/2 text-slate-500" size={18} />
+              <input
+                value={search}
+                onChange={(event) => setSearch(event.target.value)}
+                placeholder="Search services..."
+                className="w-full rounded-2xl border border-white/10 bg-slate-950 py-4 pl-11 pr-4 text-sm font-bold text-white outline-none placeholder:text-slate-600 focus:border-cyan-300 lg:w-96"
+              />
+            </div>
           </div>
 
-          <ServiceGroup
-            title="Standard services"
-            services={standardServices}
-            allServices={activeServices}
-            onEdit={startEdit}
-            onArchive={archiveService}
-            onDelete={deleteService}
-            findServiceName={findServiceName}
-            serviceModeLabel={serviceModeLabel}
-            paymentLabel={paymentLabel}
-            totalBlockedMinutes={totalBlockedMinutes}
-          />
+          <div className="-mx-1 flex gap-2 overflow-x-auto px-1 pb-1">
+            {filters.map((filter) => (
+              <button
+                key={filter.key}
+                type="button"
+                onClick={() => setActiveFilter(filter.key)}
+                className={`shrink-0 rounded-full border px-4 py-2 text-xs font-black transition ${
+                  activeFilter === filter.key
+                    ? 'border-cyan-300/30 bg-cyan-400/15 text-cyan-100'
+                    : 'border-white/10 bg-white/[0.04] text-slate-400'
+                }`}
+              >
+                {filter.label}
+              </button>
+            ))}
+          </div>
 
-          <ServiceGroup
-            title="Add-ons"
-            services={addOnServices}
-            allServices={activeServices}
-            onEdit={startEdit}
-            onArchive={archiveService}
-            onDelete={deleteService}
-            findServiceName={findServiceName}
-            serviceModeLabel={serviceModeLabel}
-            paymentLabel={paymentLabel}
-            totalBlockedMinutes={totalBlockedMinutes}
-          />
-
-          <ServiceGroup
-            title="Bundles"
-            services={bundleServices}
-            allServices={activeServices}
-            onEdit={startEdit}
-            onArchive={archiveService}
-            onDelete={deleteService}
-            findServiceName={findServiceName}
-            serviceModeLabel={serviceModeLabel}
-            paymentLabel={paymentLabel}
-            totalBlockedMinutes={totalBlockedMinutes}
-          />
-
-          {activeServices.length === 0 && (
-            <div className="mt-6 rounded-2xl border border-white/10 bg-black/20 p-8 text-center text-slate-500">
-              No services created yet.
+          {filteredServices.length === 0 ? (
+            <div className="rounded-3xl border border-dashed border-white/10 bg-white/[0.03] p-8 text-center">
+              <p className="text-lg font-black text-white">No services found.</p>
+              <p className="mt-2 text-sm text-slate-500">
+                Add your first service or change your filter.
+              </p>
+            </div>
+          ) : (
+            <div className="grid gap-4 xl:grid-cols-2">
+              {filteredServices.map((service) => (
+                <ServiceCard
+                  key={service.id}
+                  service={service}
+                  activeServices={activeServices}
+                  onEdit={startEdit}
+                  onArchive={archiveService}
+                  onDelete={deleteService}
+                  findServiceName={findServiceName}
+                  serviceModeLabel={serviceModeLabel}
+                  paymentLabel={paymentLabel}
+                  totalBlockedMinutes={totalBlockedMinutes}
+                />
+              ))}
             </div>
           )}
-        </section>
+        </div>
+      </SectionCard>
+    </DashboardPage>
+  )
+}
+
+function ServiceForm({
+  form,
+  loading,
+  editingId,
+  categories,
+  standardServices,
+  addOnServices,
+  activeServices,
+  toggleRecommended,
+  updateForm,
+  resetForm,
+  handleSaveService,
+}: {
+  form: typeof emptyForm
+  loading: boolean
+  editingId: string | null
+  categories: string[]
+  standardServices: Service[]
+  addOnServices: Service[]
+  activeServices: Service[]
+  toggleRecommended: (serviceId: string) => void
+  updateForm: (key: keyof typeof emptyForm, value: any) => void
+  resetForm: () => void
+  handleSaveService: (e: React.FormEvent) => void
+}) {
+  return (
+    <form onSubmit={handleSaveService} className="space-y-5">
+      <div className="grid gap-3 md:grid-cols-3">
+        {([
+          ['standard', 'Standard service', 'Bookable on its own', Sparkles],
+          ['add_on', 'Add-on', 'Suggested extra', Plus],
+          ['bundle', 'Bundle', 'Combined service', Package],
+        ] as [ServiceMode, string, string, ElementType][]).map(([mode, label, helper, Icon]) => (
+          <button
+            key={mode}
+            type="button"
+            onClick={() => updateForm('mode', mode)}
+            className={`rounded-2xl border p-4 text-left transition ${
+              form.mode === mode
+                ? 'border-cyan-400/50 bg-cyan-400/10 text-cyan-100'
+                : 'border-white/10 bg-slate-950 text-slate-300'
+            }`}
+          >
+            <div className="mb-3 flex h-10 w-10 items-center justify-center rounded-2xl border border-white/10 bg-white/[0.04]">
+              <Icon size={18} />
+            </div>
+            <p className="font-black">{label}</p>
+            <p className="mt-1 text-xs opacity-70">{helper}</p>
+          </button>
+        ))}
       </div>
-    </main>
+
+      <div className="grid gap-4 md:grid-cols-2">
+        <Field
+          label="Name"
+          value={form.name}
+          onChange={(v) => updateForm('name', v)}
+          placeholder={
+            form.mode === 'bundle'
+              ? 'Haircut + Beard Trim'
+              : form.mode === 'add_on'
+                ? 'Beard Trim'
+                : 'Haircut'
+          }
+        />
+
+        <label className="block">
+          <span className="mb-2 block text-sm font-bold text-slate-400">Category</span>
+          <input
+            list="service-categories"
+            className="w-full rounded-2xl border border-white/10 bg-slate-950 px-4 py-4 text-white outline-none placeholder:text-slate-600 focus:border-cyan-300"
+            placeholder="Hair, Beard, Extras, Bundles"
+            value={form.category}
+            onChange={(e) => updateForm('category', e.target.value)}
+          />
+          <datalist id="service-categories">
+            {categories.map((category) => (
+              <option key={category} value={category} />
+            ))}
+          </datalist>
+        </label>
+      </div>
+
+      <textarea
+        className="min-h-24 w-full rounded-2xl border border-white/10 bg-slate-950 px-4 py-4 text-white outline-none placeholder:text-slate-600 focus:border-cyan-300"
+        placeholder="Description"
+        value={form.description}
+        onChange={(e) => updateForm('description', e.target.value)}
+      />
+
+      <div className="grid gap-4 md:grid-cols-3">
+        <Field label="Duration minutes" type="number" value={form.duration} onChange={(v) => updateForm('duration', v)} placeholder="30" />
+        <Field label={form.mode === 'bundle' ? 'Normal price' : 'Price'} type="number" value={form.price} onChange={(v) => updateForm('price', v)} placeholder="20.00" />
+        <Field label="Sort order" type="number" value={form.sortOrder} onChange={(v) => updateForm('sortOrder', v)} placeholder="0" />
+      </div>
+
+      <div className="rounded-2xl border border-cyan-400/20 bg-cyan-400/10 p-5">
+        <p className="mb-2 font-black text-cyan-100">Buffer time</p>
+        <p className="mb-4 text-sm text-slate-400">
+          Use this for travel, setup, cleaning, prep, reset time or gaps that should block the calendar.
+        </p>
+
+        <div className="grid gap-4 md:grid-cols-2">
+          <Field label="Buffer before minutes" type="number" value={form.bufferBefore} onChange={(v) => updateForm('bufferBefore', v)} placeholder="0" />
+          <Field label="Buffer after minutes" type="number" value={form.bufferAfter} onChange={(v) => updateForm('bufferAfter', v)} placeholder="0" />
+        </div>
+
+        <div className="mt-4 rounded-2xl border border-white/10 bg-slate-950 p-4 text-sm text-slate-300">
+          Total blocked time:{' '}
+          <span className="font-black text-cyan-200">
+            {Number(form.bufferBefore || 0) + Number(form.duration || 0) + Number(form.bufferAfter || 0)} mins
+          </span>
+        </div>
+      </div>
+
+      {form.mode === 'add_on' && (
+        <div className="rounded-2xl border border-cyan-400/20 bg-cyan-400/10 p-5">
+          <p className="mb-3 font-black text-cyan-100">Attach this add-on to a main service</p>
+          <select
+            value={form.parentServiceId}
+            onChange={(e) => updateForm('parentServiceId', e.target.value)}
+            className="w-full rounded-2xl border border-white/10 bg-slate-950 px-4 py-4 text-white outline-none"
+          >
+            <option value="">Optional: select parent service</option>
+            {standardServices.map((service) => (
+              <option key={service.id} value={service.id}>{service.name}</option>
+            ))}
+          </select>
+        </div>
+      )}
+
+      {form.mode === 'standard' && addOnServices.length > 0 && (
+        <div className="rounded-2xl border border-white/10 bg-slate-950 p-5">
+          <p className="mb-2 font-black text-white">Recommended add-ons</p>
+          <p className="mb-4 text-sm text-slate-400">
+            These appear automatically when a customer selects this service.
+          </p>
+
+          <div className="grid gap-3 md:grid-cols-2">
+            {addOnServices.map((service) => (
+              <label
+                key={service.id}
+                className="flex cursor-pointer items-center gap-3 rounded-xl border border-white/10 bg-white/[0.03] p-3 text-sm text-slate-200"
+              >
+                <input
+                  type="checkbox"
+                  checked={form.recommendedServiceIds.includes(service.id)}
+                  onChange={() => toggleRecommended(service.id)}
+                />
+                <span className="flex-1">{service.name}</span>
+                <span className="text-slate-400">£{Number(service.price || 0).toFixed(2)}</span>
+              </label>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {form.mode === 'bundle' && (
+        <div className="rounded-2xl border border-purple-400/20 bg-purple-400/10 p-5">
+          <p className="mb-3 font-black text-purple-100">Bundle pricing</p>
+
+          <div className="grid gap-4 md:grid-cols-3">
+            <Field label="Bundle price" type="number" value={form.bundlePrice} onChange={(v) => updateForm('bundlePrice', v)} placeholder="25.00" />
+
+            <label className="block">
+              <span className="mb-2 block text-sm font-bold text-slate-400">Discount type</span>
+              <select
+                value={form.bundleDiscountType}
+                onChange={(e) => updateForm('bundleDiscountType', e.target.value)}
+                className="w-full rounded-2xl border border-white/10 bg-slate-950 px-4 py-4 text-white outline-none"
+              >
+                <option value="">None</option>
+                <option value="fixed">Fixed amount</option>
+                <option value="percentage">Percentage</option>
+              </select>
+            </label>
+
+            <Field label="Discount value" type="number" value={form.bundleDiscountValue} onChange={(v) => updateForm('bundleDiscountValue', v)} placeholder="5" />
+          </div>
+        </div>
+      )}
+
+      <details className="rounded-2xl border border-white/10 bg-slate-950 p-5">
+        <summary className="cursor-pointer font-black text-white">Advanced settings</summary>
+
+        <div className="mt-5 grid gap-4 md:grid-cols-2">
+          <label className="block">
+            <span className="mb-2 block text-sm font-bold text-slate-400">Requires service</span>
+            <select
+              value={form.requiresServiceId}
+              onChange={(e) => updateForm('requiresServiceId', e.target.value)}
+              className="w-full rounded-2xl border border-white/10 bg-slate-950 px-4 py-4 text-white outline-none"
+            >
+              <option value="">No requirement</option>
+              {activeServices.map((service) => (
+                <option key={service.id} value={service.id}>{service.name}</option>
+              ))}
+            </select>
+          </label>
+        </div>
+      </details>
+
+      <div className="rounded-2xl border border-white/10 bg-slate-950 p-5">
+        <p className="mb-4 text-sm font-bold uppercase tracking-[0.2em] text-slate-500">
+          Payment rule
+        </p>
+
+        <div className="grid gap-3 md:grid-cols-3">
+          {([
+            ['pay_later', 'Pay at appointment'],
+            ['deposit', 'Deposit required'],
+            ['full_payment', 'Full payment required'],
+          ] as [PaymentType, string][]).map(([type, label]) => (
+            <button
+              key={type}
+              type="button"
+              onClick={() => updateForm('paymentType', type)}
+              className={`rounded-2xl border p-4 text-left font-bold transition ${
+                form.paymentType === type
+                  ? 'border-cyan-400/50 bg-cyan-400/10 text-cyan-100'
+                  : 'border-white/10 text-slate-300'
+              }`}
+            >
+              {label}
+            </button>
+          ))}
+        </div>
+
+        {form.paymentType === 'deposit' && (
+          <div className="mt-4">
+            <Field label="Deposit amount" type="number" value={form.depositAmount} onChange={(v) => updateForm('depositAmount', v)} placeholder="10.00" />
+          </div>
+        )}
+      </div>
+
+      <div className="grid gap-3 md:grid-cols-2">
+        <button
+          disabled={loading}
+          className="rounded-2xl bg-cyan-400 px-5 py-4 font-black text-slate-950 transition hover:bg-cyan-300 disabled:opacity-50"
+        >
+          {loading ? 'Saving...' : editingId ? 'Update service' : 'Create service'}
+        </button>
+
+        {editingId && (
+          <button
+            type="button"
+            onClick={resetForm}
+            className="rounded-2xl border border-white/10 px-5 py-4 font-black text-white hover:bg-white/10"
+          >
+            Cancel edit
+          </button>
+        )}
+      </div>
+    </form>
+  )
+}
+
+function ServiceCard({
+  service,
+  activeServices,
+  onEdit,
+  onArchive,
+  onDelete,
+  findServiceName,
+  serviceModeLabel,
+  paymentLabel,
+  totalBlockedMinutes,
+}: {
+  service: Service
+  activeServices: Service[]
+  onEdit: (service: Service) => void
+  onArchive: (id: string) => void
+  onDelete: (id: string) => void
+  findServiceName: (id?: string | null) => string
+  serviceModeLabel: (service: Service) => string
+  paymentLabel: (type: PaymentType | null) => string
+  totalBlockedMinutes: (service: Service) => number
+}) {
+  const recommended = (service.recommended_service_ids || [])
+    .map((id) => activeServices.find((item) => item.id === id)?.name)
+    .filter(Boolean)
+
+  const bufferBefore = Number(service.buffer_before_minutes || 0)
+  const bufferAfter = Number(service.buffer_after_minutes || 0)
+
+  return (
+    <article className="overflow-hidden rounded-[2rem] border border-white/10 bg-slate-950/80 shadow-[0_30px_100px_rgba(0,0,0,.35)]">
+      <div className="p-5">
+        <div className="flex items-start justify-between gap-4">
+          <div className="min-w-0">
+            <h3 className="truncate text-xl font-black tracking-[-0.03em] text-white">
+              {service.name}
+            </h3>
+
+            {service.description && (
+              <p className="mt-2 line-clamp-2 text-sm leading-6 text-slate-400">
+                {service.description}
+              </p>
+            )}
+          </div>
+
+          <Badge>{serviceModeLabel(service)}</Badge>
+        </div>
+
+        <div className="mt-5 grid grid-cols-2 gap-3">
+          <InfoTile label="Price" value={`£${Number(service.price || 0).toFixed(2)}`} />
+          <InfoTile label="Duration" value={`${service.duration_minutes} mins`} />
+          <InfoTile label="Blocked" value={`${totalBlockedMinutes(service)} mins`} />
+          <InfoTile label="Payment" value={paymentLabel(service.payment_type)} />
+        </div>
+
+        <div className="mt-4 flex flex-wrap gap-2">
+          {service.category && <Pill>{service.category}</Pill>}
+
+          {bufferBefore > 0 && <Pill colour="blue">Before {bufferBefore} mins</Pill>}
+          {bufferAfter > 0 && <Pill colour="purple">After {bufferAfter} mins</Pill>}
+
+          {service.parent_service_id && (
+            <Pill colour="blue">Attached to {findServiceName(service.parent_service_id)}</Pill>
+          )}
+
+          {service.requires_service_id && (
+            <Pill colour="amber">Requires {findServiceName(service.requires_service_id)}</Pill>
+          )}
+
+          {service.bundle_price ? (
+            <Pill colour="purple">Bundle £{Number(service.bundle_price).toFixed(2)}</Pill>
+          ) : null}
+        </div>
+
+        {recommended.length > 0 && (
+          <p className="mt-4 text-sm text-slate-400">
+            Recommends: <span className="text-cyan-200">{recommended.join(', ')}</span>
+          </p>
+        )}
+      </div>
+
+      <div className="grid grid-cols-3 gap-2 border-t border-white/10 bg-white/[0.025] p-3">
+        <button
+          type="button"
+          onClick={() => onEdit(service)}
+          className="rounded-2xl bg-cyan-400/10 px-3 py-3 text-xs font-black text-cyan-200 hover:bg-cyan-400/20"
+        >
+          Edit
+        </button>
+
+        <button
+          type="button"
+          onClick={() => onArchive(service.id)}
+          className="rounded-2xl bg-orange-400/10 px-3 py-3 text-xs font-black text-orange-200 hover:bg-orange-400/20"
+        >
+          Archive
+        </button>
+
+        <button
+          type="button"
+          onClick={() => onDelete(service.id)}
+          className="rounded-2xl bg-rose-400/10 px-3 py-3 text-xs font-black text-rose-200 hover:bg-rose-400/20"
+        >
+          Delete
+        </button>
+      </div>
+    </article>
   )
 }
 
@@ -746,7 +1030,7 @@ function Field({
         type={type}
         min={type === 'number' ? '0' : undefined}
         step={type === 'number' ? '0.01' : undefined}
-        className="w-full rounded-2xl border border-white/10 bg-black/20 px-4 py-4 text-white outline-none placeholder:text-slate-600"
+        className="w-full rounded-2xl border border-white/10 bg-slate-950 px-4 py-4 text-white outline-none placeholder:text-slate-600 focus:border-cyan-300"
         placeholder={placeholder}
         value={value}
         onChange={(e) => onChange(e.target.value)}
@@ -755,147 +1039,76 @@ function Field({
   )
 }
 
-function ServiceGroup({
-  title,
-  services,
-  allServices,
-  onEdit,
-  onArchive,
-  onDelete,
-  findServiceName,
-  serviceModeLabel,
-  paymentLabel,
-  totalBlockedMinutes,
+function ActionButton({
+  children,
+  onClick,
+  variant = 'default',
+  icon,
 }: {
-  title: string
-  services: Service[]
-  allServices: Service[]
-  onEdit: (service: Service) => void
-  onArchive: (id: string) => void
-  onDelete: (id: string) => void
-  findServiceName: (id?: string | null) => string
-  serviceModeLabel: (service: Service) => string
-  paymentLabel: (type: PaymentType | null) => string
-  totalBlockedMinutes: (service: Service) => number
+  children: React.ReactNode
+  onClick: () => void
+  variant?: 'default' | 'primary'
+  icon?: React.ReactNode
 }) {
-  if (services.length === 0) return null
+  const styles = {
+    default: 'border-white/10 bg-white/[0.045] text-white hover:bg-white/[0.09]',
+    primary: 'border-cyan-400/20 bg-cyan-400 text-slate-950 hover:bg-cyan-300',
+  }
 
   return (
-    <div className="mt-8">
-      <h3 className="mb-4 text-lg font-black text-cyan-100">{title}</h3>
+    <button
+      type="button"
+      onClick={onClick}
+      className={`inline-flex items-center justify-center gap-2 rounded-2xl border px-5 py-3 text-sm font-black transition hover:-translate-y-0.5 ${styles[variant]}`}
+    >
+      {icon}
+      {children}
+    </button>
+  )
+}
 
-      <div className="space-y-4">
-        {services.map((service) => {
-          const recommended = (service.recommended_service_ids || [])
-            .map((id) => allServices.find((item) => item.id === id)?.name)
-            .filter(Boolean)
-
-          const bufferBefore = Number(service.buffer_before_minutes || 0)
-          const bufferAfter = Number(service.buffer_after_minutes || 0)
-
-          return (
-            <div key={service.id} className="rounded-2xl border border-white/10 bg-black/20 p-5">
-              <div className="flex flex-col gap-4 md:flex-row md:items-start md:justify-between">
-                <div>
-                  <div className="flex flex-wrap items-center gap-2">
-                    <h4 className="text-xl font-black">{service.name}</h4>
-                    <span className="rounded-full bg-cyan-400/10 px-3 py-1 text-xs font-bold text-cyan-200">
-                      {serviceModeLabel(service)}
-                    </span>
-                    {service.category && (
-                      <span className="rounded-full bg-white/10 px-3 py-1 text-xs font-bold text-slate-300">
-                        {service.category}
-                      </span>
-                    )}
-                  </div>
-
-                  {service.description && <p className="mt-2 max-w-xl text-slate-400">{service.description}</p>}
-
-                  <div className="mt-4 flex flex-wrap gap-3 text-sm">
-                    <span className="rounded-full bg-white/10 px-3 py-1 font-bold text-slate-300">
-                      {service.duration_minutes} mins
-                    </span>
-                    <span className="rounded-full bg-white/10 px-3 py-1 font-bold text-slate-300">
-                      £{Number(service.price || 0).toFixed(2)}
-                    </span>
-                    <span className="rounded-full bg-white/10 px-3 py-1 font-bold text-slate-300">
-                      {paymentLabel(service.payment_type)}
-                    </span>
-
-                    {(bufferBefore > 0 || bufferAfter > 0) && (
-                      <span className="rounded-full bg-cyan-400/10 px-3 py-1 font-bold text-cyan-200">
-                        Blocks {totalBlockedMinutes(service)} mins
-                      </span>
-                    )}
-
-                    {bufferBefore > 0 && (
-                      <span className="rounded-full bg-blue-500/10 px-3 py-1 font-bold text-blue-300">
-                        Before buffer {bufferBefore} mins
-                      </span>
-                    )}
-
-                    {bufferAfter > 0 && (
-                      <span className="rounded-full bg-purple-500/10 px-3 py-1 font-bold text-purple-300">
-                        After buffer {bufferAfter} mins
-                      </span>
-                    )}
-
-                    {service.parent_service_id && (
-                      <span className="rounded-full bg-blue-500/10 px-3 py-1 font-bold text-blue-300">
-                        Attached to {findServiceName(service.parent_service_id)}
-                      </span>
-                    )}
-
-                    {service.requires_service_id && (
-                      <span className="rounded-full bg-amber-500/10 px-3 py-1 font-bold text-amber-300">
-                        Requires {findServiceName(service.requires_service_id)}
-                      </span>
-                    )}
-
-                    {service.bundle_price ? (
-                      <span className="rounded-full bg-purple-500/10 px-3 py-1 font-bold text-purple-300">
-                        Bundle £{Number(service.bundle_price).toFixed(2)}
-                      </span>
-                    ) : null}
-                  </div>
-
-                  {recommended.length > 0 && (
-                    <p className="mt-3 text-sm text-slate-400">
-                      Recommends: <span className="text-cyan-200">{recommended.join(', ')}</span>
-                    </p>
-                  )}
-                </div>
-
-                <div className="flex flex-wrap gap-2">
-                  <button
-                    type="button"
-                    onClick={() => onEdit(service)}
-                    className="rounded-xl border border-white/10 px-4 py-2 text-sm font-bold text-white hover:bg-white/10"
-                  >
-                    Edit
-                  </button>
-
-                  <button
-                    type="button"
-                    onClick={() => onArchive(service.id)}
-                    className="rounded-xl border border-orange-400/20 bg-orange-400/10 px-4 py-2 text-sm font-bold text-orange-200 hover:bg-orange-400/20"
-                  >
-                    Archive
-                  </button>
-
-                  <button
-                    type="button"
-                    onClick={() => onDelete(service.id)}
-                    className="rounded-xl border border-red-400/20 bg-red-400/10 px-4 py-2 text-sm font-bold text-red-200 hover:bg-red-400/20"
-                  >
-                    Delete
-                  </button>
-                </div>
-              </div>
-            </div>
-          )
-        })}
-      </div>
+function InfoTile({ label, value }: { label: string; value: string | number }) {
+  return (
+    <div className="rounded-2xl border border-white/10 bg-white/[0.035] p-3">
+      <p className="text-[10px] font-black uppercase tracking-[0.22em] text-slate-500">
+        {label}
+      </p>
+      <p className="mt-2 truncate text-sm font-black text-white">{value}</p>
     </div>
   )
+}
+
+function Badge({ children }: { children: React.ReactNode }) {
+  return (
+    <span className="shrink-0 rounded-full border border-cyan-400/20 bg-cyan-400/10 px-3 py-1 text-xs font-black text-cyan-200">
+      {children}
+    </span>
+  )
+}
+
+function Pill({
+  children,
+  colour = 'slate',
+}: {
+  children: React.ReactNode
+  colour?: 'slate' | 'blue' | 'purple' | 'amber'
+}) {
+  const styles = {
+    slate: 'bg-white/[0.06] text-slate-300',
+    blue: 'bg-blue-500/10 text-blue-300',
+    purple: 'bg-purple-500/10 text-purple-300',
+    amber: 'bg-amber-500/10 text-amber-300',
+  }
+
+  return (
+    <span className={`rounded-full px-3 py-1 text-xs font-bold ${styles[colour]}`}>
+      {children}
+    </span>
+  )
+}
+
+function getServiceMode(service: Service): FilterKey {
+  if (service.service_type === 'bundle') return 'bundle'
+  if (service.is_add_on || service.service_type === 'add_on') return 'add_on'
+  return 'standard'
 }
