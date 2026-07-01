@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
 import { Resend } from 'resend'
+import { publishEvent } from '@/lib/events'
 
 export const dynamic = 'force-dynamic'
 
@@ -12,24 +13,13 @@ const supabase = createClient(
 const resend = new Resend(process.env.RESEND_API_KEY!)
 
 export async function POST(req: Request) {
-  console.log('WAITING LIST API HIT')
-
   try {
     const body = await req.json()
 
-    const {
-      business_id,
-      service_id,
-      team_member_id,
-      booking_date,
-      booking_time,
-    } = body
+    const { business_id, service_id, team_member_id, booking_date, booking_time } = body
 
     if (!business_id || !service_id || !booking_date || !booking_time) {
-      return NextResponse.json(
-        { error: 'Missing required waiting list details' },
-        { status: 400 }
-      )
+      return NextResponse.json({ error: 'Missing required waiting list details' }, { status: 400 })
     }
 
     const batchSize = 5
@@ -39,26 +29,10 @@ export async function POST(req: Request) {
     let query = supabase
       .from('waiting_list')
       .select(`
-        id,
-        business_id,
-        customer_id,
-        service_id,
-        team_member_id,
-        preferred_date,
-        preferred_time_range,
-        status,
-        notification_batch,
-        customers (
-          first_name,
-          last_name,
-          email
-        ),
-        services (
-          name
-        ),
-        team_members (
-          full_name
-        )
+        id,business_id,customer_id,service_id,team_member_id,preferred_date,preferred_time_range,status,notification_batch,
+        customers(first_name,last_name,email),
+        services(name),
+        team_members(full_name)
       `)
       .eq('business_id', business_id)
       .eq('service_id', service_id)
@@ -74,70 +48,39 @@ export async function POST(req: Request) {
     const { data: waitingList, error: fetchError } = await query
 
     if (fetchError) {
-      console.error(fetchError)
-
-      return NextResponse.json(
-        { error: fetchError.message },
-        { status: 500 }
-      )
+      return NextResponse.json({ error: fetchError.message }, { status: 500 })
     }
 
     if (!waitingList || waitingList.length === 0) {
-      return NextResponse.json({
-        success: true,
-        message: 'No matching waiting list customers found',
-        notified: 0,
-      })
+      return NextResponse.json({ success: true, message: 'No matching waiting list customers found', notified: 0 })
     }
 
-    const expiresAt = new Date(
-      Date.now() + expiryMinutes * 60 * 1000
-    ).toISOString()
-
+    const expiresAt = new Date(Date.now() + expiryMinutes * 60 * 1000).toISOString()
     let notified = 0
 
     for (const entry of waitingList as any[]) {
-      const customer = Array.isArray(entry.customers)
-        ? entry.customers[0]
-        : entry.customers
-
-      const service = Array.isArray(entry.services)
-        ? entry.services[0]
-        : entry.services
-
-      const teamMember = Array.isArray(entry.team_members)
-        ? entry.team_members[0]
-        : entry.team_members
+      const customer = Array.isArray(entry.customers) ? entry.customers[0] : entry.customers
+      const service = Array.isArray(entry.services) ? entry.services[0] : entry.services
+      const teamMember = Array.isArray(entry.team_members) ? entry.team_members[0] : entry.team_members
 
       if (!customer?.email) continue
 
       await resend.emails.send({
-        from:
-          process.env.RESEND_FROM_EMAIL ||
-          'AMB Booking <onboarding@resend.dev>',
+        from: process.env.RESEND_FROM_EMAIL || 'AMB Booking <onboarding@resend.dev>',
         to: customer.email,
         subject: `Appointment now available at ${businessName}`,
         html: `
           <div style="font-family: Arial, sans-serif; line-height: 1.6; color: #111;">
             <h2>Good news, ${customer.first_name || 'there'}.</h2>
-
             <p>An appointment has just become available.</p>
-
             <p>
               <strong>Service:</strong> ${service?.name || 'Selected service'}<br />
-              ${
-                teamMember?.full_name
-                  ? `<strong>Team member:</strong> ${teamMember.full_name}<br />`
-                  : ''
-              }
+              ${teamMember?.full_name ? `<strong>Team member:</strong> ${teamMember.full_name}<br />` : ''}
               <strong>Date:</strong> ${booking_date}<br />
               <strong>Time:</strong> ${booking_time?.slice(0, 5)}
             </p>
-
             <p>This slot has been offered to a small group of customers and will be held for around ${expiryMinutes} minutes.</p>
-
             <p>Please visit the booking page to secure it before someone else does.</p>
-
             <p>Thanks,<br />${businessName}</p>
           </div>
         `,
@@ -153,17 +96,32 @@ export async function POST(req: Request) {
         })
         .eq('id', entry.id)
 
+      await publishEvent({
+        id: crypto.randomUUID(),
+        type: 'waitinglist.offer',
+        businessId: business_id,
+        customerId: entry.customer_id || undefined,
+        createdAt: new Date().toISOString(),
+        payload: {
+          waitingListId: entry.id,
+          customerId: entry.customer_id,
+          customerName: `${customer?.first_name || ''} ${customer?.last_name || ''}`.trim(),
+          customerEmail: customer.email,
+          serviceId: entry.service_id,
+          serviceName: service?.name || 'Selected service',
+          teamMemberId: entry.team_member_id,
+          teamMemberName: teamMember?.full_name || '',
+          bookingDate: booking_date,
+          bookingTime: booking_time,
+          expiresAt,
+        },
+      })
+
       notified++
     }
 
-    return NextResponse.json({
-      success: true,
-      notified,
-      expires_at: expiresAt,
-    })
+    return NextResponse.json({ success: true, notified, expires_at: expiresAt })
   } catch (error: any) {
-    console.error(error)
-
     return NextResponse.json(
       { error: error.message || 'Waiting list processing failed' },
       { status: 500 }

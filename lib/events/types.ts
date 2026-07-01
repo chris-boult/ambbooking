@@ -23,6 +23,8 @@ export type PlatformEventType =
 
   | 'review.received'
 
+  | 'waitinglist.offer'
+
 export interface PlatformEvent<T = Record<string, unknown>> {
   id: string
   type: PlatformEventType
